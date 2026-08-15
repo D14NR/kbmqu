@@ -1,0 +1,8 @@
+name = "jadwal-semarang-d1-api"
+main = "worker/d1-worker.ts"
+compatibility_date = "2026-08-09"
+workers_dev = true
+type = "javascript"
+d1_databases = [
+  { binding = "DB", database_name = "YOUR_D1_DATABASE_NAME" }
+]
