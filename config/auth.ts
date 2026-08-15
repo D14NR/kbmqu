@@ -10,7 +10,7 @@ export type LoginAccount = {
 export const loginAccounts: LoginAccount[] = [
   { username: "Admin", password: "dian290192", role: "admin", cabang: "" },
   { username: "semarang1", password: "443", role: "Semarang 1", cabang: "Semarang 1" },
-  { username: "semarang2", password: "N444", role: "Semarang 2", cabang: "Semarang 2" },
+  { username: "semarang2", password: "444", role: "Semarang 2", cabang: "Semarang 2" },
   { username: "semarang3", password: "", role: "Semarang 3", cabang: "Semarang 3" },
   { username: "semarang4", password: "442", role: "Semarang 4", cabang: "Semarang 4" },
   { username: "semarang5", password: "461", role: "Semarang 5", cabang: "Semarang 5" },
