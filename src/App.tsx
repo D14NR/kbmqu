@@ -70,6 +70,7 @@ import {
   updateRow,
   type DbRow,
 } from "./lib/database";
+import { checkDatabaseConnection } from "./lib/api";
 
 export function App() {
   const getMonthKey = (date: Date) =>
@@ -324,6 +325,7 @@ export function App() {
   });
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [isAppInitializing, setIsAppInitializing] = useState(true);
+  const [dbConnectionError, setDbConnectionError] = useState("");
   const [databaseAccounts, setDatabaseAccounts] = useState<LoginAccount[]>([]);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -3969,12 +3971,14 @@ export function App() {
     }
   };
 
+  const normalizeLoginValue = (value: string) => String(value ?? "").trim().toLowerCase();
+
   const handleLogin = () => {
-    const username = loginUsername.trim();
-    const password = loginPassword;
+    const username = normalizeLoginValue(loginUsername);
+    const password = String(loginPassword ?? "").trim();
     const accountsToUse = databaseAccounts.length > 0 ? databaseAccounts : loginAccounts;
     const matched = accountsToUse.find(
-      (account) => account.username === username && account.password === password
+      (account) => normalizeLoginValue(account.username) === username && String(account.password ?? "").trim() === password
     );
 
     if (!matched) {
@@ -4101,35 +4105,65 @@ export function App() {
   };
 
   useEffect(() => {
-    clearStaleLocalCache();
-    updateLastCacheCleanedAt();
+    let isMounted = true;
 
-    const storedSession = localStorage.getItem(authStorageKey);
-    if (!storedSession) {
-      setIsAppInitializing(false);
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(storedSession) as AuthSession;
-      const accountsToUse = databaseAccounts.length > 0 ? databaseAccounts : loginAccounts;
-      const matched = accountsToUse.find((account) => account.username === parsed.username);
-      if (!matched) {
-        localStorage.removeItem(authStorageKey);
+    const initializeApp = async () => {
+      try {
+        await checkDatabaseConnection();
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        setDbConnectionError(
+          error instanceof Error
+            ? error.message
+            : "Aplikasi tidak dapat terhubung ke database. Pastikan server D1 sudah aktif."
+        );
         setIsAppInitializing(false);
         return;
       }
 
-      setAuthSession({
-        username: matched.username,
-        roll: matched.roll,
-        cabang: matched.cabang,
-      });
-    } catch (error) {
-      localStorage.removeItem(authStorageKey);
-    } finally {
-      setIsAppInitializing(false);
-    }
+      if (!isMounted) {
+        return;
+      }
+
+      clearStaleLocalCache();
+      updateLastCacheCleanedAt();
+
+      const storedSession = localStorage.getItem(authStorageKey);
+      if (!storedSession) {
+        setIsAppInitializing(false);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(storedSession) as AuthSession;
+        const accountsToUse = databaseAccounts.length > 0 ? databaseAccounts : loginAccounts;
+        const matched = accountsToUse.find(
+          (account) => normalizeLoginValue(account.username) === normalizeLoginValue(parsed.username || "")
+        );
+        if (!matched) {
+          localStorage.removeItem(authStorageKey);
+          setIsAppInitializing(false);
+          return;
+        }
+
+        setAuthSession({
+          username: matched.username,
+          roll: matched.roll,
+          cabang: matched.cabang,
+        });
+      } catch (_error) {
+        localStorage.removeItem(authStorageKey);
+      } finally {
+        setIsAppInitializing(false);
+      }
+    };
+
+    void initializeApp();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -5378,7 +5412,23 @@ export function App() {
   if (isAppInitializing) {
     return (
       <div className="app-shell">
-        <LoadingOverlay show={true} message="Memuat aplikasi..." />
+        <LoadingOverlay show={true} message="Menyambungkan ke database..." />
+      </div>
+    );
+  }
+
+  if (dbConnectionError) {
+    return (
+      <div className="app-shell d-flex align-items-center justify-content-center px-3">
+        <div className="card shadow-sm border-danger w-100" style={{ maxWidth: 520 }}>
+          <div className="card-body p-4">
+            <div className="text-danger fw-bold mb-2">Koneksi database gagal</div>
+            <p className="mb-3 text-muted">{dbConnectionError}</p>
+            <div className="small text-muted">
+              Pastikan URL database di <strong>.env</strong> sudah benar dan worker D1 sudah aktif.
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -5719,7 +5769,6 @@ export function App() {
                     onClearCache={handleClearCacheNow}
                     onCheckUpdates={handleCheckUpdates}
                     isClearingCache={isClearingCache}
-                    isCheckingUpdates={isCheckingUpdates}
                     isCheckingUpdates={isCheckingUpdates}
                   />
                 ) : activeKey === "printJadwal" ? (

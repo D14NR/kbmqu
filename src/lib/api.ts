@@ -1,8 +1,25 @@
-const apiBaseUrl = String(import.meta.env.VITE_API_URL || "").trim();
+const normalizeApiBaseUrl = () => {
+  const raw = String(import.meta.env.VITE_API_URL || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    return raw.replace(/\/$/, "");
+  }
+
+  if (/^localhost(?::\d+)?$/i.test(raw) || /^127\.0\.0\.1(?::\d+)?$/i.test(raw)) {
+    return `http://${raw}`;
+  }
+
+  return `https://${raw}`;
+};
+
+const apiBaseUrl = normalizeApiBaseUrl();
 
 const normalizeUrl = (path: string) => {
   const base = apiBaseUrl;
-  return base ? `${base.replace(/\/$/, "")}${path}` : path;
+  return base ? `${base}${path}` : path;
 };
 
 const defaultHeaders = {
@@ -37,6 +54,10 @@ const unwrapApiPayload = <T>(payload: unknown): T => {
 };
 
 export const apiFetch = async <T>(path: string, init: RequestInit = {}) => {
+  if (!apiBaseUrl) {
+    throw new Error("VITE_API_URL belum diatur. Pastikan URL database sudah terhubung.");
+  }
+
   const response = await fetch(normalizeUrl(path), {
     ...init,
     headers: {
@@ -46,4 +67,31 @@ export const apiFetch = async <T>(path: string, init: RequestInit = {}) => {
   });
   const payload = await parseResponse(response);
   return unwrapApiPayload<T>(payload);
+};
+
+export const checkDatabaseConnection = async () => {
+  if (!apiBaseUrl) {
+    throw new Error("VITE_API_URL belum diatur. Hubungkan aplikasi ke database terlebih dahulu.");
+  }
+
+  const response = await fetch(`${apiBaseUrl}/db/accounts_cabang`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Aplikasi tidak dapat terhubung ke database.");
+  }
+
+  const payload = await response.json().catch(() => null);
+  const isValidPayload =
+    payload &&
+    typeof payload === "object" &&
+    (payload.success !== false || Array.isArray(payload));
+
+  if (!isValidPayload) {
+    throw new Error("Database merespons tidak valid.");
+  }
 };
