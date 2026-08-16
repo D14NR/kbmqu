@@ -157,6 +157,8 @@ const jadwalKbmSchema: BucketSchema = {
     IsGabung: asString((row as any).is_gabung),
     "Jenis KBM": asString((row as any).jenis_kbm),
     jenis_kbm: asString((row as any).jenis_kbm),
+    CreatedAt: asString(row.created_at),
+    UpdatedAt: asString(row.updated_at),
   }),
   toDb: (data) => ({
     cabang: asString(data.Cabang),
@@ -173,6 +175,8 @@ const jadwalKbmSchema: BucketSchema = {
     gabung: asString((data as any).Gabung || (data as any).gabung),
     jenis_kbm: asString((data as any)["Jenis KBM"] || (data as any).jenis_kbm || "Reguler"),
     is_gabung: asBooleanInt((data as any).IsGabung || (data as any).is_gabung || (data as any).isGabung),
+    created_at: asString((data as any).CreatedAt || new Date().toISOString()),
+    updated_at: new Date().toISOString(),
   }),
 };
 
@@ -269,11 +273,15 @@ const schemas: Record<BucketName, BucketSchema> = {
       ID: asString(row.id),
       Tanggal: asString(row.tanggal),
       Keterangan: asString(row.keterangan_libur),
+      CreatedAt: asString(row.created_at),
+      UpdatedAt: asString(row.updated_at),
     }),
     toDb: (data) => ({
       id: asString(data.ID),
       tanggal: normalizeDbDate(data.Tanggal),
       keterangan_libur: asString(data.Keterangan),
+      created_at: asString(data.CreatedAt || new Date().toISOString()),
+      updated_at: new Date().toISOString(),
     }),
   },
   penempatan_pengajar_dicabang: {

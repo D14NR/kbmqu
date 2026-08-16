@@ -4259,7 +4259,7 @@ export function App() {
   const handleLogin = () => {
     const username = normalizeLoginValue(loginUsername);
     const password = String(loginPassword ?? "").trim();
-    const accountsToUse = databaseAccounts.length > 0 ? databaseAccounts : loginAccounts;
+    const accountsToUse = [...databaseAccounts, ...loginAccounts];
     const matched = accountsToUse.find(
       (account) => normalizeLoginValue(account.username) === username && String(account.password ?? "").trim() === password
     );
@@ -4272,7 +4272,7 @@ export function App() {
 
     const nextSession: AuthSession = {
       username: matched.username,
-      roll: matched.roll,
+      roll: (matched as any).roll || (matched as any).role || "cabang",
       cabang: matched.cabang,
     };
 
