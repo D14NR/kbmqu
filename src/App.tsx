@@ -4497,7 +4497,7 @@ export function App() {
     }
     const refreshInterval = window.setInterval(() => {
       void refreshAllData();
-    }, 10 * 60 * 1000);
+    }, 30 * 60 * 1000);
     return () => {
       window.clearInterval(refreshInterval);
     };
