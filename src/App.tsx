@@ -3466,7 +3466,9 @@ export function App() {
     | "penempatan"
     | "suratTugas"
     | "permintaan"
-    | "accountsCabang";
+    | "accountsCabang"
+    | "holiday"
+    | "izin";
 
   const importTargetByMenu = {
     bulanIni: {
@@ -3477,6 +3479,16 @@ export function App() {
     jadwalTambahanPelayanan: {
       bucket: dataBucket["Jadwal Khusus"],
       label: "Jadwal Tambahan & Pelayanan",
+      mode: "schedule",
+    },
+    monitoringKelas: {
+      bucket: dataBucket["Jadwal Bulan ini"],
+      label: "Monitoring Kelas",
+      mode: "schedule",
+    },
+    printJadwal: {
+      bucket: dataBucket["Jadwal Bulan ini"],
+      label: "Print Jadwal",
       mode: "schedule",
     },
     mataPelajaran: {
@@ -3494,6 +3506,26 @@ export function App() {
       label: "Penempatan Pengajar",
       mode: "penempatan",
     },
+    izinPengajar: {
+      bucket: dataBucket["Izin Pengajar"],
+      label: "Izin Pengajar",
+      mode: "izin",
+    },
+    permintaanPengajarAntarCabang: {
+      bucket: dataBucket["Permintaan Pengajar Antar Cabang"],
+      label: "Permintaan Pengajar Antar Cabang",
+      mode: "permintaan",
+    },
+    suratTugasMengajar: {
+      bucket: dataBucket["Surat Tugas Pengajar"],
+      label: "Surat Tugas Mengajar",
+      mode: "suratTugas",
+    },
+    liburNasional: {
+      bucket: "libur_nasional",
+      label: "Libur Nasional",
+      mode: "holiday",
+    },
     accounts_cabang: {
       bucket: dataBucket["accounts_cabang"],
       label: "accounts_cabang",
@@ -3502,17 +3534,23 @@ export function App() {
   } as const;
 
   const templateHeadersByMenu = {
-    bulanIni: ["Cabang", "Kelas", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas"],
+    bulanIni: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
     jadwalTambahanPelayanan: [
       "Cabang",
       "Kelas",
       "Sekolah",
+      "Jenjang Studi",
       "Tanggal",
       "Mapel",
       "Pengajar",
       "Waktu",
       "Urutan Kelas",
+      "Jenis KBM",
+      "IsGabung",
+      "Gabung",
     ],
+    monitoringKelas: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
+    printJadwal: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
     mataPelajaran: ["Mapel", "Kode_Mapel"],
     pengajar: [
       "Kode Pengajar",
@@ -3531,8 +3569,45 @@ export function App() {
       "Hari",
       "Jam Mulai",
       "Jam Selesai",
-      "Bersedia Mengajar di Cabang",
+      "Cabang Penempatan",
     ],
+    izinPengajar: [
+      "Kode Pengajar",
+      "Nama Pengajar",
+      "Domisili",
+      "Cabang Target",
+      "Tanggal Mulai",
+      "Tanggal Selesai",
+      "Keterangan",
+      "Keterangan Status",
+    ],
+    permintaanPengajarAntarCabang: [
+      "ID",
+      "Kode Pengajar",
+      "Nama Pengajar",
+      "Cabang Peminta",
+      "Dari Cabang",
+      "Tanggal Diminta",
+      "Jam Mulai",
+      "Jam Selesai",
+      "Status",
+      "Catatan",
+    ],
+    suratTugasMengajar: [
+      "Kode Pengajar",
+      "Tanggal",
+      "Sesi 1",
+      "Sesi 2",
+      "Sesi 3",
+      "Sesi 4",
+      "Sesi 5",
+      "Sesi 6",
+      "Sesi 7",
+      "Sesi 8",
+      "Sesi 9",
+      "Sesi 10",
+    ],
+    liburNasional: ["Tanggal", "Keterangan"],
     accounts_cabang: ["Username", "Password", "Roll", "Cabang"],
   } as const;
 
@@ -3545,15 +3620,22 @@ export function App() {
         .map((row) => {
           const tanggalRaw = getEntryValue(row, ["Tanggal", "Date"]);
           const parsedTanggal = parseFlexibleDate(tanggalRaw);
+          const isGabungRaw = getEntryValue(row, ["IsGabung", "is_gabung", "isGabung"]).trim();
+          const gabungRaw = getEntryValue(row, ["Gabung", "gabung_with", "gabungWith"]).trim();
+          const jenisKbmRaw = getEntryValue(row, ["Jenis KBM", "jenis_kbm", "JenisKbm", "Type"]).trim();
           return {
             Cabang: getEntryValue(row, ["Cabang"]).trim(),
             Kelas: getEntryValue(row, ["Kelas"]).trim(),
             Sekolah: getEntryValue(row, ["Sekolah"]).trim(),
+            "Jenjang Studi": getEntryValue(row, ["Jenjang Studi", "Jenjang", "jenjang_studi"]).trim(),
             Tanggal: parsedTanggal ? formatScheduleLabel(parsedTanggal) : tanggalRaw.trim(),
             Mapel: getEntryValue(row, ["Mapel", "Mata Pelajaran"]).trim(),
             Pengajar: getEntryValue(row, ["Pengajar", "Guru"]).trim(),
             Waktu: getEntryValue(row, ["Waktu", "Jam"]).trim(),
             "Urutan Kelas": getEntryValue(row, ["Urutan Kelas", "Urutan", "Class Order"]).trim(),
+            "Jenis KBM": jenisKbmRaw || "Reguler",
+            IsGabung: isGabungRaw || (gabungRaw ? "true" : ""),
+            Gabung: gabungRaw,
           };
         })
         .filter(
@@ -3634,6 +3716,40 @@ export function App() {
         .filter((row) => row.Username || row.Cabang);
     }
 
+    if (mode === "holiday") {
+      return rows
+        .map((row) => {
+          const tanggalRaw = getEntryValue(row, ["Tanggal", "Date"]).trim();
+          const parsedTanggal = parseFlexibleDate(tanggalRaw);
+          return {
+            Tanggal: parsedTanggal ? formatScheduleLabel(parsedTanggal) : tanggalRaw,
+            Keterangan: getEntryValue(row, ["Keterangan", "Label", "Nama Hari Libur"]).trim(),
+          };
+        })
+        .filter((row) => row.Tanggal || row.Keterangan);
+    }
+
+    if (mode === "izin") {
+      return rows
+        .map((row) => {
+          const tanggalMulaiRaw = getEntryValue(row, ["Tanggal Mulai", "Tanggal Mulai Izin"]).trim();
+          const tanggalSelesaiRaw = getEntryValue(row, ["Tanggal Selesai", "Tanggal Akhir"]).trim();
+          const tanggalMulai = parseFlexibleDate(tanggalMulaiRaw);
+          const tanggalSelesai = parseFlexibleDate(tanggalSelesaiRaw);
+          return {
+            "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
+            "Nama Pengajar": getEntryValue(row, ["Nama Pengajar", "Nama"]).trim(),
+            Domisili: getEntryValue(row, ["Domisili"]).trim(),
+            "Cabang Target": getEntryValue(row, ["Cabang Target", "Cabang Tujuan"]).trim(),
+            "Tanggal Mulai": tanggalMulai ? formatScheduleLabel(tanggalMulai) : tanggalMulaiRaw,
+            "Tanggal Selesai": tanggalSelesai ? formatScheduleLabel(tanggalSelesai) : tanggalSelesaiRaw,
+            Keterangan: getEntryValue(row, ["Keterangan", "Catatan"]).trim(),
+            "Keterangan Status": getEntryValue(row, ["Keterangan Status", "Status"]).trim() || "Menunggu",
+          };
+        })
+        .filter((row) => row["Kode Pengajar"] || row["Nama Pengajar"]);
+    }
+
     return rows
       .map((row) => {
         const tanggalMulaiRaw = getEntryValue(row, ["Tanggal Mulai"]);
@@ -3645,7 +3761,8 @@ export function App() {
           "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
           "Nama Pengajar": getEntryValue(row, ["Nama Pengajar", "Nama"]).trim(),
           "Cabang Peminta": getEntryValue(row, ["Cabang Peminta"]).trim(),
-          "Cabang Domisili": getEntryValue(row, ["Cabang Domisili"]).trim(),
+          "Cabang Domisili": getEntryValue(row, ["Cabang Domisili", "Dari Cabang"]).trim(),
+          "Dari Cabang": getEntryValue(row, ["Dari Cabang", "Cabang Domisili"]).trim(),
           "Tanggal Mulai": tanggalMulai ? formatScheduleLabel(tanggalMulai) : tanggalMulaiRaw.trim(),
           "Tanggal Selesai": tanggalSelesai ? formatScheduleLabel(tanggalSelesai) : tanggalSelesaiRaw.trim(),
           "Tanggal Khusus": getEntryValue(row, ["Tanggal Khusus"]).trim(),
@@ -3688,6 +3805,160 @@ export function App() {
     const filename = `template-${target.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.xlsx`;
     XLSX.writeFile(workbook, filename);
     pushToast(`Template ${target.label} berhasil diunduh.`, "success");
+  };
+
+  const handleExportCurrentMenuData = () => {
+    if (!isAdmin) {
+      pushToast("Export data Excel hanya tersedia untuk Admin.", "error");
+      return;
+    }
+
+    let rows: Record<string, unknown>[] = [];
+    let headers: string[] = [];
+    let filename = "export-data.xlsx";
+    let sheetName = activeConfig.name;
+
+    switch (activeKey) {
+      case "bulanIni":
+      case "jadwalTambahanPelayanan":
+      case "monitoringKelas":
+      case "printJadwal": {
+        const scheduleRows = activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan"
+          ? records[activeKey] ?? []
+          : activeKey === "monitoringKelas"
+            ? monitoringRows
+            : (records.bulanIni ?? []).concat(records.jadwalTambahanPelayanan ?? []);
+        rows = scheduleRows.map((row) => ({
+          Cabang: (row as any).cabang ?? (row as any).Cabang ?? "",
+          Kelas: (row as any).kelas ?? (row as any).Kelas ?? "",
+          Sekolah: (row as any).sekolah ?? (row as any).Sekolah ?? "",
+          "Jenjang Studi": (row as any).jenjang ?? (row as any)["Jenjang Studi"] ?? "",
+          Tanggal: (row as any).tanggal ?? (row as any).Tanggal ?? "",
+          Mapel: (row as any).mapel ?? (row as any).Mapel ?? "",
+          Pengajar: (row as any).pengajar ?? (row as any).Pengajar ?? "",
+          Waktu: (row as any).waktu ?? (row as any).Waktu ?? "",
+          "Urutan Kelas": (row as any)["Urutan Kelas"] ?? (row as any).classOrder ?? (row as any).class_order ?? "",
+          "Jenis KBM": (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
+          IsGabung: (row as any).isGabung ?? (row as any).is_gabung ?? "false",
+          Gabung: (row as any).gabungWith ?? (row as any).gabung ?? "",
+        }));
+        headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
+        filename = `${activeKey}-data.xlsx`;
+        break;
+      }
+      case "mataPelajaran":
+        rows = filteredMapelRecords.map((row) => ({
+          Mapel: row.Mapel ?? "",
+          Kode_Mapel: row.Kode_Mapel ?? "",
+        }));
+        headers = ["Mapel", "Kode_Mapel"];
+        filename = "mata-pelajaran.xlsx";
+        break;
+      case "pengajar":
+        rows = filteredPengajarRecords.map((row) => ({
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          Nama: row.Nama ?? row["Nama Pengajar"] ?? "",
+          "Bidang Studi": row["Bidang Studi"] ?? "",
+          Email: row.Email ?? "",
+          "No.WhatsApp": row["No.WhatsApp"] ?? "",
+          Domisili: row.Domisili ?? "",
+          Username: row.Username ?? "",
+          Password: row.Password ?? "",
+        }));
+        headers = ["Kode Pengajar", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
+        filename = "pengajar.xlsx";
+        break;
+      case "penempatanPengajar":
+        rows = filteredPenempatanRecords.map((row) => ({
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          "Nama Pengajar": row["Nama Pengajar"] ?? "",
+          Domisili: row.Domisili ?? "",
+          Hari: row.Hari ?? "",
+          "Jam Mulai": row["Jam Mulai"] ?? "",
+          "Jam Selesai": row["Jam Selesai"] ?? "",
+          "Cabang Penempatan": row["Cabang Penempatan"] ?? "",
+        }));
+        headers = ["Kode Pengajar", "Nama Pengajar", "Domisili", "Hari", "Jam Mulai", "Jam Selesai", "Cabang Penempatan"];
+        filename = "penempatan-pengajar.xlsx";
+        break;
+      case "izinPengajar":
+        rows = filteredIzinRecords.map((row) => ({
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          "Nama Pengajar": row["Nama Pengajar"] ?? "",
+          Domisili: row.Domisili ?? "",
+          "Cabang Target": row["Cabang Target"] ?? "",
+          "Tanggal Mulai": row["Tanggal Mulai"] ?? "",
+          "Tanggal Selesai": row["Tanggal Selesai"] ?? "",
+          Keterangan: row.Keterangan ?? "",
+          "Keterangan Status": row["Keterangan Status"] ?? "",
+        }));
+        headers = ["Kode Pengajar", "Nama Pengajar", "Domisili", "Cabang Target", "Tanggal Mulai", "Tanggal Selesai", "Keterangan", "Keterangan Status"];
+        filename = "izin-pengajar.xlsx";
+        break;
+      case "permintaanPengajarAntarCabang":
+        rows = filteredPermintaanRecords.map((row) => ({
+          ID: row.ID ?? "",
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          "Nama Pengajar": row["Nama Pengajar"] ?? "",
+          "Cabang Peminta": row["Cabang Peminta"] ?? "",
+          "Dari Cabang": row["Dari Cabang"] ?? "",
+          "Tanggal Diminta": row["Tanggal Diminta"] ?? "",
+          "Jam Mulai": row["Jam Mulai"] ?? "",
+          "Jam Selesai": row["Jam Selesai"] ?? "",
+          Status: row.Status ?? "",
+          Catatan: row.Catatan ?? "",
+        }));
+        headers = ["ID", "Kode Pengajar", "Nama Pengajar", "Cabang Peminta", "Dari Cabang", "Tanggal Diminta", "Jam Mulai", "Jam Selesai", "Status", "Catatan"];
+        filename = "permintaan-pengajar.xlsx";
+        break;
+      case "suratTugasMengajar":
+        rows = filteredSuratTugasRecords.map((row) => ({
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          Tanggal: row.Tanggal ?? "",
+          "Sesi 1": row["Sesi 1"] ?? "",
+          "Sesi 2": row["Sesi 2"] ?? "",
+          "Sesi 3": row["Sesi 3"] ?? "",
+          "Sesi 4": row["Sesi 4"] ?? "",
+          "Sesi 5": row["Sesi 5"] ?? "",
+          "Sesi 6": row["Sesi 6"] ?? "",
+          "Sesi 7": row["Sesi 7"] ?? "",
+          "Sesi 8": row["Sesi 8"] ?? "",
+          "Sesi 9": row["Sesi 9"] ?? "",
+          "Sesi 10": row["Sesi 10"] ?? "",
+        }));
+        headers = ["Kode Pengajar", "Tanggal", "Sesi 1", "Sesi 2", "Sesi 3", "Sesi 4", "Sesi 5", "Sesi 6", "Sesi 7", "Sesi 8", "Sesi 9", "Sesi 10"];
+        filename = "surat-tugas.xlsx";
+        break;
+      case "liburNasional": {
+        const holidays = getNationalHolidays().map((item) => ({
+          Tanggal: item.date,
+          Keterangan: item.label ?? "",
+        }));
+        rows = holidays;
+        headers = ["Tanggal", "Keterangan"];
+        filename = "libur-nasional.xlsx";
+        break;
+      }
+      case "accounts_cabang":
+        rows = accountsCabangRecords.map((row) => ({
+          Username: row.Username ?? "",
+          Password: row.Password ?? "",
+          Roll: row.Roll ?? "",
+          Cabang: row.Cabang ?? "",
+        }));
+        headers = ["Username", "Password", "Roll", "Cabang"];
+        filename = "accounts-cabang.xlsx";
+        break;
+      default:
+        pushToast("Menu ini belum memiliki ekspor Excel.", "error");
+        return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName.slice(0, 31));
+    XLSX.writeFile(workbook, filename);
+    pushToast(`Data ${activeConfig.name} berhasil diekspor ke Excel.`, "success");
   };
 
   const handleExcelImportChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -3749,7 +4020,19 @@ export function App() {
                 };
               })
             )
-          : normalizedRows;
+          : normalizedRows.map((row) => {
+              if (target.mode === "schedule") {
+                return {
+                  ...row,
+                  "Jenis KBM":
+                    String(row["Jenis KBM"] || "").trim() ||
+                    (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
+                  IsGabung: String(row.IsGabung || row["IsGabung"] || "").trim() || (row.Gabung ? "true" : "false"),
+                  Gabung: String(row.Gabung || row["Gabung"] || "").trim(),
+                };
+              }
+              return row;
+            });
 
       await replaceBucketRows(target.bucket, rowsToSave);
       await refreshAllData(false);
@@ -5536,6 +5819,20 @@ export function App() {
                       >
                         <i className="bi bi-download me-1" />
                         Template
+                      </button>
+                    ) : null}
+                    {isAdmin &&
+                    (importTargetByMenu[activeKey as keyof typeof importTargetByMenu] ||
+                      templateHeadersByMenu[activeKey as keyof typeof templateHeadersByMenu]) ? (
+                      <button
+                        type="button"
+                        className="btn btn-outline-warning btn-sm"
+                        title="Export data Excel"
+                        onClick={handleExportCurrentMenuData}
+                        disabled={isImporting || isBusy}
+                      >
+                        <i className="bi bi-file-earmark-excel me-1" />
+                        Export Excel
                       </button>
                     ) : null}
                     <button
