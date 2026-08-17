@@ -110,6 +110,9 @@ export function DashboardView({
         });
 
   const visibleSchedules = (dashboardSchedules || []).filter((item) => {
+    if (!(item.pengajar || "").trim()) {
+      return false;
+    }
     const parsedDate = parseFlexibleDate(item.tanggal || "");
     return parsedDate && formatLocalDate(parsedDate) === selectedScheduleKey;
   });
