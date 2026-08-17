@@ -392,6 +392,98 @@ const normalizeData = (value: unknown) => {
   );
 };
 
+const READ_CACHE_TTL_MS = 5 * 60 * 1000;
+const READ_CACHE_STORAGE_KEY = "kbm_read_cache_v1";
+const readCache = new Map<string, { expiresAt: number; rows: DbRow[] }>();
+
+const getVirtualBuckets = (bucket: string) => {
+  const aliases = new Set<string>([bucket]);
+  if (bucket === "jadwal_kbm" || bucket === "jadwal_reguler" || bucket === "jadwal_khusus") {
+    aliases.add("jadwal_kbm");
+    aliases.add("jadwal_reguler");
+    aliases.add("jadwal_khusus");
+  }
+  return Array.from(aliases);
+};
+
+const getCachedRows = (bucket: string) => {
+  const entry = readCache.get(bucket);
+  if (entry && entry.expiresAt > Date.now()) {
+    return entry.rows.map((row) => ({ ...row, data: { ...row.data } }));
+  }
+
+  if (typeof window === "undefined" || !window.localStorage) {
+    readCache.delete(bucket);
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(READ_CACHE_STORAGE_KEY);
+    if (!raw) {
+      readCache.delete(bucket);
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, { expiresAt: number; rows: DbRow[] }>;
+    const cached = parsed[bucket];
+    if (!cached || cached.expiresAt <= Date.now()) {
+      readCache.delete(bucket);
+      return null;
+    }
+
+    const rows = cached.rows.map((row) => ({ ...row, data: { ...row.data } }));
+    readCache.set(bucket, { expiresAt: cached.expiresAt, rows });
+    return rows;
+  } catch (_error) {
+    readCache.delete(bucket);
+    return null;
+  }
+};
+
+const persistCachedRows = (bucket: string, rows: DbRow[]) => {
+  const expiresAt = Date.now() + READ_CACHE_TTL_MS;
+  const copy = rows.map((row) => ({ ...row, data: { ...row.data } }));
+  readCache.set(bucket, { expiresAt, rows: copy });
+
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(READ_CACHE_STORAGE_KEY);
+    const current = raw ? (JSON.parse(raw) as Record<string, { expiresAt: number; rows: DbRow[] }>) : {};
+    current[bucket] = { expiresAt, rows: copy };
+    window.localStorage.setItem(READ_CACHE_STORAGE_KEY, JSON.stringify(current));
+  } catch (_error) {
+    // Ignore cache persistence errors, fallback to memory cache only.
+  }
+};
+
+const invalidateReadCacheForBucket = (bucket: string) => {
+  for (const key of getVirtualBuckets(bucket)) {
+    readCache.delete(key);
+  }
+
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(READ_CACHE_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+
+    const current = JSON.parse(raw) as Record<string, { expiresAt: number; rows: DbRow[] }>;
+    for (const key of getVirtualBuckets(bucket)) {
+      delete current[key];
+    }
+    window.localStorage.setItem(READ_CACHE_STORAGE_KEY, JSON.stringify(current));
+  } catch (_error) {
+    // Ignore invalid cache metadata.
+  }
+};
+
 const apiRequest = async <T>(path: string, method: string = "GET", body?: unknown) => {
   const init: RequestInit = { method };
   if (body !== undefined) {
@@ -410,6 +502,12 @@ export const listRows = async (bucket: string) => {
   if (!(bucket in schemas)) {
     throw new Error(`Bucket tidak dikenal: ${bucket}`);
   }
+
+  const cached = getCachedRows(bucket);
+  if (cached) {
+    return cached;
+  }
+
   const schema = schemas[bucket as BucketName];
   const data = await apiRequest<any[]>(`/db/${schema.table}`);
 
@@ -420,15 +518,15 @@ export const listRows = async (bucket: string) => {
     updatedAt: asString((row as Record<string, unknown>).updated_at),
   })) as DbRow[];
 
-  if (bucket === "jadwal_reguler") {
-    return rows.filter((row) => normalizeValueKey(row.data["Jenis KBM"] || row.data.jenis_kbm || "") === "reguler");
-  }
+  const filteredRows =
+    bucket === "jadwal_reguler"
+      ? rows.filter((row) => normalizeValueKey(row.data["Jenis KBM"] || row.data.jenis_kbm || "") === "reguler")
+      : bucket === "jadwal_khusus"
+        ? rows.filter((row) => normalizeValueKey(row.data["Jenis KBM"] || row.data.jenis_kbm || "") === "khusus")
+        : rows;
 
-  if (bucket === "jadwal_khusus") {
-    return rows.filter((row) => normalizeValueKey(row.data["Jenis KBM"] || row.data.jenis_kbm || "") === "khusus");
-  }
-
-  return rows;
+  persistCachedRows(bucket, filteredRows);
+  return filteredRows;
 };
 
 export const insertRow = async (bucket: string, data: Record<string, string>) => {
@@ -441,6 +539,8 @@ export const insertRow = async (bucket: string, data: Record<string, string>) =>
     "POST",
     schema.toDb(data)
   );
+
+  invalidateReadCacheForBucket(bucket);
 
   return {
     id: encodeId(bucket, String(inserted.id || "")),
@@ -463,6 +563,8 @@ export const updateRow = async (id: string, data: Record<string, string>) => {
     "PUT",
     schema.toDb(mergedInput)
   );
+
+  invalidateReadCacheForBucket(bucket);
 
   return {
     id: encodeId(bucket, String(updated.id || "")),
@@ -487,6 +589,7 @@ export const deleteRowsByIds = async (ids: string[]) => {
   for (const [bucket, rawIds] of Object.entries(grouped)) {
     const schema = schemas[bucket as BucketName];
     await apiRequest(`/db/${schema.table}/delete`, "POST", { ids: rawIds });
+    invalidateReadCacheForBucket(bucket);
   }
 };
 
@@ -503,4 +606,5 @@ export const replaceBucketRows = async (bucket: string, records: Record<string, 
 
   const payload = records.map((record) => schema.toDb(record));
   await apiRequest(`/db/${schema.table}/replace`, "POST", { rows: payload });
+  invalidateReadCacheForBucket(bucket);
 };
