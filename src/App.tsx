@@ -1950,6 +1950,9 @@ export function App() {
         if (!(item["mapel"] || "").trim() && !(item["pengajar"] || "").trim() && !(item["waktu"] || "").trim()) {
           return false;
         }
+        if (!(item["pengajar"] || "").trim()) {
+          return false;
+        }
         if (restrictedCabang && normalizeText(item["cabang"] || "") !== normalizeText(restrictedCabang)) {
           return false;
         }
