@@ -4393,22 +4393,37 @@ export function App() {
   useEffect(() => {
     let isMounted = true;
 
-    const initializeApp = async () => {
+    const restoreStoredSession = () => {
       try {
-        await checkDatabaseConnection();
-      } catch (error) {
-        if (!isMounted) {
-          return;
+        const storedSession = localStorage.getItem(authStorageKey);
+        if (!storedSession) {
+          return false;
         }
-        setDbConnectionError(
-          error instanceof Error
-            ? error.message
-            : "Aplikasi tidak dapat terhubung ke database. Pastikan server D1 sudah aktif."
-        );
-        setIsAppInitializing(false);
-        return;
-      }
 
+        const parsed = JSON.parse(storedSession) as AuthSession;
+        const accountsToUse = [...databaseAccounts, ...loginAccounts];
+        const matched = accountsToUse.find(
+          (account) => normalizeLoginValue(account.username) === normalizeLoginValue(parsed.username || "")
+        );
+
+        if (!matched) {
+          localStorage.removeItem(authStorageKey);
+          return false;
+        }
+
+        setAuthSession({
+          username: matched.username,
+          roll: (matched as any).roll || (matched as any).role || "cabang",
+          cabang: matched.cabang,
+        });
+        return true;
+      } catch (_error) {
+        localStorage.removeItem(authStorageKey);
+        return false;
+      }
+    };
+
+    const initializeApp = async () => {
       if (!isMounted) {
         return;
       }
@@ -4417,40 +4432,56 @@ export function App() {
       updateLastCacheCleanedAt();
 
       const storedSession = localStorage.getItem(authStorageKey);
+      if (storedSession) {
+        restoreStoredSession();
+      }
+
+      try {
+        await checkDatabaseConnection();
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        if (storedSession) {
+          setDbConnectionError(
+            error instanceof Error
+              ? error.message
+              : "Aplikasi tidak dapat terhubung ke database. Pastikan server D1 sudah aktif."
+          );
+        } else {
+          setDbConnectionError(
+            error instanceof Error
+              ? error.message
+              : "Aplikasi tidak dapat terhubung ke database. Pastikan server D1 sudah aktif."
+          );
+        }
+        setIsAppInitializing(false);
+        return;
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
       if (!storedSession) {
         setIsAppInitializing(false);
         return;
       }
 
-      try {
-        const parsed = JSON.parse(storedSession) as AuthSession;
-        const accountsToUse = databaseAccounts.length > 0 ? databaseAccounts : loginAccounts;
-        const matched = accountsToUse.find(
-          (account) => normalizeLoginValue(account.username) === normalizeLoginValue(parsed.username || "")
-        );
-        if (!matched) {
-          localStorage.removeItem(authStorageKey);
-          setIsAppInitializing(false);
-          return;
-        }
-
-        setAuthSession({
-          username: matched.username,
-          roll: matched.roll,
-          cabang: matched.cabang,
-        });
-      } catch (_error) {
-        localStorage.removeItem(authStorageKey);
-      } finally {
+      const restored = restoreStoredSession();
+      if (!restored) {
         setIsAppInitializing(false);
+        return;
       }
+
+      setIsAppInitializing(false);
     };
 
     void initializeApp();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [databaseAccounts]);
 
   useEffect(() => {
     let mounted = true;
