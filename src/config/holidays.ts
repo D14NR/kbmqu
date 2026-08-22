@@ -58,3 +58,8 @@ export const isNationalHoliday = (dateKey: string) => {
   const list = getNationalHolidays().map((it) => it.date);
   return list.includes(dateKey);
 };
+
+export const getNationalHolidayName = (dateKey: string): string | null => {
+  const found = getNationalHolidays().find((it) => it.date === dateKey);
+  return found?.label || (found ? "Hari Libur Nasional" : null);
+};

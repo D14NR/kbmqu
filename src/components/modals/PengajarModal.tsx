@@ -29,6 +29,31 @@ type PengajarModalProps = {
   onSave: () => void;
 };
 
+const customSelectStyles = {
+  control: (base: any, state: any) => ({
+    ...base,
+    minHeight: "38px",
+    height: "auto",
+    fontSize: "0.875rem",
+    borderRadius: "8px",
+    borderColor: state.isFocused ? "#3b82f6" : "#cbd5e1",
+    boxShadow: state.isFocused ? "0 0 0 3px rgba(59, 130, 246, 0.15)" : "0 1px 2px rgba(0, 0, 0, 0.04)",
+  }),
+  multiValue: (base: any) => ({
+    ...base,
+    backgroundColor: "#eff6ff",
+    border: "1px solid #bfdbfe",
+    borderRadius: "6px",
+  }),
+  multiValueLabel: (base: any) => ({
+    ...base,
+    color: "#1d4ed8",
+    fontWeight: "600",
+    fontSize: "0.78rem",
+    padding: "2px 6px",
+  }),
+};
+
 export function PengajarModal({
   isOpen,
   isEditing,
@@ -60,63 +85,116 @@ export function PengajarModal({
 
   return (
     <div
-      className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center modal-backdrop-custom p-3"
+      className="modal-backdrop-custom d-flex align-items-center justify-content-center p-3"
       onClick={onClose}
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        backgroundColor: "rgba(15, 23, 42, 0.5)",
+        backdropFilter: "blur(4px)",
+        zIndex: 1050,
+      }}
     >
       <div
-        className="bg-white rounded-3 shadow p-4 w-100"
-        style={{ maxWidth: 600, maxHeight: "90vh", overflowY: "auto" }}
+        className="modal-content-card bg-white rounded-4 shadow-lg border w-100 overflow-hidden"
+        style={{
+          maxWidth: 620,
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+          animation: "modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="d-flex justify-content-between align-items-start">
-          <div>
-            <h5 className="mb-1">{isEditing ? "Edit" : "Tambah"} Pengajar</h5>
-            <div className="text-muted small">Kelola data pengajar.</div>
+        {/* 1. Modal Header */}
+        <div className="modal-header-modern bg-white p-3 p-sm-4 border-bottom d-flex justify-content-between align-items-start gap-3">
+          <div className="d-flex align-items-center gap-3">
+            <div
+              className="rounded-3 bg-primary-subtle text-primary d-flex align-items-center justify-content-center flex-shrink-0"
+              style={{ width: 44, height: 44 }}
+            >
+              <i className={`bi ${isEditing ? "bi-person-gear" : "bi-person-plus-fill"} fs-4`} />
+            </div>
+            <div>
+              <h5 className="fw-bold mb-1 text-dark">{isEditing ? "Edit Data Pengajar" : "Tambah Pengajar Baru"}</h5>
+              <div className="text-muted text-xxs">Kelola identitas, bidang studi, dan kredensial login pengajar.</div>
+            </div>
           </div>
-          <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose}>
-            Tutup
+
+          <button
+            type="button"
+            className="btn btn-light btn-sm rounded-circle p-0 text-muted d-flex align-items-center justify-content-center flex-shrink-0"
+            style={{ width: 32, height: 32 }}
+            onClick={onClose}
+            aria-label="Tutup"
+          >
+            <i className="bi bi-x-lg" />
           </button>
         </div>
-        <div className="mt-3">
-          <div className="row g-2">
+
+        {/* 2. Modal Body */}
+        <div className="modal-body-modern p-3 p-sm-4 overflow-y-auto" style={{ flex: "1 1 auto" }}>
+          <div className="row g-3">
+            {/* Field: Nama */}
             <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">Nama</label>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-person text-primary" />
+                Nama Lengkap <span className="text-danger">*</span>
+              </label>
               <input
                 type="text"
                 value={draft.Nama}
                 onChange={(event) => onChange("Nama", event.target.value)}
-                placeholder="Nama Lengkap"
-                className="form-control form-control-sm"
+                placeholder="Contoh: Budi Santoso, M.Pd"
+                className="form-control form-control-sm fw-semibold"
               />
             </div>
+
+            {/* Field: Kode Pengajar */}
             <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">Kode Pengajar</label>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-upc-scan text-muted" />
+                Kode Pengajar
+              </label>
               <input
                 type="text"
                 value={draft["Kode Pengajar"]}
                 placeholder="Otomatis dari Nama"
-                className="form-control form-control-sm"
+                className="form-control form-control-sm bg-light text-muted font-monospace"
                 readOnly
               />
             </div>
+
+            {/* Field: Cabang */}
             <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">Cabang</label>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-building text-muted" />
+                Cabang Akun
+              </label>
               <input
                 type="text"
-                className="form-control form-control-sm"
+                className="form-control form-control-sm bg-light text-muted"
                 value={cabangLabel}
                 placeholder="Otomatis dari akun login"
                 readOnly
               />
             </div>
+
+            {/* Field: Domisili */}
             <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">Domisili</label>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-geo-alt text-primary" />
+                Domisili Cabang
+              </label>
               {isDomisiliLocked ? (
                 <input
                   type="text"
                   value={draft.Domisili}
                   placeholder="Otomatis dari Cabang"
-                  className="form-control form-control-sm"
+                  className="form-control form-control-sm bg-light text-muted"
                   readOnly
                 />
               ) : (
@@ -134,47 +212,64 @@ export function PengajarModal({
                 </select>
               )}
             </div>
+
+            {/* Field: No WhatsApp */}
             <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">No.WhatsApp</label>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-whatsapp text-success" />
+                No. WhatsApp <span className="text-danger">*</span>
+              </label>
               <input
                 type="text"
                 value={draft["No.WhatsApp"]}
                 onChange={(event) => onChange("No.WhatsApp", event.target.value)}
-                placeholder="0812xxxxxx"
+                placeholder="Contoh: 08123456789"
                 className="form-control form-control-sm"
               />
             </div>
+
+            {/* Field: Username */}
             <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">Username</label>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-person-badge text-muted" />
+                Username Login
+              </label>
               <input
                 type="text"
                 value={draft.Username}
-                placeholder="Otomatis dari No.WhatsApp"
-                className="form-control form-control-sm"
+                placeholder="Otomatis dari No. WhatsApp"
+                className="form-control form-control-sm bg-light text-muted"
                 readOnly
               />
             </div>
-            <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">Bidang Studi</label>
+
+            {/* Field: Bidang Studi */}
+            <div className="col-12">
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-book text-primary" />
+                Bidang Studi / Mata Pelajaran yang Diampu
+              </label>
               <Select
                 isMulti
                 isSearchable
-                classNamePrefix="react-select"
                 options={bidangStudiOptions}
                 value={selectedBidangStudi}
-                placeholder="Pilih mata pelajaran yang diampu"
+                placeholder="Pilih satu atau lebih mata pelajaran..."
                 noOptionsMessage={() => "Data mata pelajaran tidak ditemukan"}
                 onChange={(selected) => {
                   const nextValues = (selected || []).map((item) => item.value);
                   onBidangStudiChange(nextValues);
                 }}
-                menuPortalTarget={typeof document !== "undefined" ? document.body : null}
-                menuPosition="absolute"
-                styles={{ menuPortal: (base) => ({ ...base, zIndex: 9999 }) }}
+                styles={customSelectStyles}
               />
             </div>
+
+            {/* Field: Email */}
             <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">Email</label>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-envelope text-primary" />
+                Email
+              </label>
               <input
                 type="text"
                 value={draft.Email}
@@ -183,39 +278,71 @@ export function PengajarModal({
                 className="form-control form-control-sm"
               />
             </div>
+
+            {/* Field: Password */}
             <div className="col-12 col-md-6">
-              <label className="form-label small fw-semibold mt-2">Password</label>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-key text-primary" />
+                Password (Maks 6 Karakter)
+              </label>
               <div className="input-group input-group-sm">
                 <input
                   type="text"
                   value={draft.Password}
                   onChange={(event) => onChange("Password", event.target.value)}
-                  placeholder="Maksimal 6 karakter"
-                  className="form-control"
+                  placeholder="Password akun"
+                  className="form-control border-end-0 font-monospace"
+                  maxLength={6}
                 />
                 <button
                   type="button"
                   className="btn btn-outline-secondary"
                   onClick={onGeneratePassword}
+                  title="Generate Acak"
                 >
-                  Generate
+                  <i className="bi bi-magic me-1" />
+                  Acak
                 </button>
               </div>
             </div>
           </div>
 
+          {/* Error Alert */}
           {error && (
-            <div className="alert alert-danger py-2 text-xs mt-3" role="alert">
-              {error}
+            <div className="alert alert-danger d-flex align-items-center gap-2 p-2.5 rounded-3 mt-3 mb-0 text-xs" role="alert">
+              <i className="bi bi-exclamation-circle-fill text-danger fs-6 flex-shrink-0" />
+              <div>{error}</div>
             </div>
           )}
         </div>
-        <div className="mt-4 d-flex justify-content-end gap-2">
-          <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose}>
+
+        {/* 3. Modal Footer */}
+        <div className="modal-footer-modern bg-light p-3 border-top d-flex justify-content-end align-items-center gap-2">
+          <button
+            type="button"
+            className="btn btn-outline-secondary btn-sm px-3 rounded-2"
+            onClick={onClose}
+            disabled={loading}
+          >
             Batal
           </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={loading}>
-            {loading ? "Menyimpan..." : "Simpan"}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-1.5 rounded-2"
+            onClick={onSave}
+            disabled={loading || !draft.Nama.trim()}
+          >
+            {loading ? (
+              <>
+                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                <span>Menyimpan...</span>
+              </>
+            ) : (
+              <>
+                <i className="bi bi-check2-circle" />
+                <span>{isEditing ? "Simpan Perubahan" : "Simpan Pengajar"}</span>
+              </>
+            )}
           </button>
         </div>
       </div>
