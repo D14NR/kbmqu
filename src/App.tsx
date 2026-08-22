@@ -4,6 +4,7 @@ import { categories, initialRecords } from "./config/categories";
 import { SidebarMenu } from "./components/layout/SidebarMenu";
 import { LoginScreen } from "./components/layout/LoginScreen";
 import { ClassModal } from "./components/modals/ClassModal";
+import { ExportClassModal } from "./components/modals/ExportClassModal";
 import { EditScheduleModal } from "./components/modals/EditScheduleModal";
 import { MapelModal } from "./components/modals/MapelModal";
 import { PengajarModal, type PengajarDraft } from "./components/modals/PengajarModal";
@@ -96,6 +97,7 @@ export function App() {
     "Izin Pengajar": "izin_pengajar",
     "Permintaan Pengajar Antar Cabang": "permintaan_pengajar",
     "accounts_cabang": "accounts_cabang",
+    "Riwayat Notifikasi Pengajar": "riwayat_notifikasi_pengajar",
   } as const;
 
   const matchByFields = (
@@ -352,6 +354,7 @@ export function App() {
   }, []);
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isExportClassModalOpen, setIsExportClassModalOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
@@ -2021,6 +2024,20 @@ export function App() {
       });
 
       if (status === "Disetujui" && selectedIzin) {
+        try {
+          await insertRow(dataBucket["Riwayat Notifikasi Pengajar"], {
+            ID: crypto.randomUUID(),
+            "Kode Pengajar": selectedIzin["Kode Pengajar"] || "",
+            "Nama Pengajar": selectedIzin["Nama Pengajar"] || "",
+            "Tipe Notifikasi": "Izin Mengajar",
+            Pesan: `Permintaan izin mengajar Anda untuk tanggal ${selectedIzin["Tanggal Mulai"] || ""} s/d ${selectedIzin["Tanggal Selesai"] || ""} telah disetujui oleh ${decidedBy}.`,
+            "Status Baca": "0",
+            "Created At": new Date().toISOString(),
+          });
+        } catch (notifError) {
+          console.error("Gagal membuat notifikasi pengajar:", notifError);
+        }
+
         const startDate = parseFlexibleDate(selectedIzin["Tanggal Mulai"] || "");
         const endDate = parseFlexibleDate(selectedIzin["Tanggal Selesai"] || "");
         const targetKode = normalizeText((selectedIzin["Kode Pengajar"] || "").trim().toLowerCase());
@@ -3810,9 +3827,55 @@ export function App() {
     pushToast(`Template ${target.label} berhasil diunduh.`, "success");
   };
 
+  const handleConfirmExportClass = (selectedKey: string) => {
+    setIsExportClassModalOpen(false);
+
+    let scheduleRows = records[activeKey as "bulanIni" | "jadwalTambahanPelayanan"] ?? [];
+    if (selectedKey !== "all") {
+      const [cCabang, cKelas, cSekolah] = selectedKey.split("||");
+      scheduleRows = scheduleRows.filter((row) => 
+        normalizeText(row.cabang || "") === normalizeText(cCabang) &&
+        normalizeText(row.kelas || "") === normalizeText(cKelas) &&
+        normalizeText(row.sekolah || "") === normalizeText(cSekolah)
+      );
+    } else if (!isAdmin) {
+       pushToast("Anda hanya dapat mengexport per kelas.", "error");
+       return;
+    }
+
+    const rows = scheduleRows.map((row) => ({
+      Cabang: (row as any).cabang ?? (row as any).Cabang ?? "",
+      Kelas: (row as any).kelas ?? (row as any).Kelas ?? "",
+      Sekolah: (row as any).sekolah ?? (row as any).Sekolah ?? "",
+      "Jenjang Studi": (row as any).jenjang ?? (row as any)["Jenjang Studi"] ?? "",
+      Tanggal: (row as any).tanggal ?? (row as any).Tanggal ?? "",
+      Mapel: (row as any).mapel ?? (row as any).Mapel ?? "",
+      Pengajar: (row as any).pengajar ?? (row as any).Pengajar ?? "",
+      Waktu: (row as any).waktu ?? (row as any).Waktu ?? "",
+      "Urutan Kelas": (row as any)["Urutan Kelas"] ?? (row as any).classOrder ?? (row as any).class_order ?? "",
+      "Jenis KBM": (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
+      IsGabung: (row as any).isGabung ?? (row as any).is_gabung ?? "false",
+      Gabung: (row as any).gabungWith ?? (row as any).gabung ?? "",
+    }));
+
+    const headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
+    const filename = `${activeKey}${selectedKey !== "all" ? `-${selectedKey.replace(/\|\|/g, "-")}` : ""}-data.xlsx`;
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+    XLSX.utils.book_append_sheet(workbook, worksheet, activeConfig.name.slice(0, 31));
+    XLSX.writeFile(workbook, filename);
+    pushToast(`Data jadwal berhasil diekspor.`, "success");
+  };
+
   const handleExportCurrentMenuData = () => {
-    if (!isAdmin) {
+    if (!isAdmin && activeKey !== "bulanIni" && activeKey !== "jadwalTambahanPelayanan") {
       pushToast("Export data Excel hanya tersedia untuk Admin.", "error");
+      return;
+    }
+
+    if (activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan") {
+      setIsExportClassModalOpen(true);
       return;
     }
 
@@ -3822,13 +3885,9 @@ export function App() {
     let sheetName = activeConfig.name;
 
     switch (activeKey) {
-      case "bulanIni":
-      case "jadwalTambahanPelayanan":
       case "monitoringKelas":
       case "printJadwal": {
-        const scheduleRows = activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan"
-          ? records[activeKey] ?? []
-          : activeKey === "monitoringKelas"
+        const scheduleRows = activeKey === "monitoringKelas"
             ? monitoringRows
             : (records.bulanIni ?? []).concat(records.jadwalTambahanPelayanan ?? []);
         rows = scheduleRows.map((row) => ({
@@ -5855,7 +5914,7 @@ export function App() {
                         Template
                       </button>
                     ) : null}
-                    {isAdmin &&
+                    {(isAdmin || activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan") &&
                     (importTargetByMenu[activeKey as keyof typeof importTargetByMenu] ||
                       templateHeadersByMenu[activeKey as keyof typeof templateHeadersByMenu]) ? (
                       <button
@@ -6143,6 +6202,18 @@ export function App() {
           </div>
         </div>
       </div>
+
+      <ExportClassModal
+        isOpen={isExportClassModalOpen}
+        onClose={() => setIsExportClassModalOpen(false)}
+        classes={monthScheduleGroupsAll.map((g) => ({
+          cabang: g.cabang,
+          kelas: g.kelas,
+          sekolah: g.sekolah,
+        }))}
+        onExport={handleConfirmExportClass}
+        isAdmin={isAdmin}
+      />
 
       <ClassModal
         isOpen={isClassModalOpen}

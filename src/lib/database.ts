@@ -20,6 +20,7 @@ const bucketTableMap = {
   izin_pengajar: "izin_pengajar",
   permintaan_pengajar: "permintaan_pengajar_antar_cabang",
   libur_nasional: "libur_nasional",
+  riwayat_notifikasi_pengajar: "riwayat_notifikasi_pengajar",
 } as const;
 
 type BucketName = keyof typeof bucketTableMap;
@@ -374,6 +375,31 @@ const schemas: Record<BucketName, BucketSchema> = {
       jam_selesai: asString(data["Jam Selesai"]),
       status: asString(data.Status || "Menunggu"),
       catatan: asString(data.Catatan),
+    }),
+  },
+  riwayat_notifikasi_pengajar: {
+    table: bucketTableMap.riwayat_notifikasi_pengajar,
+    fromDb: (row) => ({
+      ID: asString(row.id),
+      "Kode Pengajar": asString(row.kode_pengajar),
+      "Nama Pengajar": asString(row.nama_pengajar),
+      "Tipe Notifikasi": asString(row.tipe_notifikasi),
+      Pesan: asString(row.pesan),
+      "Status Baca": String(asNumberOrNull(row.status_baca) || 0),
+      "Created At": asString(row.created_at),
+      "Jumlah Pengiriman": String(asNumberOrNull(row.jumlah_pengiriman) || 0),
+      "Pengiriman Terakhir At": asString(row.pengiriman_terakhir_at),
+    }),
+    toDb: (data) => ({
+      id: asString(data.ID),
+      kode_pengajar: asString(data["Kode Pengajar"]),
+      nama_pengajar: asString(data["Nama Pengajar"]),
+      tipe_notifikasi: asString(data["Tipe Notifikasi"]),
+      pesan: asString(data.Pesan),
+      status_baca: Number(data["Status Baca"] || 0),
+      created_at: asString(data["Created At"] || new Date().toISOString()),
+      jumlah_pengiriman: Number(data["Jumlah Pengiriman"] || 0),
+      pengiriman_terakhir_at: asString(data["Pengiriman Terakhir At"]) || null,
     }),
   },
 };
