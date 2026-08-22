@@ -392,7 +392,7 @@ const normalizeData = (value: unknown) => {
   );
 };
 
-const READ_CACHE_TTL_MS = 5 * 60 * 1000;
+const READ_CACHE_TTL_MS = 60 * 60 * 1000;
 const READ_CACHE_STORAGE_KEY = "kbm_read_cache_v1";
 const readCache = new Map<string, { expiresAt: number; rows: DbRow[] }>();
 

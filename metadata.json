@@ -1,0 +1,6 @@
+{
+  "name": "KMB-Qu",
+  "description": "Aplikasi Manajemen Jadwal KBM dan Pengajar",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
