@@ -588,7 +588,12 @@ export const deleteRowsByIds = async (ids: string[]) => {
 
   for (const [bucket, rawIds] of Object.entries(grouped)) {
     const schema = schemas[bucket as BucketName];
-    await apiRequest(`/db/${schema.table}/delete`, "POST", { ids: rawIds });
+    // Chunk ids to avoid SQLite D1 parameter limits
+    const chunkSize = 50;
+    for (let i = 0; i < rawIds.length; i += chunkSize) {
+      const chunk = rawIds.slice(i, i + chunkSize);
+      await apiRequest(`/db/${schema.table}/delete`, "POST", { ids: chunk });
+    }
     invalidateReadCacheForBucket(bucket);
   }
 };
@@ -605,6 +610,11 @@ export const replaceBucketRows = async (bucket: string, records: Record<string, 
   }
 
   const payload = records.map((record) => schema.toDb(record));
-  await apiRequest(`/db/${schema.table}/replace`, "POST", { rows: payload });
+  // Chunk payload to avoid SQLite D1 parameter limits
+  const chunkSize = 40;
+  for (let i = 0; i < payload.length; i += chunkSize) {
+    const chunk = payload.slice(i, i + chunkSize);
+    await apiRequest(`/db/${schema.table}/replace`, "POST", { rows: chunk });
+  }
   invalidateReadCacheForBucket(bucket);
 };
