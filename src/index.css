@@ -1355,3 +1355,57 @@ body {
   line-height: 1.2;
 }
 
+/* =========================================================
+   PRINT JADWAL MODERN STUDIO & PAPER SIMULATOR
+   ========================================================= */
+.bg-gradient-primary-soft {
+  background: linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%);
+}
+
+.bg-gradient-primary {
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%) !important;
+}
+
+.shadow-2xs {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.shadow-xs {
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.print-trigger-btn {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.print-trigger-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
+}
+
+.print-paper-sheet {
+  box-shadow: 0 15px 35px -5px rgba(15, 23, 42, 0.15), 0 0 0 1px rgba(226, 232, 240, 0.9) !important;
+}
+
+.print-paper-simulator-viewport::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.print-paper-simulator-viewport::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.border-dashed {
+  border-style: dashed !important;
+}
+
+.animation-fade-in {
+  animation: modalFadeIn 0.18s ease-out forwards;
+}
+
+
