@@ -1,4 +1,3 @@
-import Select from "react-select";
 import type { SelectOption, StatusState } from "../../types/app";
 
 type TopToolbarProps = {
@@ -149,48 +148,6 @@ export function TopToolbar({
           </div>
         )}
 
-        {activeKey === "suratTugasMengajar" && (
-          <>
-            <div className="input-group input-group-sm" style={{ width: 220 }}>
-              <span className="input-group-text bg-light text-primary border-end-0">
-                <i className="bi bi-calendar3" />
-              </span>
-              <select
-                className="form-select form-select-sm border-start-0"
-                value={selectedSuratTugasMonthKey}
-                onChange={(event) => onSuratMonthChange(event.target.value)}
-              >
-                <option value="">Pilih bulan</option>
-                {monthOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={{ minWidth: 260 }}>
-              <Select
-                value={
-                  selectedSuratTugasKode
-                    ? suratTugasPengajarOptions.find((option) => option.value === selectedSuratTugasKode) || null
-                    : null
-                }
-                onChange={(option) => onSuratKodeChange(option?.value || "")}
-                options={suratTugasPengajarOptions}
-                placeholder={selectedSuratTugasMonthKey ? "Filter nama pengajar" : "Pilih bulan dulu"}
-                isClearable
-                isSearchable
-                isDisabled={!selectedSuratTugasMonthKey}
-                menuPortalTarget={typeof document !== "undefined" ? document.body : null}
-                menuPosition="absolute"
-                styles={{
-                  menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                }}
-              />
-            </div>
-          </>
-        )}
-
         {(activeKey === "bulanIni" ||
           activeKey === "jadwalTambahanPelayanan" ||
           activeKey === "monitoringKelas" ||
@@ -220,9 +177,6 @@ export function TopToolbar({
         )}
         {activeKey === "permintaanPengajarAntarCabang" && permintaanStatus.lastSync && (
           <span className="text-muted small">Terakhir sinkron: {permintaanStatus.lastSync}</span>
-        )}
-        {activeKey === "suratTugasMengajar" && suratTugasStatus.lastSync && (
-          <span className="text-muted small">Terakhir sinkron: {suratTugasStatus.lastSync}</span>
         )}
       </div>
 

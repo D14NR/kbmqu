@@ -1408,4 +1408,149 @@ body {
   animation: modalFadeIn 0.18s ease-out forwards;
 }
 
+/* =========================================================
+   MODERN MONITORING TABLE & HEATMAP MATRIX STYLES
+   ========================================================= */
+.sticky-col-left {
+  position: sticky;
+  left: 0;
+  z-index: 15;
+  box-shadow: 2px 0 6px -2px rgba(15, 23, 42, 0.08);
+}
+
+.monitoring-modern-table th,
+.monitoring-modern-table td {
+  border-color: #e2e8f0;
+  vertical-align: middle;
+}
+
+.monitoring-modern-table tbody tr:hover td {
+  background-color: #f8fafc;
+}
+
+.monitoring-modern-table tbody tr:hover .sticky-col-left {
+  background-color: #f1f5f9 !important;
+}
+
+.text-xxs {
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.bg-blue-subtle {
+  background-color: #eff6ff !important;
+}
+.text-blue {
+  color: #1d4ed8 !important;
+}
+.border-blue-subtle {
+  border-color: #bfdbfe !important;
+}
+
+.bg-purple-subtle {
+  background-color: #faf5ff !important;
+}
+.text-purple {
+  color: #7e22ce !important;
+}
+.border-purple-subtle {
+  border-color: #e9d5ff !important;
+}
+
+.bg-orange-subtle {
+  background-color: #fff7ed !important;
+}
+.text-orange {
+  color: #c2410c !important;
+}
+.border-orange-subtle {
+  border-color: #fed7aa !important;
+}
+
+.bg-emerald-subtle {
+  background-color: #ecfdf5 !important;
+}
+
+.bg-indigo-subtle {
+  background-color: #eef2ff !important;
+}
+.text-indigo {
+  color: #4338ca !important;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.transition-all {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* =========================================================
+   SURAT TUGAS MENGAJAR & OFFICIAL DOCUMENT STYLES
+   ========================================================= */
+.border-bottom-double {
+  border-bottom: 3px double #1e293b !important;
+}
+
+.letter-spacing-tight {
+  letter-spacing: -0.025em;
+}
+
+.shadow-2xs {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.shadow-xs {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+}
+
+.surat-tugas-paper {
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(226, 232, 240, 0.8) !important;
+}
+
+.surat-doc-table th {
+  background-color: #f8fafc !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+}
+
+.surat-doc-table td {
+  border-color: #e2e8f0 !important;
+}
+
+@media print {
+  .sidebar-kaiadmin,
+  .sidebar-mobile,
+  .app-header-card,
+  .btn,
+  .btn-group,
+  .navbar,
+  .d-print-none {
+    display: none !important;
+  }
+  .monitoring-kelas-view-container,
+  .surat-tugas-container {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .surat-tugas-paper {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+  .table-responsive {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+}
+
+
 

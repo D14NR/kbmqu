@@ -5893,48 +5893,50 @@ export function App() {
               </div>
             </div>
 
-             <div className="card shadow-sm surface-panel">
+            <div className="card shadow-sm surface-panel">
               <div className="card-body">
-                <TopToolbar
-                  activeKey={activeKey}
-                  activeName={activeConfig.name}
-                  query={query}
-                  scheduleCabangOptions={activeScheduleCabangOptions}
-                  selectedScheduleCabang={selectedScheduleCabang}
-                  allowAllCabang={!restrictedCabang}
-                  monthOptions={monthOptions}
-                  selectedMonthKey={selectedMonthKey}
-                  selectedSuratTugasMonthKey={selectedSuratTugasMonthKey}
-                  selectedSuratTugasKode={selectedSuratTugasKode}
-                  suratTugasPengajarOptions={suratTugasPengajarOptions}
-                  sheetStatus={sheetStatus}
-                  mapelStatus={mapelStatus}
-                  pengajarStatus={pengajarStatus}
-                  suratTugasStatus={suratTugasStatus}
-                  penempatanStatus={penempatanStatus}
-                  izinStatus={izinStatus}
-                  permintaanStatus={permintaanStatus}
-                  topToolbarMessage={scheduleTopToolbarMessage}
-                  onQueryChange={setQuery}
-                  onScheduleCabangChange={(nextCabang) => {
-                    if (!isScheduleMenuKey(activeKey)) {
-                      return;
-                    }
-                    setScheduleCabangView((prev) => ({
-                      ...prev,
-                      [activeKey]: nextCabang,
-                    }));
-                    clearEditing();
-                  }}
-                  onMonthChange={(nextMonth) => {
-                    setSelectedMonthKey(nextMonth);
-                  }}
-                  onSuratMonthChange={(nextMonth) => {
-                    setSelectedSuratTugasMonthKey(nextMonth);
-                    setSelectedSuratTugasKode("");
-                  }}
-                  onSuratKodeChange={setSelectedSuratTugasKode}
-                />
+                {activeKey !== "suratTugasMengajar" && (
+                  <TopToolbar
+                    activeKey={activeKey}
+                    activeName={activeConfig.name}
+                    query={query}
+                    scheduleCabangOptions={activeScheduleCabangOptions}
+                    selectedScheduleCabang={selectedScheduleCabang}
+                    allowAllCabang={!restrictedCabang}
+                    monthOptions={monthOptions}
+                    selectedMonthKey={selectedMonthKey}
+                    selectedSuratTugasMonthKey={selectedSuratTugasMonthKey}
+                    selectedSuratTugasKode={selectedSuratTugasKode}
+                    suratTugasPengajarOptions={suratTugasPengajarOptions}
+                    sheetStatus={sheetStatus}
+                    mapelStatus={mapelStatus}
+                    pengajarStatus={pengajarStatus}
+                    suratTugasStatus={suratTugasStatus}
+                    penempatanStatus={penempatanStatus}
+                    izinStatus={izinStatus}
+                    permintaanStatus={permintaanStatus}
+                    topToolbarMessage={scheduleTopToolbarMessage}
+                    onQueryChange={setQuery}
+                    onScheduleCabangChange={(nextCabang) => {
+                      if (!isScheduleMenuKey(activeKey)) {
+                        return;
+                      }
+                      setScheduleCabangView((prev) => ({
+                        ...prev,
+                        [activeKey]: nextCabang,
+                      }));
+                      clearEditing();
+                    }}
+                    onMonthChange={(nextMonth) => {
+                      setSelectedMonthKey(nextMonth);
+                    }}
+                    onSuratMonthChange={(nextMonth) => {
+                      setSelectedSuratTugasMonthKey(nextMonth);
+                      setSelectedSuratTugasKode("");
+                    }}
+                    onSuratKodeChange={setSelectedSuratTugasKode}
+                  />
+                )}
                 {(activeKey === "bulanIni" ||
                   activeKey === "jadwalTambahanPelayanan" ||
                   activeKey === "monitoringKelas" ||
@@ -5960,12 +5962,6 @@ export function App() {
                 {activeKey === "pengajar" && pengajarStatus.error && (
                   <div className="alert alert-danger py-2 text-xs mt-3" role="alert">
                     {pengajarStatus.error}
-                  </div>
-                )}
-
-                {activeKey === "suratTugasMengajar" && suratTugasStatus.error && (
-                  <div className="alert alert-danger py-2 text-xs mt-3" role="alert">
-                    {suratTugasStatus.error}
                   </div>
                 )}
 
@@ -6093,6 +6089,16 @@ export function App() {
                     selectedSessionCount={selectedSuratTugasSessionCount}
                     dayRows={suratTugasCalendar.dayRows}
                     recordsByDate={suratTugasRecordsByDate}
+                    monthOptions={monthOptions}
+                    onSelectMonthKey={setSelectedSuratTugasMonthKey}
+                    onSelectPengajarKode={setSelectedSuratTugasKode}
+                    pengajarOptions={suratTugasPengajarOptions}
+                    allPengajarRecords={pengajarRecords}
+                    allSuratRecordsByMonth={suratTugasRecordsByMonth}
+                    mapelNameByKode={mapelNameByKode}
+                    userCabang={restrictedCabang}
+                    lastSync={suratTugasStatus.lastSync}
+                    error={suratTugasStatus.error}
                   />
                 ) : activeKey === "settings" ? (
                   <SettingsView
