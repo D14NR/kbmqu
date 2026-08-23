@@ -64,8 +64,8 @@ export function SuratTugasView({
   lastSync = "",
   error = "",
 }: SuratTugasViewProps) {
-  // UI State
-  const [viewMode, setViewMode] = useState<ViewMode>("document");
+  // UI State: Default to "matrix" (Matriks Jadwal) as primary view
+  const [viewMode, setViewMode] = useState<ViewMode>("matrix");
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
   const [searchTeacherQuery, setSearchTeacherQuery] = useState("");
   const [docNotesEnabled, setDocNotesEnabled] = useState(true);
@@ -595,6 +595,16 @@ export function SuratTugasView({
                 <button
                   type="button"
                   className={`btn btn-sm rounded-2 py-1.5 text-xs fw-semibold ${
+                    viewMode === "matrix" ? "btn-white text-primary shadow-xs" : "text-muted"
+                  }`}
+                  onClick={() => setViewMode("matrix")}
+                >
+                  <i className="bi bi-grid-3x3 me-1" />
+                  Matriks Jadwal
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm rounded-2 py-1.5 text-xs fw-semibold ${
                     viewMode === "document" ? "btn-white text-primary shadow-xs" : "text-muted"
                   }`}
                   onClick={() => setViewMode("document")}
@@ -602,16 +612,6 @@ export function SuratTugasView({
                 >
                   <i className="bi bi-file-earmark-richtext me-1" />
                   Dokumen Resmi
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-sm rounded-2 py-1.5 text-xs fw-semibold ${
-                    viewMode === "matrix" ? "btn-white text-primary shadow-xs" : "text-muted"
-                  }`}
-                  onClick={() => setViewMode("matrix")}
-                >
-                  <i className="bi bi-grid-3x3 me-1" />
-                  Matriks Jadwal
                 </button>
                 <button
                   type="button"
@@ -1068,10 +1068,34 @@ export function SuratTugasView({
                   </tr>
                 ) : !shouldShowSessions ? (
                   <tr>
-                    <td colSpan={12} className="text-center text-muted py-5">
-                      <i className="bi bi-info-circle fs-3 text-secondary opacity-50 d-block mb-2" />
-                      <div className="fw-semibold text-dark">Pilih Pengajar untuk Menampilkan Grid Jadwal</div>
-                      <div className="small text-muted">Gunakan pemilih pengajar di atas atau klik salah satu dari direktori.</div>
+                    <td colSpan={12} className="text-center py-4 px-3 bg-light-subtle">
+                      <div className="max-w-xl mx-auto py-3">
+                        <i className="bi bi-grid-3x3 fs-2 text-primary opacity-75 d-block mb-2" />
+                        <div className="fw-bold text-dark fs-6 mb-1">Pilih Pengajar untuk Menampilkan Matriks Jadwal</div>
+                        <div className="small text-muted mb-3">
+                          Pilih pengajar melalui menu di atas atau klik salah satu nama pengajar di bawah:
+                        </div>
+                        {allTeachersSummary.length > 0 && (
+                          <div className="d-flex flex-wrap justify-content-center gap-1.5 max-h-48 overflow-y-auto p-2 bg-white rounded-3 border">
+                            {allTeachersSummary.map((t) => (
+                              <button
+                                key={t.kode}
+                                type="button"
+                                className="btn btn-outline-secondary btn-xs rounded-pill d-inline-flex align-items-center gap-1 px-2.5 py-1 text-xs"
+                                onClick={() => onSelectPengajarKode?.(t.kode)}
+                              >
+                                <span className="fw-bold text-primary">{t.kode}</span>
+                                <span className="text-truncate" style={{ maxWidth: 140 }}>
+                                  {t.nama !== t.kode ? t.nama : ""}
+                                </span>
+                                <span className="badge bg-primary-subtle text-primary rounded-pill px-1.5 py-0.5">
+                                  {t.totalSesi} sesi
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ) : (

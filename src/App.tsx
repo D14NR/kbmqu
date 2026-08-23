@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { categories, initialRecords } from "./config/categories";
 import { SidebarMenu } from "./components/layout/SidebarMenu";
@@ -227,7 +227,13 @@ export function App() {
   });
   const [editingAccountsCabangId, setEditingAccountsCabangId] = useState<string | null>(null);
   const [accountsCabangError, setAccountsCabangError] = useState("");
-  const [selectedSuratTugasMonthKey, setSelectedSuratTugasMonthKey] = useState("");
+  const [selectedSuratTugasMonthKey, setSelectedSuratTugasMonthKey] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("selectedMonthKey");
+      if (saved) return saved;
+    } catch (_e) {}
+    return getMonthKey(new Date());
+  });
   const [selectedSuratTugasKode, setSelectedSuratTugasKode] = useState("");
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [classDraft, setClassDraft] = useState({ cabang: "", kelas: "", sekolah: "", jenjang: "" });
@@ -1589,6 +1595,61 @@ export function App() {
     [records]
   );
 
+  const resolvePengajarCode = useCallback(
+    (value: string) => {
+      const trimmed = String(value || "").trim().toLowerCase();
+      if (!trimmed) return "";
+
+      // 1. Exact match on Kode Pengajar
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        if (kode && kode === trimmed) {
+          return kode;
+        }
+      }
+
+      // 2. Exact match on Nama
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        const nama = String(record["Nama"] || record.nama || "").trim().toLowerCase();
+        if (nama && nama === trimmed) {
+          return kode || nama;
+        }
+      }
+
+      // 3. Formats with bracket or hyphen like "IA (Irfan)", "Irfan (IA)", "IA - Irfan"
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        const nama = String(record["Nama"] || record.nama || "").trim().toLowerCase();
+        if (kode) {
+          if (
+            (nama && trimmed === `${kode} (${nama})`) ||
+            (nama && trimmed === `${nama} (${kode})`) ||
+            (nama && trimmed === `${kode} - ${nama}`) ||
+            (nama && trimmed === `${nama} - ${kode}`) ||
+            trimmed.endsWith(`(${kode})`) ||
+            trimmed.startsWith(`${kode} - `) ||
+            trimmed.startsWith(`${kode} `)
+          ) {
+            return kode;
+          }
+        }
+      }
+
+      return normalizeValueKey(trimmed);
+    },
+    [pengajarRecords]
+  );
+
+  const resolveCanonicalDate = useCallback(
+    (value: string) => {
+      const norm = normalizeDateValue(String(value || ""));
+      if (norm) return norm;
+      return String(value || "").trim().slice(0, 10);
+    },
+    [monthScheduleDates]
+  );
+
   const conflictingScheduleEntryIds = useMemo(() => {
     const groupedByPengajarTanggal = new Map<string, RecordItem[]>();
 
@@ -1596,8 +1657,8 @@ export function App() {
       if (!hasScheduleContent(entry)) {
         return;
       }
-      const pengajarKey = normalizeText(entry.pengajar || "");
-      const tanggalKey = (entry.tanggal || "").trim();
+      const pengajarKey = resolvePengajarCode(entry.pengajar || "");
+      const tanggalKey = resolveCanonicalDate(entry.tanggal || "");
       if (!pengajarKey || !tanggalKey) {
         return;
       }
@@ -1608,7 +1669,40 @@ export function App() {
 
     const conflictIds = new Set<string>();
 
+    // Helper to check if two entries belong to a combined class (Kelas Gabungan)
+    const isCombinedClassPair = (a: RecordItem, b: RecordItem) => {
+      if (a.id === b.id) return true;
+
+      // Check if both or either has isGabung flag
+      if (a.isGabung || b.isGabung) {
+        return true;
+      }
+
+      // Check if gabungWith string is present
+      const aGabung = String(a.gabungWith || "").trim();
+      const bGabung = String(b.gabungWith || "").trim();
+      if (aGabung || bGabung) {
+        return true;
+      }
+
+      // In the same branch with same subject and same time -> merged session
+      const aCabang = normalizeText(a.cabang || "");
+      const bCabang = normalizeText(b.cabang || "");
+      const aWaktu = normalizeText(a.waktu || "");
+      const bWaktu = normalizeText(b.waktu || "");
+      const aMapel = normalizeText(a.mapel || "");
+      const bMapel = normalizeText(b.mapel || "");
+      if (aCabang && aCabang === bCabang && aWaktu && aWaktu === bWaktu && aMapel && aMapel === bMapel) {
+        return true;
+      }
+
+      return false;
+    };
+
     groupedByPengajarTanggal.forEach((entries) => {
+      if (entries.length < 2) {
+        return;
+      }
       for (let i = 0; i < entries.length; i += 1) {
         const current = entries[i];
         const currentRange = parseRangeFromString(current.waktu || "");
@@ -1617,9 +1711,12 @@ export function App() {
         }
         for (let j = i + 1; j < entries.length; j += 1) {
           const target = entries[j];
-          const currentCabang = normalizeText(current.cabang || "");
-          const targetCabang = normalizeText(target.cabang || "");
-          if (!currentCabang || !targetCabang || currentCabang === targetCabang) {
+          if (current.id === target.id) {
+            continue;
+          }
+
+          // If these two entries are a combined class (Kelas Gabungan), they are not in conflict!
+          if (isCombinedClassPair(current, target)) {
             continue;
           }
 
@@ -1628,31 +1725,44 @@ export function App() {
             continue;
           }
 
+          const currentCabang = normalizeText(current.cabang || "");
+          const targetCabang = normalizeText(target.cabang || "");
+
           const isOverlap = currentRange.start < targetRange.end && targetRange.start < currentRange.end;
+
           if (isOverlap) {
             conflictIds.add(current.id);
             conflictIds.add(target.id);
+          } else if (currentCabang && targetCabang && currentCabang !== targetCabang) {
+            // Check inter-branch minimum gap if different branches
+            const hasGap =
+              currentRange.start >= targetRange.end + INTER_BRANCH_MIN_GAP_MINUTES ||
+              targetRange.start >= currentRange.end + INTER_BRANCH_MIN_GAP_MINUTES;
+            if (!hasGap) {
+              conflictIds.add(current.id);
+              conflictIds.add(target.id);
+            }
           }
         }
       }
     });
 
     return conflictIds;
-  }, [allScheduleEntries]);
+  }, [allScheduleEntries, resolvePengajarCode, resolveCanonicalDate]);
 
   function getApprovedPermintaanForCabang(
     kodePengajar: string,
     cabang: string,
     tanggal?: string
   ) {
-    const kodeKey = normalizeText(kodePengajar);
+    const kodeKey = resolvePengajarCode(kodePengajar);
     const cabangKey = normalizeText(cabang);
     if (!kodeKey || !cabangKey) {
       return [] as Record<string, string>[];
     }
     const targetDate = tanggal ? parseFlexibleDate(tanggal) : null;
     return approvedPermintaanRecords.filter((record) => {
-      const kode = normalizeText(record["Kode Pengajar"] || "");
+      const kode = resolvePengajarCode(record["Kode Pengajar"] || "");
       const cabangPeminta = normalizeText(record["Cabang Peminta"] || "");
       if (!(kode === kodeKey && isCabangMatch(cabangPeminta, cabangKey))) {
         return false;
@@ -1679,14 +1789,25 @@ export function App() {
   }
 
   const hasPengajarAccessInCabang = (kodePengajar: string, cabang: string, tanggal?: string) => {
-    const kodeKey = normalizeText(kodePengajar);
+    const kodeKey = resolvePengajarCode(kodePengajar);
     const cabangKey = normalizeText(cabang);
     if (!kodeKey || !cabangKey) {
       return false;
     }
 
+    // Check home branch (Domisili) first
+    const pengajarRecord = pengajarRecords.find(
+      (record) => resolvePengajarCode(record["Kode Pengajar"] || record.Nama || "") === kodeKey
+    );
+    if (pengajarRecord) {
+      const domisiliKey = normalizeText(pengajarRecord.Domisili || pengajarRecord.Asal_Cabang || "");
+      if (domisiliKey && isCabangMatch(domisiliKey, cabangKey)) {
+        return true;
+      }
+    }
+
     const hasPenempatan = penempatanRecords.some((record) => {
-      const kode = normalizeText(record["Kode Pengajar"] || "");
+      const kode = resolvePengajarCode(record["Kode Pengajar"] || "");
       if (kode !== kodeKey) {
         return false;
       }
@@ -1703,14 +1824,14 @@ export function App() {
   };
 
   const getPengajarIzinOnDate = (kodePengajar: string, tanggal: string) => {
-    const kodeKey = normalizeText(kodePengajar);
+    const kodeKey = resolvePengajarCode(kodePengajar);
     const targetDate = parseFlexibleDate(tanggal);
     if (!kodeKey || !targetDate) {
       return null;
     }
 
     return izinRecords.find((record) => {
-      if (normalizeText(record["Kode Pengajar"] || "") !== kodeKey) {
+      if (resolvePengajarCode(record["Kode Pengajar"] || record.Nama || "") !== kodeKey) {
         return false;
       }
       const startDate = parseFlexibleDate(record["Tanggal Mulai"] || "");
@@ -1732,16 +1853,16 @@ export function App() {
       return defaultResult;
     }
 
-    const pengajarKey = draft.pengajar.trim().toLowerCase();
+    const pengajarKey = resolvePengajarCode(draft.pengajar);
     const occupiedDates = new Set(
       allScheduleEntries
-        .filter((entry) => (entry.pengajar || "").trim().toLowerCase() === pengajarKey)
+        .filter((entry) => resolvePengajarCode(entry.pengajar || "") === pengajarKey)
         .map((entry) => entry.tanggal)
         .filter(Boolean)
     );
     const izinDateLabels = new Set(
       izinRecords
-        .filter((record) => normalizeText(record["Kode Pengajar"] || "") === normalizeText(draft.pengajar))
+        .filter((record) => resolvePengajarCode(record["Kode Pengajar"] || record.Nama || "") === pengajarKey)
         .flatMap((record) => {
           const start = parseFlexibleDate(record["Tanggal Mulai"] || "");
           const end = parseFlexibleDate(record["Tanggal Selesai"] || "");
@@ -1773,7 +1894,7 @@ export function App() {
     }
 
     const penempatanByPengajar = penempatanRecords.filter(
-      (record) => (record["Kode Pengajar"] || "").trim().toLowerCase() === pengajarKey
+      (record) => resolvePengajarCode(record["Kode Pengajar"] || "") === pengajarKey
     );
     const approvedByPengajar = getApprovedPermintaanForCabang(
       draft.pengajar,
@@ -2207,13 +2328,15 @@ export function App() {
 
       const grouped = new Map<string, Array<{ text: string; timestamp?: string }>>();
       allItems.forEach((item: any) => {
-        const kodePengajar = (item.pengajar || "").trim();
+        const rawPengajar = (item.pengajar || "").trim();
+        const kodePengajar = resolvePengajarCode(rawPengajar) || rawPengajar;
         const mapel = (item.mapel || "").trim();
         const waktu = (item.waktu || "").trim();
         const cabang = (item.cabang || "").trim();
         const kelas = (item.kelas || "").trim();
         const sekolah = (item.sekolah || "").trim();
-        const tanggalLabel = formatSheetTanggal(item.tanggal || "");
+        const rawTanggal = resolveCanonicalDate(item.tanggal || "");
+        const tanggalLabel = formatSheetTanggal(rawTanggal || item.tanggal || "");
         if (!kodePengajar || !tanggalLabel || !mapel || !waktu) {
           return;
         }
@@ -2235,12 +2358,12 @@ export function App() {
         const [kodeKey, tanggalKey] = key.split("||");
         const template = allItems.find(
           (item: any) =>
-            normalizeValueKey(item.pengajar || "") === kodeKey &&
-            normalizeValueKey(formatSheetTanggal(item.tanggal || "")) === tanggalKey
+            normalizeValueKey(resolvePengajarCode(item.pengajar || "") || item.pengajar || "") === kodeKey &&
+            normalizeValueKey(formatSheetTanggal(resolveCanonicalDate(item.tanggal || "") || item.tanggal || "")) === tanggalKey
         );
-        const tanggalLabel = template ? formatSheetTanggal(template.tanggal || "") : "";
+        const tanggalLabel = template ? formatSheetTanggal(resolveCanonicalDate(template.tanggal || "") || template.tanggal || "") : "";
         const row: Record<string, string> = {
-          "Kode Pengajar": template?.pengajar || "",
+          "Kode Pengajar": template ? (resolvePengajarCode(template.pengajar || "") || template.pengajar || "") : kodeKey,
           Tanggal: tanggalLabel,
         };
         for (let index = 0; index < 10; index += 1) {
@@ -5486,6 +5609,9 @@ export function App() {
         setConflictError("Jam mulai harus lebih awal daripada jam selesai.");
         return;
       }
+      const targetTeacherCode = resolvePengajarCode(nextValues.pengajar);
+      const targetCanonicalDate = resolveCanonicalDate(tanggal);
+
       const selectedGabungKeySet = new Set(gabungClassKeys);
       const keptGabungLabelSet = new Set(
         gabungOptions
@@ -5498,10 +5624,15 @@ export function App() {
       const ignoreLabelSet = new Set([...keptGabungLabelSet, currentClassLabel]);
       const otherEntries = allScheduleEntries.filter((item) => {
         if (item.id === entryId) return false;
-        if (item.tanggal !== tanggal) return false;
-        if ((item.pengajar || "").toLowerCase() !== pengajarKey) return false;
+        if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
+        if (resolvePengajarCode(item.pengajar || "") !== targetTeacherCode) return false;
+
+        const isSameBranch = normalizeText(item.cabang || "") === normalizeText(cabang || "");
+        const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+        const itemLabel = normalizeText(`${item.kelas || ""}${item.sekolah ? ` • ${item.sekolah}` : ""}`);
+
+        // If saving with gabung enabled, ignore selected gabung classes
         if (gabungEnabled && ignoreClassKeySet.size > 0) {
-          const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
           if (ignoreClassKeySet.has(itemKey)) return false;
           const itemGabungParts = String(item.gabungWith || "")
             .split(";")
@@ -5515,6 +5646,32 @@ export function App() {
             return false;
           }
         }
+
+        // If existing item is marked as gabung with this class or vice versa in same branch
+        if (isSameBranch && (item.isGabung || item.gabungWith)) {
+          const itemGabungParts = String(item.gabungWith || "")
+            .split(";")
+            .map((value) => normalizeText(value))
+            .filter(Boolean);
+          if (
+            itemGabungParts.includes(normalizeText(currentClassKey)) ||
+            itemGabungParts.includes(currentClassLabel) ||
+            itemGabungParts.includes(itemKey) ||
+            itemGabungParts.includes(itemLabel)
+          ) {
+            return false;
+          }
+        }
+
+        // Same branch, same time, and same mapel -> combined class
+        if (
+          isSameBranch &&
+          normalizeText(item.waktu || "") === normalizeText(waktuValue) &&
+          normalizeText(item.mapel || "") === normalizeText(draft.mapel)
+        ) {
+          return false;
+        }
+
         return true;
       });
       for (const entry of otherEntries) {
@@ -5536,7 +5693,7 @@ export function App() {
           );
           return;
         }
-        if (entry.cabang !== cabang) {
+        if (normalizeText(entry.cabang || "") !== normalizeText(cabang || "")) {
           const hasGap = startTime >= range.end + INTER_BRANCH_MIN_GAP_MINUTES || range.start >= endTime + INTER_BRANCH_MIN_GAP_MINUTES;
           if (!hasGap) {
             const tanggalLabel = getSlotLabelByDate(entry.tanggal ?? tanggal);
@@ -5630,12 +5787,51 @@ export function App() {
             skippedCopyLabels.push(`${dateLabel} (pengajar izin)`);
             continue;
           }
-          const copyDateEntries = allScheduleEntries.filter(
-            (item) =>
-              item.id !== entryId &&
-              item.tanggal === targetDate &&
-              item.pengajar?.toLowerCase() === pengajarKey
-          );
+          const copyDateEntries = allScheduleEntries.filter((item) => {
+            if (item.id === entryId) return false;
+            if (resolveCanonicalDate(item.tanggal || "") !== resolveCanonicalDate(targetDate)) return false;
+            if (resolvePengajarCode(item.pengajar || "") !== targetTeacherCode) return false;
+
+            const isSameBranch = normalizeText(item.cabang || "") === normalizeText(cabang || "");
+            const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+            const itemLabel = normalizeText(`${item.kelas || ""}${item.sekolah ? ` • ${item.sekolah}` : ""}`);
+
+            if (gabungEnabled && ignoreClassKeySet.size > 0) {
+              if (ignoreClassKeySet.has(itemKey)) return false;
+              const itemGabungParts = String(item.gabungWith || "")
+                .split(";")
+                .map((v) => normalizeText(v))
+                .filter(Boolean);
+              if (itemGabungParts.some((v) => ignoreClassKeySet.has(v) || ignoreLabelSet.has(v))) {
+                return false;
+              }
+            }
+
+            if (isSameBranch && (item.isGabung || item.gabungWith)) {
+              const itemGabungParts = String(item.gabungWith || "")
+                .split(";")
+                .map((v) => normalizeText(v))
+                .filter(Boolean);
+              if (
+                itemGabungParts.includes(normalizeText(currentClassKey)) ||
+                itemGabungParts.includes(currentClassLabel) ||
+                itemGabungParts.includes(itemKey) ||
+                itemGabungParts.includes(itemLabel)
+              ) {
+                return false;
+              }
+            }
+
+            if (
+              isSameBranch &&
+              normalizeText(item.waktu || "") === normalizeText(waktuValue) &&
+              normalizeText(item.mapel || "") === normalizeText(draft.mapel)
+            ) {
+              return false;
+            }
+
+            return true;
+          });
           let conflictFound = false;
           for (const entry of copyDateEntries) {
             const range = parseRangeFromString(entry.waktu || "");
@@ -5647,7 +5843,7 @@ export function App() {
               conflictFound = true;
               break;
             }
-            if (entry.cabang !== cabang) {
+            if (normalizeText(entry.cabang || "") !== normalizeText(cabang || "")) {
               const hasGap = startTime >= range.end + INTER_BRANCH_MIN_GAP_MINUTES || range.start >= endTime + INTER_BRANCH_MIN_GAP_MINUTES;
               if (!hasGap) {
                 conflictFound = true;
