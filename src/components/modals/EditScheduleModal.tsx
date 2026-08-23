@@ -196,10 +196,24 @@ export function EditScheduleModal({
                   <i className="bi bi-geo-alt me-1" />
                   {editingSlot.cabang}
                 </span>
+                {editingSlot.jenjang && (
+                  <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0.5">
+                    {editingSlot.jenjang}
+                  </span>
+                )}
                 <span className="badge bg-light text-dark border rounded-pill px-2 py-0.5">
                   <i className="bi bi-mortarboard me-1" />
                   {editingSlot.kelas}
                 </span>
+                {editingSlot.classOrder !== undefined && editingSlot.classOrder !== "" && editingSlot.classOrder !== null && (
+                  <span
+                    className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle rounded-pill px-1.5 py-0.5 font-monospace"
+                    title={`Urutan Kelas: ${editingSlot.classOrder}`}
+                  >
+                    <i className="bi bi-sort-numeric-down me-1" />
+                    #{editingSlot.classOrder}
+                  </span>
+                )}
                 {editingSlot.sekolah && (
                   <span className="badge bg-light text-muted border rounded-pill px-2 py-0.5">
                     <i className="bi bi-building me-1" />

@@ -31,6 +31,8 @@ export type EditingSlot = {
   cabang: string;
   kelas: string;
   sekolah?: string;
+  jenjang?: string;
+  classOrder?: number | string;
   tanggal: string;
   tanggalSheet: string;
   entryId?: string;

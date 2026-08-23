@@ -500,11 +500,21 @@ export function ScheduleTableView({
                           aria-label="Edit nama kelas"
                           title="Klik untuk edit kelas / jenjang"
                         >
-                          {group.jenjang ? (
-                            <span className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs rounded-pill px-2 py-0.5 mb-1">
-                              {group.jenjang}
-                            </span>
-                          ) : null}
+                          <div className="d-flex align-items-center gap-1 mb-1 flex-wrap">
+                            {group.jenjang ? (
+                              <span className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs rounded-pill px-2 py-0.5">
+                                {group.jenjang}
+                              </span>
+                            ) : null}
+                            {group.classOrder !== undefined && group.classOrder !== null && (
+                              <span
+                                className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle text-xxs rounded-pill px-1.5 py-0.5 font-monospace"
+                                title={`Urutan Kelas: ${group.classOrder}`}
+                              >
+                                #{group.classOrder}
+                              </span>
+                            )}
+                          </div>
                           <div className="schedule-class-main fw-bold text-dark d-flex align-items-center justify-content-between">
                             <span>{group.kelas}</span>
                             <i className="bi bi-pencil-square text-muted text-xxs class-edit-icon" />
@@ -519,11 +529,21 @@ export function ScheduleTableView({
                       </div>
                     ) : (
                       <div className="schedule-class-wrapper p-1">
-                        {group.jenjang ? (
-                          <span className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs rounded-pill px-2 py-0.5 mb-1">
-                            {group.jenjang}
-                          </span>
-                        ) : null}
+                        <div className="d-flex align-items-center gap-1 mb-1 flex-wrap">
+                          {group.jenjang ? (
+                            <span className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs rounded-pill px-2 py-0.5">
+                              {group.jenjang}
+                            </span>
+                          ) : null}
+                          {group.classOrder !== undefined && group.classOrder !== null && (
+                            <span
+                              className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle text-xxs rounded-pill px-1.5 py-0.5 font-monospace"
+                              title={`Urutan Kelas: ${group.classOrder}`}
+                            >
+                              #{group.classOrder}
+                            </span>
+                          )}
+                        </div>
                         <div className="schedule-class-main fw-bold text-dark">{group.kelas}</div>
                         {isJadwalTambahanMenu && group.sekolah ? (
                           <div className="schedule-class-sub text-muted small mt-0.5 text-truncate" title={group.sekolah}>

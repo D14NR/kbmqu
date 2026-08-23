@@ -10,12 +10,12 @@ type SekolahOption = {
 type ClassModalProps = {
   isOpen: boolean;
   isEditing?: boolean;
-  classDraft: { cabang: string; kelas: string; sekolah: string; jenjang?: string };
+  classDraft: { cabang: string; kelas: string; sekolah: string; jenjang?: string; classOrder?: string | number };
   fixedCabang?: string;
   showSekolahField?: boolean;
   classError: string;
   onClose: () => void;
-  onDraftChange: (field: "cabang" | "kelas" | "sekolah" | "jenjang", value: string) => void;
+  onDraftChange: (field: "cabang" | "kelas" | "sekolah" | "jenjang" | "classOrder", value: string) => void;
   onSave: () => void;
 };
 
@@ -111,7 +111,18 @@ export function ClassModal({
               <i className={`bi ${isEditing ? "bi-pencil-square" : "bi-mortarboard-fill"} fs-4`} />
             </div>
             <div>
-              <h5 className="fw-bold mb-1 text-dark">{isEditing ? "Edit Kelas" : "Tambah Kelas Baru"}</h5>
+              <div className="d-flex align-items-center gap-2 mb-1">
+                <h5 className="fw-bold mb-0 text-dark">{isEditing ? "Edit Kelas" : "Tambah Kelas Baru"}</h5>
+                {isEditing && classDraft.classOrder !== undefined && classDraft.classOrder !== "" && classDraft.classOrder !== null && (
+                  <span
+                    className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle rounded-pill px-2 py-0.5 font-monospace text-xxs"
+                    title={`Urutan Kelas: ${classDraft.classOrder}`}
+                  >
+                    <i className="bi bi-sort-numeric-down me-1" />
+                    #{classDraft.classOrder}
+                  </span>
+                )}
+              </div>
               <div className="text-muted text-xxs">
                 {isEditing
                   ? "Perbarui detail nama atau jenjang kelas."
@@ -219,6 +230,34 @@ export function ClassModal({
                   <option value="1 SD">1 SD</option>
                 </optgroup>
               </select>
+            </div>
+
+            {/* Field: Urutan Kelas (Class Order) */}
+            <div>
+              <div className="d-flex align-items-center justify-content-between mb-1.5">
+                <label className="form-label small fw-bold text-dark mb-0 d-flex align-items-center gap-1.5">
+                  <i className="bi bi-sort-numeric-down text-primary" />
+                  Urutan Kelas (Class Order)
+                </label>
+                <span className="text-muted text-xxs">Posisi baris di tabel</span>
+              </div>
+              <div className="input-group input-group-sm">
+                <span className="input-group-text bg-white border-end-0">
+                  <i className="bi bi-hash text-muted" />
+                </span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={classDraft.classOrder !== undefined && classDraft.classOrder !== null ? classDraft.classOrder : ""}
+                  onChange={(event) => onDraftChange("classOrder", event.target.value)}
+                  placeholder="Contoh: 1, 2, 10, 11..."
+                  className="form-control border-start-0 fw-semibold"
+                />
+              </div>
+              <div className="text-muted text-xxs mt-1">
+                Gunakan angka unik untuk mengatur urutan tampilan baris kelas pada tabel jadwal (misal: 1, 2, 3...).
+              </div>
             </div>
 
             {/* Field: Sekolah (Jadwal Tambahan) */}

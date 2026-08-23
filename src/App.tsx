@@ -237,7 +237,13 @@ export function App() {
   });
   const [selectedSuratTugasKode, setSelectedSuratTugasKode] = useState("");
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
-  const [classDraft, setClassDraft] = useState({ cabang: "", kelas: "", sekolah: "", jenjang: "" });
+  const [classDraft, setClassDraft] = useState<{ cabang: string; kelas: string; sekolah: string; jenjang: string; classOrder?: string | number }>({
+    cabang: "",
+    kelas: "",
+    sekolah: "",
+    jenjang: "",
+    classOrder: "",
+  });
   const [isClassEditing, setIsClassEditing] = useState(false);
   const [editingClassGroup, setEditingClassGroup] = useState<
     { cabang: string; kelas: string; sekolah?: string } | null
@@ -4901,7 +4907,7 @@ export function App() {
     setIsClassModalOpen(true);
   };
 
-  const handleOpenEditClass = (group: { cabang: string; kelas: string; sekolah: string; jenjang?: string; entriesByDate?: Record<string, RecordItem[]> }) => {
+  const handleOpenEditClass = (group: { cabang: string; kelas: string; sekolah: string; jenjang?: string; classOrder?: number | string; entriesByDate?: Record<string, RecordItem[]> }) => {
     if (isScheduleReadOnly) {
       pushToast("Mode lihat cabang lain aktif. Anda tidak dapat mengubah kelas.", "error");
       return;
@@ -4909,14 +4915,18 @@ export function App() {
     // prefer group-level jenjang, fallback to any entry in the group
     const anyEntry = Object.values(group.entriesByDate || {}).flat()[0] as RecordItem | undefined;
     const jenjang = group.jenjang || anyEntry?.jenjang || "";
-    setClassDraft({ cabang: group.cabang || "", kelas: group.kelas || "", sekolah: group.sekolah || "", jenjang });
+    const classOrder = group.classOrder !== undefined && group.classOrder !== null ? group.classOrder : (anyEntry?.classOrder || "");
+    setClassDraft({ cabang: group.cabang || "", kelas: group.kelas || "", sekolah: group.sekolah || "", jenjang, classOrder });
     setIsClassEditing(true);
     setEditingClassGroup({ cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah });
     setClassError("");
     setIsClassModalOpen(true);
   };
 
-  const handleClassDraftChange = (key: "cabang" | "kelas" | "sekolah" | "jenjang", value: string) => {
+  const handleClassDraftChange = (
+    key: "cabang" | "kelas" | "sekolah" | "jenjang" | "classOrder",
+    value: string
+  ) => {
     if (key === "cabang" && restrictedCabang) {
       return;
     }
@@ -4927,7 +4937,8 @@ export function App() {
     group: { cabang: string; kelas: string; sekolah?: string },
     nextKelasValue: string,
     nextSekolahValue: string,
-    nextJenjangValue?: string
+    nextJenjangValue?: string,
+    nextClassOrderValue?: string | number
   ) => {
     if (isScheduleReadOnly) {
       pushToast("Mode lihat cabang lain aktif. Anda tidak dapat mengubah kelas.", "error");
@@ -4993,6 +5004,11 @@ export function App() {
       return false;
     }
 
+    const targetClassOrderStr =
+      nextClassOrderValue !== undefined && String(nextClassOrderValue).trim() !== ""
+        ? String(nextClassOrderValue).trim()
+        : undefined;
+
     setRecords((prev) => ({
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).map((item) => {
@@ -5008,7 +5024,8 @@ export function App() {
             cabang,
             kelas,
             sekolah,
-            jenjang: nextJenjangValue !== "" ? nextJenjangValue : item.jenjang || "",
+            jenjang: nextJenjangValue !== "" && nextJenjangValue !== undefined ? nextJenjangValue : item.jenjang || "",
+            classOrder: targetClassOrderStr !== undefined ? targetClassOrderStr : item.classOrder || "",
           };
         }
         return item;
@@ -5032,6 +5049,7 @@ export function App() {
           scheduleJenis
         );
         const newJenjang = nextJenjangValue !== undefined && nextJenjangValue !== "" ? nextJenjangValue : item.jenjang || "";
+        const newClassOrder = targetClassOrderStr !== undefined ? targetClassOrderStr : item.classOrder || "";
         const newRecord = buildSheetRecord(
           cabang,
           kelas,
@@ -5041,14 +5059,14 @@ export function App() {
           item.waktu || "",
           newJenjang,
           sekolah,
-          item.classOrder || "",
+          newClassOrder,
           scheduleJenis
         );
         return postToSheet({ action: "upsert", record: newRecord, oldRecord });
       })
     );
 
-    pushToast("Nama kelas berhasil diperbarui.", "success");
+    pushToast("Detail kelas dan urutan berhasil diperbarui.", "success");
     return true;
   };
 
@@ -5071,13 +5089,14 @@ export function App() {
         editingClassGroup,
         classDraft.kelas.trim(),
         classDraft.sekolah.trim(),
-        classDraft.jenjang.trim()
+        classDraft.jenjang.trim(),
+        classDraft.classOrder !== undefined ? String(classDraft.classOrder).trim() : undefined
       );
       if (success) {
         setIsClassModalOpen(false);
         setIsClassEditing(false);
         setEditingClassGroup(null);
-        setClassDraft({ cabang: "", kelas: "", sekolah: "", jenjang: "" });
+        setClassDraft({ cabang: "", kelas: "", sekolah: "", jenjang: "", classOrder: "" });
         setClassError("");
       }
       return;
@@ -5133,6 +5152,11 @@ export function App() {
       .map((item) => parseClassOrder(item.classOrder))
       .filter((value): value is number => value !== null);
     const nextClassOrder = (classOrders.length > 0 ? Math.max(...classOrders) : 0) + 1;
+    const specifiedOrder =
+      classDraft.classOrder !== undefined && String(classDraft.classOrder).trim() !== ""
+        ? String(classDraft.classOrder).trim()
+        : String(nextClassOrder);
+
     const sheetRecord = buildSheetRecord(
       cabang,
       kelas,
@@ -5142,7 +5166,7 @@ export function App() {
       "",
       jenjang,
       sekolah,
-      String(nextClassOrder),
+      specifiedOrder,
       getScheduleJenis(activeScheduleKey)
     );
     const newItem: RecordItem = {
@@ -5151,7 +5175,7 @@ export function App() {
       kelas,
       sekolah,
       jenjang,
-      classOrder: String(nextClassOrder),
+      classOrder: specifiedOrder,
       tanggal: firstSlot.date,
       tanggalSheet: sheetRecord.Tanggal,
       mapel: "",
@@ -5236,6 +5260,18 @@ export function App() {
     const currentOrder = currentGroup.classOrder;
     const targetOrder = targetGroup.classOrder;
 
+    let finalCurrentOrder = targetOrder;
+    let finalTargetOrder = currentOrder;
+    if (finalCurrentOrder === finalTargetOrder) {
+      if (direction > 0) {
+        finalCurrentOrder = currentOrder + 1;
+        finalTargetOrder = currentOrder;
+      } else {
+        finalCurrentOrder = Math.max(1, currentOrder - 1);
+        finalTargetOrder = currentOrder;
+      }
+    }
+
     const currentKey = buildClassGroupKey(currentGroup.cabang, currentGroup.kelas, currentGroup.sekolah || "");
     const targetKey = buildClassGroupKey(targetGroup.cabang, targetGroup.kelas, targetGroup.sekolah || "");
     const currentViewKey = `${activeScheduleKey}:${selectedMonthKey}:${selectedScheduleCabang}:${currentKey}`;
@@ -5258,10 +5294,10 @@ export function App() {
         }
         const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
         if (itemKey === currentKey) {
-          return { ...item, classOrder: String(targetOrder) };
+          return { ...item, classOrder: String(finalCurrentOrder) };
         }
         if (itemKey === targetKey) {
-          return { ...item, classOrder: String(currentOrder) };
+          return { ...item, classOrder: String(finalTargetOrder) };
         }
         return item;
       }),
@@ -5274,7 +5310,7 @@ export function App() {
           cabang: currentGroup.cabang,
           kelas: currentGroup.kelas,
           sekolah: currentGroup.sekolah || "",
-          classOrder: String(targetOrder),
+          classOrder: String(finalCurrentOrder),
           ...(activeScheduleKey === "jadwalTambahanPelayanan"
             ? {}
             : { monthKey: selectedMonthKey }),
@@ -5287,7 +5323,7 @@ export function App() {
           cabang: targetGroup.cabang,
           kelas: targetGroup.kelas,
           sekolah: targetGroup.sekolah || "",
-          classOrder: String(currentOrder),
+          classOrder: String(finalTargetOrder),
           ...(activeScheduleKey === "jadwalTambahanPelayanan"
             ? {}
             : { monthKey: selectedMonthKey }),
@@ -5573,6 +5609,8 @@ export function App() {
       cabang: group.cabang,
       kelas: group.kelas,
       sekolah: group.sekolah || "",
+      jenjang: group.jenjang || targetEntry?.jenjang || "",
+      classOrder: group.classOrder !== undefined && group.classOrder !== null ? group.classOrder : (targetEntry?.classOrder || ""),
       tanggal: slot.date,
       tanggalSheet: targetEntry?.tanggalSheet || slot.label,
       entryId: targetEntry?.id,
