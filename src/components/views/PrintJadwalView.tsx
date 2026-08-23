@@ -108,7 +108,8 @@ const DAY_PALETTE = [
 const getMatrixTableHtml = (
   dayColumns: RegularDayColumn[],
   group: ScheduleGroup,
-  mapelNameByKode: Record<string, string>
+  mapelNameByKode: Record<string, string>,
+  includePengajar = true
 ) => {
   if (dayColumns.length === 0) {
     return `<div style="text-align:center;padding:20px;color:#64748b;">Belum ada sesi jadwal terisi.</div>`;
@@ -157,7 +158,7 @@ const getMatrixTableHtml = (
               return `
                 <div class="matrix-session-card matrix-libur-card">
                   <div class="matrix-mapel-kode" style="color: #b45309;">🏖️ LIBUR KBM</div>
-                  ${entry.pengajar ? `<div class="matrix-guru">${escapeHtml(entry.pengajar)}</div>` : ""}
+                  ${includePengajar && entry.pengajar ? `<div class="matrix-guru">${escapeHtml(entry.pengajar)}</div>` : ""}
                 </div>`;
             }
 
@@ -168,7 +169,7 @@ const getMatrixTableHtml = (
                   ${entry.waktu ? `<span class="matrix-waktu">⏱️ ${escapeHtml(entry.waktu)}</span>` : ""}
                 </div>
                 ${namaLengkap && namaLengkap !== kode ? `<div class="matrix-mapel-name">${escapeHtml(namaLengkap)}</div>` : ""}
-                ${entry.pengajar ? `<div class="matrix-guru">👤 Guru: <strong>${escapeHtml(entry.pengajar)}</strong></div>` : ""}
+                ${includePengajar && entry.pengajar ? `<div class="matrix-guru">👤 Guru: <strong>${escapeHtml(entry.pengajar)}</strong></div>` : ""}
               </div>`;
           })
           .join("");
@@ -206,7 +207,8 @@ const getMatrixTableHtml = (
  */
 const getAgendaTableHtml = (
   flatSessions: FlatSessionItem[],
-  mapelNameByKode: Record<string, string>
+  mapelNameByKode: Record<string, string>,
+  includePengajar = true
 ) => {
   if (flatSessions.length === 0) {
     return `<div style="text-align:center;padding:20px;color:#64748b;">Belum ada sesi jadwal terisi.</div>`;
@@ -243,7 +245,7 @@ const getAgendaTableHtml = (
         .join("");
 
       const guruHtml = item.entries
-        .map((e) => `<div class="agenda-guru-text">${e.pengajar ? `👤 ${escapeHtml(e.pengajar)}` : "-"}</div>`)
+        .map((e) => `<div class="agenda-guru-text">${includePengajar && e.pengajar ? `👤 ${escapeHtml(e.pengajar)}` : "-"}</div>`)
         .join("");
 
       return `
@@ -282,6 +284,7 @@ type PrintOptions = {
   includeNotes: boolean;
   includeSignatures: boolean;
   includeCutLine: boolean;
+  includePengajar: boolean;
 };
 
 const printHtmlDocument = (
@@ -813,6 +816,7 @@ export function PrintJadwalView({
   const [includeNotes, setIncludeNotes] = useState(true);
   const [includeSignatures, setIncludeSignatures] = useState(true);
   const [includeCutLine, setIncludeCutLine] = useState(true);
+  const [includePengajar, setIncludePengajar] = useState(true);
 
   const selectedMonthDate = useMemo(() => {
     const [year, month] = selectedMonthKey.split("-").map(Number);
@@ -1042,13 +1046,14 @@ export function PrintJadwalView({
       includeNotes,
       includeSignatures,
       includeCutLine,
+      includePengajar,
     };
 
     let tableHtml = "";
     if (tableLayoutMode === "agenda") {
-      tableHtml = getAgendaTableHtml(flatSessions, mapelNameByKode);
+      tableHtml = getAgendaTableHtml(flatSessions, mapelNameByKode, includePengajar);
     } else {
-      tableHtml = getMatrixTableHtml(regularDayColumns, selectedClassGroup, mapelNameByKode);
+      tableHtml = getMatrixTableHtml(regularDayColumns, selectedClassGroup, mapelNameByKode, includePengajar);
     }
 
     const fullContent = `
@@ -1089,7 +1094,7 @@ export function PrintJadwalView({
           if (entries.length > 0) {
             entries.forEach((e) => {
               const mapel = getDisplayMapel(e.mapel || "", mapelNameByKode);
-              text += `  • *${slot.label}* (${e.waktu || "-"}): ${mapel}${e.pengajar ? ` - Guru: ${e.pengajar}` : ""}\n`;
+              text += `  • *${slot.label}* (${e.waktu || "-"}): ${mapel}${includePengajar && e.pengajar ? ` - Guru: ${e.pengajar}` : ""}\n`;
             });
           }
         });
@@ -1104,7 +1109,7 @@ export function PrintJadwalView({
           text += `🔹 *${dateFormatted}*\n`;
           entries.forEach((e) => {
             const mapel = getDisplayMapel(e.mapel || "", mapelNameByKode);
-            text += `  • Jam: ${e.waktu || "-"} | Mapel: ${mapel}${e.pengajar ? ` | Pengajar: ${e.pengajar}` : ""}\n`;
+            text += `  • Jam: ${e.waktu || "-"} | Mapel: ${mapel}${includePengajar && e.pengajar ? ` | Pengajar: ${e.pengajar}` : ""}\n`;
           });
           text += `\n`;
         }
@@ -1413,7 +1418,23 @@ export function PrintJadwalView({
                 />
               </div>
               <div className="row g-3">
-                <div className="col-12 col-sm-6 col-md-3">
+                <div className="col-12 col-sm-6 col-md-4 col-lg-2.4">
+                  <div className="form-check form-switch">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      id="optGuru"
+                      checked={includePengajar}
+                      onChange={(e) => setIncludePengajar(e.target.checked)}
+                    />
+                    <label className="form-check-label text-xs fw-semibold text-dark" htmlFor="optGuru">
+                      Nama Pengajar / Guru
+                    </label>
+                    <div className="text-xxs text-muted">Tampilkan info guru pengampu di setiap sesi.</div>
+                  </div>
+                </div>
+
+                <div className="col-12 col-sm-6 col-md-4 col-lg-2.4">
                   <div className="form-check form-switch">
                     <input
                       className="form-check-input"
@@ -1429,7 +1450,7 @@ export function PrintJadwalView({
                   </div>
                 </div>
 
-                <div className="col-12 col-sm-6 col-md-3">
+                <div className="col-12 col-sm-6 col-md-4 col-lg-2.4">
                   <div className="form-check form-switch">
                     <input
                       className="form-check-input"
@@ -1445,7 +1466,7 @@ export function PrintJadwalView({
                   </div>
                 </div>
 
-                <div className="col-12 col-sm-6 col-md-3">
+                <div className="col-12 col-sm-6 col-md-4 col-lg-2.4">
                   <div className="form-check form-switch">
                     <input
                       className="form-check-input"
@@ -1461,7 +1482,7 @@ export function PrintJadwalView({
                   </div>
                 </div>
 
-                <div className="col-12 col-sm-6 col-md-3">
+                <div className="col-12 col-sm-6 col-md-4 col-lg-2.4">
                   <div className="form-check form-switch">
                     <input
                       className="form-check-input"
@@ -1737,7 +1758,7 @@ export function PrintJadwalView({
                                           className="p-1.5 rounded-2 text-center bg-warning-subtle border border-warning-subtle text-warning-emphasis"
                                         >
                                           <div className="fw-bold text-xxs">🏖️ LIBUR KBM</div>
-                                          {entry.pengajar && <div className="text-xxs text-muted">{entry.pengajar}</div>}
+                                          {includePengajar && entry.pengajar && <div className="text-xxs text-muted">{entry.pengajar}</div>}
                                         </div>
                                       );
                                     }
@@ -1772,7 +1793,7 @@ export function PrintJadwalView({
                                           {namaLengkap}
                                         </div>
 
-                                        {entry.pengajar && (
+                                        {includePengajar && entry.pengajar && (
                                           <div className="text-muted text-xxs mt-1 fst-italic">
                                             👤 Guru: <strong>{entry.pengajar}</strong>
                                           </div>
@@ -1847,7 +1868,7 @@ export function PrintJadwalView({
                           <td>
                             {item.entries.map((e, sIdx) => (
                               <div key={sIdx} className="text-muted text-xxs">
-                                {e.pengajar ? `👤 ${e.pengajar}` : "-"}
+                                {includePengajar && e.pengajar ? `👤 ${e.pengajar}` : "-"}
                               </div>
                             ))}
                           </td>

@@ -1415,9 +1415,15 @@ export function App() {
       : sourceRecords;
     const grouped = new Map<
       string,
-      { cabang: string; kelas: string; sekolah: string; jenjang?: string; classOrder: number; entriesByDate: Record<string, RecordItem[]> }
+      {
+        cabang: string;
+        kelas: string;
+        sekolah: string;
+        jenjang?: string;
+        classOrdersFound: number[];
+        entriesByDate: Record<string, RecordItem[]>;
+      }
     >();
-    let fallbackOrder = 1;
 
     entries.forEach((entry) => {
       const cabang = entry.cabang || "";
@@ -1425,8 +1431,6 @@ export function App() {
       const sekolah = entry.sekolah || "";
       const key = buildClassGroupKey(cabang, kelas, sekolah);
       const parsedOrder = parseClassOrder(entry.classOrder);
-      const overrideOrder = groupDisplayOrder[getGroupOrderKey(key)];
-      const initialOrder = overrideOrder ?? (parsedOrder ?? fallbackOrder);
 
       if (!grouped.has(key)) {
         grouped.set(key, {
@@ -1434,15 +1438,14 @@ export function App() {
           kelas,
           sekolah,
           jenjang: entry.jenjang || "",
-          classOrder: initialOrder,
+          classOrdersFound: parsedOrder !== null ? [parsedOrder] : [],
           entriesByDate: {},
         });
-        fallbackOrder += 1;
       } else {
         const group = grouped.get(key)!;
-        const currentOrder = group.classOrder;
-        const nextOrder = overrideOrder ?? (parsedOrder !== null ? Math.min(currentOrder, parsedOrder) : currentOrder);
-        group.classOrder = nextOrder;
+        if (parsedOrder !== null && !group.classOrdersFound.includes(parsedOrder)) {
+          group.classOrdersFound.push(parsedOrder);
+        }
         if (!group.jenjang && entry.jenjang) {
           group.jenjang = entry.jenjang;
         }
@@ -1455,7 +1458,50 @@ export function App() {
       grouped.get(key)!.entriesByDate[entry.tanggal] = [...existingEntries, entry];
     });
 
-    grouped.forEach((group) => {
+    let maxExplicitOrder = 0;
+    grouped.forEach((group, key) => {
+      const overrideOrder = groupDisplayOrder[getGroupOrderKey(key)];
+      if (overrideOrder !== undefined) {
+        maxExplicitOrder = Math.max(maxExplicitOrder, overrideOrder);
+      } else if (group.classOrdersFound.length > 0) {
+        maxExplicitOrder = Math.max(maxExplicitOrder, Math.min(...group.classOrdersFound));
+      }
+    });
+
+    const unassignedKeys: string[] = [];
+    grouped.forEach((group, key) => {
+      const overrideOrder = groupDisplayOrder[getGroupOrderKey(key)];
+      if (overrideOrder === undefined && group.classOrdersFound.length === 0) {
+        unassignedKeys.push(key);
+      }
+    });
+
+    unassignedKeys.sort((aKey, bKey) => {
+      const gA = grouped.get(aKey)!;
+      const gB = grouped.get(bKey)!;
+      const classCmp = gA.kelas.localeCompare(gB.kelas, "id");
+      if (classCmp !== 0) return classCmp;
+      return gA.sekolah.localeCompare(gB.sekolah, "id");
+    });
+
+    const fallbackOrders = new Map<string, number>();
+    let nextFallback = maxExplicitOrder + 1;
+    unassignedKeys.forEach((key) => {
+      fallbackOrders.set(key, nextFallback);
+      nextFallback += 1;
+    });
+
+    const finalGroups = Array.from(grouped.entries()).map(([key, group]) => {
+      const overrideOrder = groupDisplayOrder[getGroupOrderKey(key)];
+      let classOrder = 0;
+      if (overrideOrder !== undefined) {
+        classOrder = overrideOrder;
+      } else if (group.classOrdersFound.length > 0) {
+        classOrder = Math.min(...group.classOrdersFound);
+      } else {
+        classOrder = fallbackOrders.get(key) ?? 999;
+      }
+
       Object.keys(group.entriesByDate).forEach((dateKey) => {
         group.entriesByDate[dateKey] = [...group.entriesByDate[dateKey]].sort((a, b) => {
           const aStart = parseRangeFromString(a.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER;
@@ -1463,9 +1509,18 @@ export function App() {
           return aStart - bStart;
         });
       });
+
+      return {
+        cabang: group.cabang,
+        kelas: group.kelas,
+        sekolah: group.sekolah,
+        jenjang: group.jenjang,
+        classOrder,
+        entriesByDate: group.entriesByDate,
+      };
     });
 
-    const groups = Array.from(grouped.values()).sort((a, b) => {
+    const groups = finalGroups.sort((a, b) => {
       if (a.classOrder !== b.classOrder) {
         return a.classOrder - b.classOrder;
       }
@@ -5500,15 +5555,25 @@ export function App() {
     const existingEntry = entryId
       ? (records[activeScheduleKey] ?? []).find((item) => item.id === entryId)
       : undefined;
+
+    const targetClassKey = buildClassGroupKey(cabang, kelas, sekolahValue);
+    const existingClassOrder = (records[activeScheduleKey] ?? [])
+      .filter((item) => buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "") === targetClassKey)
+      .map((item) => parseClassOrder(item.classOrder))
+      .find((order): order is number => order !== null);
+
+    const existingGroup = monthScheduleGroupsAll.find(
+      (g) => buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "") === targetClassKey
+    );
+
+    const resolvedClassOrderNum =
+      existingClassOrder ??
+      (existingGroup?.classOrder !== undefined ? existingGroup.classOrder : null);
+
     const classOrderValue =
-      existingEntry?.classOrder ||
-      (records[activeScheduleKey] ?? []).find(
-        (item) =>
-          item.cabang === cabang &&
-          item.kelas === kelas &&
-          (item.sekolah || "") === sekolahValue
-      )?.classOrder ||
-      "";
+      resolvedClassOrderNum !== null
+        ? String(resolvedClassOrderNum)
+        : (existingEntry?.classOrder && existingEntry.classOrder.trim()) || "";
 
     const dateLabelByKey = new Map(activeScheduleDates.map((slot) => [slot.date, slot.label]));
     const currentEntries = records[activeScheduleKey] ?? [];
