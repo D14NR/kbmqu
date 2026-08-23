@@ -331,7 +331,18 @@ export function App() {
     bulanIni: "",
     jadwalTambahanPelayanan: "",
   });
-  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
+    try {
+      const stored = localStorage.getItem(authStorageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored) as AuthSession;
+        if (parsed && typeof parsed.username === "string" && parsed.username.trim()) {
+          return parsed;
+        }
+      }
+    } catch (_e) {}
+    return null;
+  });
   const [isAppInitializing, setIsAppInitializing] = useState(true);
   const [dbConnectionError, setDbConnectionError] = useState("");
   const [databaseAccounts, setDatabaseAccounts] = useState<LoginAccount[]>([]);
@@ -723,6 +734,90 @@ export function App() {
       ),
     [permintaanRecords]
   );
+
+  const resolvePengajarCode = useCallback(
+    (value: string) => {
+      const trimmed = String(value || "").trim().toLowerCase();
+      if (!trimmed) return "";
+
+      // 1. Exact match on Kode Pengajar
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        if (kode && kode === trimmed) {
+          return kode;
+        }
+      }
+
+      // 2. Exact match on Nama
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        const nama = String(record["Nama"] || record.nama || "").trim().toLowerCase();
+        if (nama && nama === trimmed) {
+          return kode || nama;
+        }
+      }
+
+      // 3. Formats with bracket or hyphen like "IA (Irfan)", "Irfan (IA)", "IA - Irfan"
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        const nama = String(record["Nama"] || record.nama || "").trim().toLowerCase();
+        if (kode) {
+          if (
+            (nama && trimmed === `${kode} (${nama})`) ||
+            (nama && trimmed === `${nama} (${kode})`) ||
+            (nama && trimmed === `${kode} - ${nama}`) ||
+            (nama && trimmed === `${nama} - ${kode}`) ||
+            trimmed.endsWith(`(${kode})`) ||
+            trimmed.startsWith(`${kode} - `) ||
+            trimmed.startsWith(`${kode} `)
+          ) {
+            return kode;
+          }
+        }
+      }
+
+      return normalizeValueKey(trimmed);
+    },
+    [pengajarRecords]
+  );
+
+  function getApprovedPermintaanForCabang(
+    kodePengajar: string,
+    cabang: string,
+    tanggal?: string
+  ) {
+    const kodeKey = resolvePengajarCode(kodePengajar);
+    const cabangKey = normalizeText(cabang);
+    if (!kodeKey || !cabangKey) {
+      return [] as Record<string, string>[];
+    }
+    const targetDate = tanggal ? parseFlexibleDate(tanggal) : null;
+    return approvedPermintaanRecords.filter((record) => {
+      const kode = resolvePengajarCode(record["Kode Pengajar"] || "");
+      const cabangPeminta = normalizeText(record["Cabang Peminta"] || "");
+      if (!(kode === kodeKey && isCabangMatch(cabangPeminta, cabangKey))) {
+        return false;
+      }
+
+      if (!targetDate) {
+        return true;
+      }
+
+      const tanggalDimitaRaw = (record["Tanggal Diminta"] || "").trim();
+      if (!tanggalDimitaRaw) {
+        return true;
+      }
+
+      const requestDate = parseFlexibleDate(tanggalDimitaRaw);
+      if (!requestDate) {
+        return true;
+      }
+
+      const targetLabel = formatScheduleLabel(targetDate);
+      const requestLabel = formatScheduleLabel(requestDate);
+      return targetLabel === requestLabel;
+    });
+  }
 
   const isPengajarAvailableForScheduleSlot = (
     kodePengajar: string,
@@ -1595,52 +1690,6 @@ export function App() {
     [records]
   );
 
-  const resolvePengajarCode = useCallback(
-    (value: string) => {
-      const trimmed = String(value || "").trim().toLowerCase();
-      if (!trimmed) return "";
-
-      // 1. Exact match on Kode Pengajar
-      for (const record of pengajarRecords) {
-        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
-        if (kode && kode === trimmed) {
-          return kode;
-        }
-      }
-
-      // 2. Exact match on Nama
-      for (const record of pengajarRecords) {
-        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
-        const nama = String(record["Nama"] || record.nama || "").trim().toLowerCase();
-        if (nama && nama === trimmed) {
-          return kode || nama;
-        }
-      }
-
-      // 3. Formats with bracket or hyphen like "IA (Irfan)", "Irfan (IA)", "IA - Irfan"
-      for (const record of pengajarRecords) {
-        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
-        const nama = String(record["Nama"] || record.nama || "").trim().toLowerCase();
-        if (kode) {
-          if (
-            (nama && trimmed === `${kode} (${nama})`) ||
-            (nama && trimmed === `${nama} (${kode})`) ||
-            (nama && trimmed === `${kode} - ${nama}`) ||
-            (nama && trimmed === `${nama} - ${kode}`) ||
-            trimmed.endsWith(`(${kode})`) ||
-            trimmed.startsWith(`${kode} - `) ||
-            trimmed.startsWith(`${kode} `)
-          ) {
-            return kode;
-          }
-        }
-      }
-
-      return normalizeValueKey(trimmed);
-    },
-    [pengajarRecords]
-  );
-
   const resolveCanonicalDate = useCallback(
     (value: string) => {
       const norm = normalizeDateValue(String(value || ""));
@@ -1749,44 +1798,6 @@ export function App() {
 
     return conflictIds;
   }, [allScheduleEntries, resolvePengajarCode, resolveCanonicalDate]);
-
-  function getApprovedPermintaanForCabang(
-    kodePengajar: string,
-    cabang: string,
-    tanggal?: string
-  ) {
-    const kodeKey = resolvePengajarCode(kodePengajar);
-    const cabangKey = normalizeText(cabang);
-    if (!kodeKey || !cabangKey) {
-      return [] as Record<string, string>[];
-    }
-    const targetDate = tanggal ? parseFlexibleDate(tanggal) : null;
-    return approvedPermintaanRecords.filter((record) => {
-      const kode = resolvePengajarCode(record["Kode Pengajar"] || "");
-      const cabangPeminta = normalizeText(record["Cabang Peminta"] || "");
-      if (!(kode === kodeKey && isCabangMatch(cabangPeminta, cabangKey))) {
-        return false;
-      }
-
-      if (!targetDate) {
-        return true;
-      }
-
-      const tanggalDimitaRaw = (record["Tanggal Diminta"] || "").trim();
-      if (!tanggalDimitaRaw) {
-        return true;
-      }
-
-      const requestDate = parseFlexibleDate(tanggalDimitaRaw);
-      if (!requestDate) {
-        return true;
-      }
-
-      const targetLabel = formatScheduleLabel(targetDate);
-      const requestLabel = formatScheduleLabel(requestDate);
-      return targetLabel === requestLabel;
-    });
-  }
 
   const hasPengajarAccessInCabang = (kodePengajar: string, cabang: string, tanggal?: string) => {
     const kodeKey = resolvePengajarCode(kodePengajar);
@@ -4638,21 +4649,30 @@ export function App() {
         }
 
         const parsed = JSON.parse(storedSession) as AuthSession;
+        if (!parsed || !parsed.username || typeof parsed.username !== "string") {
+          localStorage.removeItem(authStorageKey);
+          return false;
+        }
+
+        // If database accounts or login accounts are present, synchronize role/cabang if found
         const accountsToUse = [...databaseAccounts, ...loginAccounts];
         const matched = accountsToUse.find(
           (account) => normalizeLoginValue(account.username) === normalizeLoginValue(parsed.username || "")
         );
 
-        if (!matched) {
-          localStorage.removeItem(authStorageKey);
-          return false;
+        if (matched) {
+          const syncedSession: AuthSession = {
+            username: matched.username,
+            roll: (matched as any).roll || (matched as any).role || "cabang",
+            cabang: matched.cabang,
+          };
+          localStorage.setItem(authStorageKey, JSON.stringify(syncedSession));
+          setAuthSession(syncedSession);
+          return true;
         }
 
-        setAuthSession({
-          username: matched.username,
-          roll: (matched as any).roll || (matched as any).role || "cabang",
-          cabang: matched.cabang,
-        });
+        // Keep the saved valid session even if database accounts are still loading
+        setAuthSession(parsed);
         return true;
       } catch (_error) {
         localStorage.removeItem(authStorageKey);
@@ -4679,35 +4699,16 @@ export function App() {
         if (!isMounted) {
           return;
         }
-        if (storedSession) {
-          setDbConnectionError(
-            error instanceof Error
-              ? error.message
-              : "Aplikasi tidak dapat terhubung ke database. Pastikan server D1 sudah aktif."
-          );
-        } else {
-          setDbConnectionError(
-            error instanceof Error
-              ? error.message
-              : "Aplikasi tidak dapat terhubung ke database. Pastikan server D1 sudah aktif."
-          );
-        }
+        setDbConnectionError(
+          error instanceof Error
+            ? error.message
+            : "Aplikasi tidak dapat terhubung ke database. Pastikan server D1 sudah aktif."
+        );
         setIsAppInitializing(false);
         return;
       }
 
       if (!isMounted) {
-        return;
-      }
-
-      if (!storedSession) {
-        setIsAppInitializing(false);
-        return;
-      }
-
-      const restored = restoreStoredSession();
-      if (!restored) {
-        setIsAppInitializing(false);
         return;
       }
 
@@ -4718,7 +4719,7 @@ export function App() {
     return () => {
       isMounted = false;
     };
-  }, [databaseAccounts]);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -4733,7 +4734,30 @@ export function App() {
           roll: r.data.Roll || r.data.roll || "cabang",
           cabang: r.data.Cabang || r.data.cabang || "",
         }));
-        setDatabaseAccounts(accounts.filter((a) => a.username && a.password));
+        const validAccounts = accounts.filter((a) => a.username && a.password);
+        setDatabaseAccounts(validAccounts);
+
+        // If user is currently logged in, sync with database account details if matching
+        try {
+          const storedSession = localStorage.getItem(authStorageKey);
+          if (storedSession) {
+            const parsed = JSON.parse(storedSession) as AuthSession;
+            if (parsed?.username) {
+              const matched = validAccounts.find(
+                (acc) => normalizeLoginValue(acc.username) === normalizeLoginValue(parsed.username)
+              );
+              if (matched) {
+                const synced: AuthSession = {
+                  username: matched.username,
+                  roll: (matched as any).roll || (matched as any).role || "cabang",
+                  cabang: matched.cabang,
+                };
+                localStorage.setItem(authStorageKey, JSON.stringify(synced));
+                setAuthSession(synced);
+              }
+            }
+          }
+        } catch (_e) {}
       } catch (_e) {
         // Fallback to local loginAccounts if DB fails
       }
