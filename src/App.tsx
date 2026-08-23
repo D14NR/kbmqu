@@ -4895,12 +4895,38 @@ export function App() {
     });
   };
 
+  const getNextClassOrderForCabang = (cabangTarget: string) => {
+    const targetCabang = (cabangTarget || "").trim();
+    if (!targetCabang) return 1;
+    const currentRecords = records[activeScheduleKey] ?? [];
+    const filteredByMonth =
+      activeScheduleKey === "jadwalTambahanPelayanan"
+        ? currentRecords
+        : currentRecords.filter((item) => {
+            const tanggal = (item.tanggal as string) || (item.Tanggal as string) || "";
+            return tanggal.slice(0, 7) === selectedMonthKey;
+          });
+    const classOrders = filteredByMonth
+      .filter((item) => normalizeText(item.cabang || "") === normalizeText(targetCabang))
+      .map((item) => parseClassOrder(item.classOrder))
+      .filter((value): value is number => value !== null);
+    return (classOrders.length > 0 ? Math.max(...classOrders) : 0) + 1;
+  };
+
   const handleOpenClassModal = () => {
     if (isScheduleReadOnly) {
       pushToast("Mode lihat cabang lain aktif. Anda tidak dapat menambah kelas.", "error");
       return;
     }
-    setClassDraft({ cabang: restrictedCabang || "", kelas: "", sekolah: "", jenjang: "" });
+    const defaultCabang = restrictedCabang || selectedScheduleCabang || "";
+    const autoClassOrder = getNextClassOrderForCabang(defaultCabang);
+    setClassDraft({
+      cabang: defaultCabang,
+      kelas: "",
+      sekolah: "",
+      jenjang: "",
+      classOrder: String(autoClassOrder),
+    });
     setIsClassEditing(false);
     setEditingClassGroup(null);
     setClassError("");
@@ -4928,6 +4954,15 @@ export function App() {
     value: string
   ) => {
     if (key === "cabang" && restrictedCabang) {
+      return;
+    }
+    if (key === "cabang" && !isClassEditing) {
+      const autoOrder = getNextClassOrderForCabang(value);
+      setClassDraft((prev) => ({
+        ...prev,
+        cabang: value,
+        classOrder: String(autoOrder),
+      }));
       return;
     }
     setClassDraft((prev) => ({ ...prev, [key]: value }));
