@@ -63,6 +63,7 @@ import {
 // copySchedule feature removed
 import { setNationalHolidays as setLocalNationalHolidays } from "./config/holidays";
 import {
+  clearAllReadCache,
   decodeId,
   deleteRowsByIds,
   insertRow,
@@ -3639,9 +3640,12 @@ export function App() {
     );
   };
 
-  const refreshAllData = async (showToast = false) => {
+  const refreshAllData = async (showToast = false, bypassCache = false) => {
     if (!authSession || isRefreshingAll) {
       return;
+    }
+    if (bypassCache) {
+      clearAllReadCache();
     }
     setIsRefreshingAll(true);
     try {
@@ -3665,7 +3669,7 @@ export function App() {
   };
 
   const handleRefreshAllData = async () => {
-    await refreshAllData(true);
+    await refreshAllData(true, true);
   };
 
   type ImportMode =
@@ -4790,11 +4794,30 @@ export function App() {
     if (!authSession) {
       return;
     }
-    const refreshInterval = window.setInterval(() => {
-      void refreshAllData();
-    }, 60 * 60 * 1000);
+    const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // Auto-refresh data & cache every 5 minutes
+    let lastRefreshTime = Date.now();
+
+    const triggerPeriodicSync = () => {
+      lastRefreshTime = Date.now();
+      void refreshAllData(false, true);
+    };
+
+    const refreshInterval = window.setInterval(triggerPeriodicSync, AUTO_REFRESH_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        const elapsed = Date.now() - lastRefreshTime;
+        if (elapsed >= AUTO_REFRESH_INTERVAL_MS) {
+          triggerPeriodicSync();
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       window.clearInterval(refreshInterval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [authSession, restrictedCabang]);
 

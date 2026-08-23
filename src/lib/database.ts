@@ -418,9 +418,20 @@ const normalizeData = (value: unknown) => {
   );
 };
 
-const READ_CACHE_TTL_MS = 60 * 60 * 1000;
+const READ_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL for real-time updates
 const READ_CACHE_STORAGE_KEY = "kbm_read_cache_v1";
 const readCache = new Map<string, { expiresAt: number; rows: DbRow[] }>();
+
+export const clearAllReadCache = () => {
+  readCache.clear();
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      window.localStorage.removeItem(READ_CACHE_STORAGE_KEY);
+    } catch (_error) {
+      // Ignore localStorage error
+    }
+  }
+};
 
 const getVirtualBuckets = (bucket: string) => {
   const aliases = new Set<string>([bucket]);
