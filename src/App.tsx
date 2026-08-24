@@ -1,3 +1,4 @@
+import { motion, AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { categories, initialRecords } from "./config/categories";
@@ -2511,6 +2512,15 @@ export function App() {
     setConflictError("");
   };
 
+  const handleMenuSelect = (key: string) => {
+    setActiveKey(key);
+    clearEditing();
+    setIsClassModalOpen(false);
+    setIsPenempatanModalOpen(false);
+    setIsIzinModalOpen(false);
+    setIsPermintaanModalOpen(false);
+  };
+
   const handleLoadFromSheet = async (
     scheduleKey: ScheduleMenuKey = "bulanIni",
     options?: { preserveUiState?: boolean }
@@ -4857,12 +4867,14 @@ export function App() {
     setDraft((prev) => {
       if (fieldKey === "mapel") {
         setConflictError("");
+      
         return { ...prev, mapel: value, pengajar: "" };
       }
       if (fieldKey === "pengajar") {
         const nextPengajar = value.trim();
         if (!nextPengajar) {
           setConflictError("");
+      
           return { ...prev, pengajar: "" };
         }
         if (editingSlot) {
@@ -4889,6 +4901,7 @@ export function App() {
           }
         }
         setConflictError("");
+      
         return { ...prev, pengajar: nextPengajar };
       }
       return { ...prev, [fieldKey]: value };
@@ -5430,6 +5443,7 @@ export function App() {
     scheduleKey: ScheduleMenuKey = activeScheduleKey
   ) => {
     setSheetStatus((prev) => ({ ...prev, saving: true }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
     setSheetStatusError("");
     const bucket = dataBucket[scheduleSheetByKey[scheduleKey]];
 
@@ -5658,6 +5672,7 @@ export function App() {
     });
     setCopyTargetDates([]);
     setConflictError("");
+      
     // prepare gabung options (classes from same cabang)
     const options = monthScheduleGroups
       .filter((g) => (g.cabang || "") === group.cabang)
@@ -5693,6 +5708,11 @@ export function App() {
     if (!editingSlot) {
       return;
     }
+    
+    // Force UI to show loading state immediately before running conflict checks
+    setSheetStatus((prev) => ({ ...prev, saving: true }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
     const { cabang, kelas, sekolah, tanggal, tanggalSheet, entryId } = editingSlot;
     const sekolahValue = sekolah || "";
     const waktuMulai = draft.waktuMulai.trim();
@@ -5705,8 +5725,10 @@ export function App() {
     };
 
     setConflictError("");
+      
     if (nextValues.pengajar && pengajarAvailabilityInfo.warning) {
       setConflictError(pengajarAvailabilityInfo.warning);
+      
       return;
     }
     if (nextValues.pengajar) {
@@ -5727,6 +5749,7 @@ export function App() {
     if (nextValues.pengajar && startTime !== null && endTime !== null) {
       if (startTime >= endTime) {
         setConflictError("Jam mulai harus lebih awal daripada jam selesai.");
+      
         return;
       }
       const targetTeacherCode = resolvePengajarCode(nextValues.pengajar);
@@ -6230,12 +6253,7 @@ export function App() {
                 onToggle={() => setSidebarWidth(sidebarCollapsed ? 240 : 80)}
                 onResize={(width) => setSidebarWidth(Math.max(80, Math.min(320, width)))}
                 onSelect={(key) => {
-                  setActiveKey(key);
-                  clearEditing();
-                  setIsClassModalOpen(false);
-                  setIsPenempatanModalOpen(false);
-                  setIsIzinModalOpen(false);
-                  setIsPermintaanModalOpen(false);
+                  void handleMenuSelect(key);
                 }}
               />
             </div>
@@ -6423,161 +6441,171 @@ export function App() {
                   </div>
                 )}
 
-                {activeKey === "dashboard" ? (
-                  <DashboardView
-                    loading={sheetStatus.loading || permintaanStatus.loading || izinStatus.loading}
-                    pendingRequests={dashboardPendingRequests}
-                    dashboardSchedules={dashboardScheduleItems}
-                    izinRequests={dashboardIzinRequests}
-                    canManageIzin={Boolean(authSession)}
-                    canManagePermintaan={Boolean(authSession)}
-                    userCabang={restrictedCabang}
-                    isAdmin={isAdmin}
-                    onApproveIzin={(item) => handleUpdateIzinStatus(item, "Disetujui")}
-                    onRejectIzin={(item) => handleUpdateIzinStatus(item, "Ditolak")}
-                    onApprovePermintaan={(item) => handleUpdatePermintaanStatus(item, "Disetujui")}
-                    onRejectPermintaan={(item) => handleUpdatePermintaanStatus(item, "Ditolak")}
-                  />
-                ) : activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan" ? (
-                  <ScheduleTableView
-                    isJadwalTambahanMenu={isJadwalTambahanMenu}
-                    readOnly={isScheduleReadOnly}
-                    activeScheduleDates={activeScheduleDates}
-                    activeDayGroups={activeDayGroups}
-                    activeDayStartIndexes={activeDayStartIndexes}
-                    monthScheduleGroups={monthScheduleGroups}
-                    conflictEntryIds={conflictingScheduleEntryIds}
-                    editingSlot={editingSlot}
-                    saving={sheetStatus.saving}
-                    onInlineSaveClass={handleInlineSaveClass}
-                    onDeleteClass={handleDeleteClass}
-                    onMoveClass={handleMoveClass}
-                    onSelectSlot={handleSelectBulanIniSlot}
-                    mapelRecords={mapelRecords}
-                    onOpenClassModal={handleOpenClassModal}
-                    onOpenEditClass={handleOpenEditClass}
-                  />
-                ) : activeKey === "monitoringKelas" ? (
-                  <MonitoringKelasView loading={sheetStatus.loading} rows={monitoringRows} mapelNameByKode={mapelNameByKode} />
-                ) : activeKey === "mataPelajaran" ? (
-                  <MapelTableView
-                    headers={mapelHeaders}
-                    loading={mapelStatus.loading}
-                    records={filteredMapelRecords}
-                    onAdd={() => handleOpenMapelModal()}
-                    onEdit={handleOpenMapelModal}
-                    onDelete={handleDeleteMapel}
-                  />
-                ) : activeKey === "pengajar" ? (
-                  <PengajarTableView
-                    headers={pengajarHeaders}
-                    loading={pengajarStatus.loading}
-                    records={filteredPengajarRecords}
-                    query=""
-                    onAdd={() => handleOpenPengajarModal()}
-                    onEdit={handleOpenPengajarModal}
-                    onDelete={handleDeletePengajar}
-                  />
-                ) : activeKey === "penempatanPengajar" ? (
-                  <PenempatanPengajarView
-                    loading={penempatanStatus.loading}
-                    records={filteredPenempatanRecords}
-                    query={query}
-                  />
-                ) : activeKey === "liburNasional" ? (
-                    isAdmin ? (
-                      <HolidaysAdminView />
-                    ) : (
-                      <div className="alert alert-warning">Anda tidak memiliki izin untuk mengakses halaman ini.</div>
-                    )
-                ) : activeKey === "izinPengajar" ? (
-                  <IzinPengajarView
-                    loading={izinStatus.loading}
-                    records={filteredIzinRecords}
-                    onAdd={() => handleOpenIzinModal()}
-                    onEdit={handleOpenIzinModal}
-                    onDelete={handleDeleteIzinPengajar}
-                    canManageRecord={canManageIzinRecord}
-                  />
-                ) : activeKey === "permintaanPengajarAntarCabang" ? (
-                  <PermintaanPengajarView
-                    loading={permintaanStatus.loading}
-                    records={filteredPermintaanRecords}
-                    query={query}
-                    isAdmin={isAdmin}
-                    userCabang={restrictedCabang}
-                    onAdd={handleOpenPermintaanModal}
-                    onDelete={handleDeletePermintaanPengajar}
-                    onApprove={(record) => handleUpdatePermintaanStatus(record, "Disetujui")}
-                    onReject={(record) => handleUpdatePermintaanStatus(record, "Ditolak")}
-                  />
-                ) : activeKey === "accounts_cabang" ? (
-                  <AccountsCabangView
-                    headers={accountsCabangHeaders}
-                    loading={accountsCabangStatus.loading}
-                    records={accountsCabangRecords}
-                    onAdd={() => handleOpenAccountsCabangModal()}
-                    onEdit={handleOpenAccountsCabangModal}
-                    onDelete={handleDeleteAccountsCabang}
-                  />
-                ) : activeKey === "suratTugasMengajar" ? (
-                  <SuratTugasView
-                    loading={suratTugasStatus.loading}
-                    selectedMonthKey={selectedSuratTugasMonthKey}
-                    selectedPengajarKode={selectedSuratTugasKode}
-                    selectedPengajar={selectedSuratTugasPengajar}
-                    selectedSessionCount={selectedSuratTugasSessionCount}
-                    dayRows={suratTugasCalendar.dayRows}
-                    recordsByDate={suratTugasRecordsByDate}
-                    monthOptions={monthOptions}
-                    onSelectMonthKey={setSelectedSuratTugasMonthKey}
-                    onSelectPengajarKode={setSelectedSuratTugasKode}
-                    pengajarOptions={suratTugasPengajarOptions}
-                    allPengajarRecords={pengajarRecords}
-                    allSuratRecordsByMonth={suratTugasRecordsByMonth}
-                    mapelNameByKode={mapelNameByKode}
-                    userCabang={restrictedCabang}
-                    lastSync={suratTugasStatus.lastSync}
-                    error={suratTugasStatus.error}
-                  />
-                ) : activeKey === "settings" ? (
-                  <SettingsView
-                    lastCacheCleanedAt={lastCacheCleanedAt}
-                    onClearCache={handleClearCacheNow}
-                    onCheckUpdates={handleCheckUpdates}
-                    isClearingCache={isClearingCache}
-                    isCheckingUpdates={isCheckingUpdates}
-                  />
-                ) : activeKey === "printJadwal" ? (
-                  <PrintJadwalView
-                    monthOptions={monthOptions}
-                    selectedMonthKey={selectedMonthKey}
-                    onMonthChange={setSelectedMonthKey}
-                    selectedScheduleType={printScheduleType}
-                    onScheduleTypeChange={setPrintScheduleType}
-                    selectedClassKey={printSelectedClassKey}
-                    onClassKeyChange={setPrintSelectedClassKey}
-                    printCopies={printCopies}
-                    onPrintCopiesChange={setPrintCopies}
-                    printOrientation={printOrientation}
-                    onPrintOrientationChange={setPrintOrientation}
-                    regulerDates={monthScheduleDates}
-                    regulerDayGroups={monthDayGroups}
-                    regulerGroups={monthScheduleGroups}
-                    tambahanGroups={tambahanPrintGroups}
-                    mapelNameByKode={mapelNameByKode}
-                  />
-                ) : activeKey === "hapusJadwal" ? (
-                  <HapusJadwalView
-                    scheduleType={deleteScheduleType}
-                    monthOptions={monthOptions}
-                    selectedMonthKey={deleteMonthKey}
-                    deleting={isDeletingByMonth}
-                    onTypeChange={setDeleteScheduleType}
-                    onMonthChange={setDeleteMonthKey}
-                    onDelete={handleDeleteScheduleByMonth}
-                  />
-                ) : null}
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={activeKey}
+                    initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
+                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  >
+                    {activeKey === "dashboard" ? (
+                      <DashboardView
+                        loading={sheetStatus.loading || permintaanStatus.loading || izinStatus.loading}
+                        pendingRequests={dashboardPendingRequests}
+                        dashboardSchedules={dashboardScheduleItems}
+                        izinRequests={dashboardIzinRequests}
+                        canManageIzin={Boolean(authSession)}
+                        canManagePermintaan={Boolean(authSession)}
+                        userCabang={restrictedCabang}
+                        isAdmin={isAdmin}
+                        onApproveIzin={(item) => handleUpdateIzinStatus(item, "Disetujui")}
+                        onRejectIzin={(item) => handleUpdateIzinStatus(item, "Ditolak")}
+                        onApprovePermintaan={(item) => handleUpdatePermintaanStatus(item, "Disetujui")}
+                        onRejectPermintaan={(item) => handleUpdatePermintaanStatus(item, "Ditolak")}
+                      />
+                    ) : activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan" ? (
+                      <ScheduleTableView
+                        isJadwalTambahanMenu={isJadwalTambahanMenu}
+                        readOnly={isScheduleReadOnly}
+                        activeScheduleDates={activeScheduleDates}
+                        activeDayGroups={activeDayGroups}
+                        activeDayStartIndexes={activeDayStartIndexes}
+                        monthScheduleGroups={monthScheduleGroups}
+                        conflictEntryIds={conflictingScheduleEntryIds}
+                        editingSlot={editingSlot}
+                        saving={sheetStatus.saving}
+                        onInlineSaveClass={handleInlineSaveClass}
+                        onDeleteClass={handleDeleteClass}
+                        onMoveClass={handleMoveClass}
+                        onSelectSlot={handleSelectBulanIniSlot}
+                        mapelRecords={mapelRecords}
+                        onOpenClassModal={handleOpenClassModal}
+                        onOpenEditClass={handleOpenEditClass}
+                      />
+                    ) : activeKey === "monitoringKelas" ? (
+                      <MonitoringKelasView loading={sheetStatus.loading} rows={monitoringRows} mapelNameByKode={mapelNameByKode} />
+                    ) : activeKey === "mataPelajaran" ? (
+                      <MapelTableView
+                        headers={mapelHeaders}
+                        loading={mapelStatus.loading}
+                        records={filteredMapelRecords}
+                        onAdd={() => handleOpenMapelModal()}
+                        onEdit={handleOpenMapelModal}
+                        onDelete={handleDeleteMapel}
+                      />
+                    ) : activeKey === "pengajar" ? (
+                      <PengajarTableView
+                        headers={pengajarHeaders}
+                        loading={pengajarStatus.loading}
+                        records={filteredPengajarRecords}
+                        query=""
+                        onAdd={() => handleOpenPengajarModal()}
+                        onEdit={handleOpenPengajarModal}
+                        onDelete={handleDeletePengajar}
+                      />
+                    ) : activeKey === "penempatanPengajar" ? (
+                      <PenempatanPengajarView
+                        loading={penempatanStatus.loading}
+                        records={filteredPenempatanRecords}
+                        query={query}
+                      />
+                    ) : activeKey === "liburNasional" ? (
+                        isAdmin ? (
+                          <HolidaysAdminView />
+                        ) : (
+                          <div className="alert alert-warning">Anda tidak memiliki izin untuk mengakses halaman ini.</div>
+                        )
+                    ) : activeKey === "izinPengajar" ? (
+                      <IzinPengajarView
+                        loading={izinStatus.loading}
+                        records={filteredIzinRecords}
+                        onAdd={() => handleOpenIzinModal()}
+                        onEdit={handleOpenIzinModal}
+                        onDelete={handleDeleteIzinPengajar}
+                        canManageRecord={canManageIzinRecord}
+                      />
+                    ) : activeKey === "permintaanPengajarAntarCabang" ? (
+                      <PermintaanPengajarView
+                        loading={permintaanStatus.loading}
+                        records={filteredPermintaanRecords}
+                        query={query}
+                        isAdmin={isAdmin}
+                        userCabang={restrictedCabang}
+                        onAdd={handleOpenPermintaanModal}
+                        onDelete={handleDeletePermintaanPengajar}
+                        onApprove={(record) => handleUpdatePermintaanStatus(record, "Disetujui")}
+                        onReject={(record) => handleUpdatePermintaanStatus(record, "Ditolak")}
+                      />
+                    ) : activeKey === "accounts_cabang" ? (
+                      <AccountsCabangView
+                        headers={accountsCabangHeaders}
+                        loading={accountsCabangStatus.loading}
+                        records={accountsCabangRecords}
+                        onAdd={() => handleOpenAccountsCabangModal()}
+                        onEdit={handleOpenAccountsCabangModal}
+                        onDelete={handleDeleteAccountsCabang}
+                      />
+                    ) : activeKey === "suratTugasMengajar" ? (
+                      <SuratTugasView
+                        loading={suratTugasStatus.loading}
+                        selectedMonthKey={selectedSuratTugasMonthKey}
+                        selectedPengajarKode={selectedSuratTugasKode}
+                        selectedPengajar={selectedSuratTugasPengajar}
+                        selectedSessionCount={selectedSuratTugasSessionCount}
+                        dayRows={suratTugasCalendar.dayRows}
+                        recordsByDate={suratTugasRecordsByDate}
+                        monthOptions={monthOptions}
+                        onSelectMonthKey={setSelectedSuratTugasMonthKey}
+                        onSelectPengajarKode={setSelectedSuratTugasKode}
+                        pengajarOptions={suratTugasPengajarOptions}
+                        allPengajarRecords={pengajarRecords}
+                        allSuratRecordsByMonth={suratTugasRecordsByMonth}
+                        mapelNameByKode={mapelNameByKode}
+                        userCabang={restrictedCabang}
+                        lastSync={suratTugasStatus.lastSync}
+                        error={suratTugasStatus.error}
+                      />
+                    ) : activeKey === "settings" ? (
+                      <SettingsView
+                        lastCacheCleanedAt={lastCacheCleanedAt}
+                        onClearCache={handleClearCacheNow}
+                        onCheckUpdates={handleCheckUpdates}
+                        isClearingCache={isClearingCache}
+                        isCheckingUpdates={isCheckingUpdates}
+                      />
+                    ) : activeKey === "printJadwal" ? (
+                      <PrintJadwalView
+                        monthOptions={monthOptions}
+                        selectedMonthKey={selectedMonthKey}
+                        onMonthChange={setSelectedMonthKey}
+                        selectedScheduleType={printScheduleType}
+                        onScheduleTypeChange={setPrintScheduleType}
+                        selectedClassKey={printSelectedClassKey}
+                        onClassKeyChange={setPrintSelectedClassKey}
+                        printCopies={printCopies}
+                        onPrintCopiesChange={setPrintCopies}
+                        printOrientation={printOrientation}
+                        onPrintOrientationChange={setPrintOrientation}
+                        regulerDates={monthScheduleDates}
+                        regulerDayGroups={monthDayGroups}
+                        regulerGroups={monthScheduleGroups}
+                        tambahanGroups={tambahanPrintGroups}
+                        mapelNameByKode={mapelNameByKode}
+                      />
+                    ) : activeKey === "hapusJadwal" ? (
+                      <HapusJadwalView
+                        scheduleType={deleteScheduleType}
+                        monthOptions={monthOptions}
+                        selectedMonthKey={deleteMonthKey}
+                        deleting={isDeletingByMonth}
+                        onTypeChange={setDeleteScheduleType}
+                        onMonthChange={setDeleteMonthKey}
+                        onDelete={handleDeleteScheduleByMonth}
+                      />
+                    ) : null}
+                  </motion.div>
+                </AnimatePresence>
               </div>
             </div>
           </div>
@@ -6603,6 +6631,7 @@ export function App() {
         fixedCabang={restrictedCabang || undefined}
         showSekolahField={activeScheduleKey === "jadwalTambahanPelayanan"}
         classError={classError}
+        loading={sheetStatus.saving}
         onClose={() => {
           setIsClassModalOpen(false);
           setIsClassEditing(false);
@@ -6776,12 +6805,7 @@ export function App() {
             // No resize for mobile drawer.
           }}
           onSelect={(key) => {
-            setActiveKey(key);
-            clearEditing();
-            setIsClassModalOpen(false);
-            setIsPenempatanModalOpen(false);
-            setIsIzinModalOpen(false);
-            setIsPermintaanModalOpen(false);
+            void handleMenuSelect(key);
           }}
         />
       </div>

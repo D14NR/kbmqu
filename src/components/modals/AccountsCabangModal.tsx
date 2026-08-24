@@ -92,8 +92,15 @@ export function AccountsCabangModal({
           <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose}>
             Batal
           </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={loading}>
-            {loading ? "Menyimpan..." : "Simpan"}
+          <button type="button" className="btn btn-primary btn-sm d-flex align-items-center gap-1.5" onClick={onSave} disabled={loading}>
+            {loading ? (
+              <>
+                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                Menyimpan...
+              </>
+            ) : (
+              "Simpan"
+            )}
           </button>
         </div>
       </div>

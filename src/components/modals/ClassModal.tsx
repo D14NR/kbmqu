@@ -14,6 +14,7 @@ type ClassModalProps = {
   fixedCabang?: string;
   showSekolahField?: boolean;
   classError: string;
+  loading?: boolean;
   onClose: () => void;
   onDraftChange: (field: "cabang" | "kelas" | "sekolah" | "jenjang" | "classOrder", value: string) => void;
   onSave: () => void;
@@ -26,6 +27,7 @@ export function ClassModal({
   fixedCabang,
   showSekolahField,
   classError,
+  loading,
   onClose,
   onDraftChange,
   onSave,
@@ -390,6 +392,7 @@ export function ClassModal({
             type="button"
             className="btn btn-outline-secondary btn-sm px-3 rounded-2"
             onClick={onClose}
+            disabled={loading}
           >
             Batal
           </button>
@@ -397,10 +400,19 @@ export function ClassModal({
             type="button"
             className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-1.5 rounded-2"
             onClick={onSave}
-            disabled={!classDraft.kelas.trim()}
+            disabled={!classDraft.kelas.trim() || loading}
           >
-            <i className="bi bi-check2-circle" />
-            <span>{isEditing ? "Simpan Perubahan" : "Simpan Kelas"}</span>
+            {loading ? (
+              <>
+                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                <span>Menyimpan...</span>
+              </>
+            ) : (
+              <>
+                <i className="bi bi-check2-circle" />
+                <span>{isEditing ? "Simpan Perubahan" : "Simpan Kelas"}</span>
+              </>
+            )}
           </button>
         </div>
       </div>

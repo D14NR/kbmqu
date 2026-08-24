@@ -9,9 +9,12 @@
     "start": "node dist/server.cjs"
   },
   "dependencies": {
+    "@lottiefiles/dotlottie-react": "^0.19.15",
     "clsx": "2.1.1",
     "dayjs": "^1.11.23",
     "express": "^5.2.1",
+    "lucide-react": "^1.33.0",
+    "motion": "^13.1.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-select": "^5.10.2",
