@@ -1029,60 +1029,16 @@ export function App() {
       return baseOptions;
     }
 
-    const targetCanonicalDate = resolveCanonicalDate(editingSlot.tanggal);
-    const startTime = parseTimeValue(draft.waktuMulai);
-    const endTime = parseTimeValue(draft.waktuSelesai);
-
-    return baseOptions
-      .filter((option) =>
-        isPengajarAvailableForScheduleSlot(
-          option.value,
-          editingSlot.cabang,
-          editingSlot.tanggal,
-          draft.waktuMulai,
-          draft.waktuSelesai
-        )
+    return baseOptions.filter((option) =>
+      isPengajarAvailableForScheduleSlot(
+        option.value,
+        editingSlot.cabang,
+        editingSlot.tanggal,
+        draft.waktuMulai,
+        draft.waktuSelesai
       )
-      .map((option) => {
-        const pKey = resolvePengajarCode(option.value);
-        const existingOnDate = allScheduleEntries.filter((item) => {
-          if (!hasScheduleContent(item)) return false;
-          if (editingSlot.entryId && item.id === editingSlot.entryId) return false;
-          if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
-          if (resolvePengajarCode(item.pengajar || "") !== pKey) return false;
-          return true;
-        });
-
-        if (existingOnDate.length === 0) {
-          return option;
-        }
-
-        let hasOverlap = false;
-        if (startTime !== null && endTime !== null && startTime < endTime) {
-          hasOverlap = existingOnDate.some((item) => {
-            const range = parseRangeFromString(item.waktu || "");
-            return range && startTime < range.end && endTime > range.start;
-          });
-        }
-
-        const summaryStr = existingOnDate
-          .map((item) => `${item.kelas || ""}${item.waktu ? ` ${item.waktu}` : ""}`)
-          .join(", ");
-
-        if (hasOverlap) {
-          return {
-            ...option,
-            label: `${option.label} (⚠️ Bentrok: ${summaryStr})`,
-          };
-        }
-
-        return {
-          ...option,
-          label: `${option.label} (ℹ️ Ada jadwal: ${summaryStr})`,
-        };
-      });
+    );
   }, [
-    allScheduleEntries,
     draft.mapel,
     draft.waktuMulai,
     draft.waktuSelesai,
@@ -5876,25 +5832,26 @@ export function App() {
     const pengajarKey = nextValues.pengajar.toLowerCase();
     const startTime = parseTimeValue(waktuMulai);
     const endTime = parseTimeValue(waktuSelesai);
+    const targetTeacherCode = nextValues.pengajar ? resolvePengajarCode(nextValues.pengajar) : "";
+    const targetCanonicalDate = resolveCanonicalDate(tanggal);
+
+    const selectedGabungKeySet = new Set(gabungClassKeys);
+    const keptGabungLabelSet = new Set(
+      gabungOptions
+        .filter((opt) => gabungClassKeys.includes(opt.value))
+        .map((opt) => normalizeText(opt.label))
+    );
+    const currentClassKey = buildClassGroupKey(cabang, kelas, sekolahValue);
+    const currentClassLabel = normalizeText(`${kelas}${sekolahValue ? ` • ${sekolahValue}` : ""}`);
+    const ignoreClassKeySet = new Set([...selectedGabungKeySet, currentClassKey]);
+    const ignoreLabelSet = new Set([...keptGabungLabelSet, currentClassLabel]);
+
     if (nextValues.pengajar && startTime !== null && endTime !== null) {
       if (startTime >= endTime) {
         setConflictError("Jam mulai harus lebih awal daripada jam selesai.");
         setSheetStatus((prev) => ({ ...prev, saving: false }));
         return;
       }
-      const targetTeacherCode = resolvePengajarCode(nextValues.pengajar);
-      const targetCanonicalDate = resolveCanonicalDate(tanggal);
-
-      const selectedGabungKeySet = new Set(gabungClassKeys);
-      const keptGabungLabelSet = new Set(
-        gabungOptions
-          .filter((opt) => gabungClassKeys.includes(opt.value))
-          .map((opt) => normalizeText(opt.label))
-      );
-      const currentClassKey = buildClassGroupKey(cabang, kelas, sekolahValue);
-      const currentClassLabel = normalizeText(`${kelas}${sekolahValue ? ` • ${sekolahValue}` : ""}`);
-      const ignoreClassKeySet = new Set([...selectedGabungKeySet, currentClassKey]);
-      const ignoreLabelSet = new Set([...keptGabungLabelSet, currentClassLabel]);
       const otherEntries = allScheduleEntries.filter((item) => {
         if (item.id === entryId) return false;
         if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
