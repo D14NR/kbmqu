@@ -84,6 +84,9 @@ export function App() {
     normalizeText(String(value || "")).replace(/[^a-z0-9]+/g, "");
   const toRecord = (row: DbRow) => row.data;
 
+  const hasScheduleContent = (entry?: RecordItem) =>
+    Boolean(entry && ((entry.mapel || "").trim() || (entry.pengajar || "").trim() || (entry.waktu || "").trim()));
+
   const scheduleSheetByKey = {
     bulanIni: "Jadwal Bulan ini",
     jadwalTambahanPelayanan: "Jadwal Khusus",
@@ -930,6 +933,51 @@ export function App() {
     });
   };
 
+  const allScheduleEntries = useMemo(
+    () => [
+      ...(records.bulanIni ?? []),
+      ...(records.jadwalTambahanPelayanan ?? []),
+    ],
+    [records]
+  );
+
+  const selectedMonth = useMemo(() => {
+    const [year, month] = selectedMonthKey.split("-").map(Number);
+    return new Date(year, Math.max(0, (month || 1) - 1), 1);
+  }, [selectedMonthKey]);
+
+  const { scheduleDates: monthScheduleDates, dayGroups: monthDayGroups } = useMemo(
+    () => buildMonthScheduleDates(selectedMonth),
+    [selectedMonth]
+  );
+
+  const normalizeDateValue = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+    const matchByLabel = monthScheduleDates.find(
+      (slot) => slot.label.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (matchByLabel) {
+      return matchByLabel.date;
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return formatLocalDate(parsed);
+    }
+    return trimmed;
+  };
+
+  const resolveCanonicalDate = useCallback(
+    (value: string) => {
+      const norm = normalizeDateValue(String(value || ""));
+      if (norm) return norm;
+      return String(value || "").trim().slice(0, 10);
+    },
+    [monthScheduleDates]
+  );
+
   const filteredPengajarOptions = useMemo(() => {
     const selectedMapelValue = draft.mapel.trim();
     if (!selectedMapelValue) {
@@ -981,16 +1029,60 @@ export function App() {
       return baseOptions;
     }
 
-    return baseOptions.filter((option) =>
-      isPengajarAvailableForScheduleSlot(
-        option.value,
-        editingSlot.cabang,
-        editingSlot.tanggal,
-        draft.waktuMulai,
-        draft.waktuSelesai
+    const targetCanonicalDate = resolveCanonicalDate(editingSlot.tanggal);
+    const startTime = parseTimeValue(draft.waktuMulai);
+    const endTime = parseTimeValue(draft.waktuSelesai);
+
+    return baseOptions
+      .filter((option) =>
+        isPengajarAvailableForScheduleSlot(
+          option.value,
+          editingSlot.cabang,
+          editingSlot.tanggal,
+          draft.waktuMulai,
+          draft.waktuSelesai
+        )
       )
-    );
+      .map((option) => {
+        const pKey = resolvePengajarCode(option.value);
+        const existingOnDate = allScheduleEntries.filter((item) => {
+          if (!hasScheduleContent(item)) return false;
+          if (editingSlot.entryId && item.id === editingSlot.entryId) return false;
+          if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
+          if (resolvePengajarCode(item.pengajar || "") !== pKey) return false;
+          return true;
+        });
+
+        if (existingOnDate.length === 0) {
+          return option;
+        }
+
+        let hasOverlap = false;
+        if (startTime !== null && endTime !== null && startTime < endTime) {
+          hasOverlap = existingOnDate.some((item) => {
+            const range = parseRangeFromString(item.waktu || "");
+            return range && startTime < range.end && endTime > range.start;
+          });
+        }
+
+        const summaryStr = existingOnDate
+          .map((item) => `${item.kelas || ""}${item.waktu ? ` ${item.waktu}` : ""}`)
+          .join(", ");
+
+        if (hasOverlap) {
+          return {
+            ...option,
+            label: `${option.label} (⚠️ Bentrok: ${summaryStr})`,
+          };
+        }
+
+        return {
+          ...option,
+          label: `${option.label} (ℹ️ Ada jadwal: ${summaryStr})`,
+        };
+      });
   }, [
+    allScheduleEntries,
     draft.mapel,
     draft.waktuMulai,
     draft.waktuSelesai,
@@ -1206,10 +1298,7 @@ export function App() {
     }
   }, [deleteMonthKey, monthOptions, selectedMonthKey, selectedSuratTugasMonthKey]);
 
-  const selectedMonth = useMemo(() => {
-    const [year, month] = selectedMonthKey.split("-").map(Number);
-    return new Date(year, Math.max(0, (month || 1) - 1), 1);
-  }, [selectedMonthKey]);
+  // selectedMonth is initialized above
 
   useEffect(() => {
     try {
@@ -1227,10 +1316,7 @@ export function App() {
     return new Date(year, Math.max(0, (month || 1) - 1), 1);
   }, [selectedSuratTugasMonthKey]);
 
-  const { scheduleDates: monthScheduleDates, dayGroups: monthDayGroups } = useMemo(
-    () => buildMonthScheduleDates(selectedMonth),
-    [selectedMonth]
-  );
+  // monthScheduleDates and monthDayGroups are initialized above
 
   const { scheduleDates: tambahanScheduleDates, dayGroups: tambahanDayGroups } = useMemo(
     () => buildRollingScheduleDates(30),
@@ -1277,23 +1363,7 @@ export function App() {
     return { dayRows, dateKeys };
   }, [selectedSuratTugasMonthDate]);
 
-  const normalizeDateValue = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return "";
-    }
-    const matchByLabel = monthScheduleDates.find(
-      (slot) => slot.label.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (matchByLabel) {
-      return matchByLabel.date;
-    }
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      return formatLocalDate(parsed);
-    }
-    return trimmed;
-  };
+  // normalizeDateValue is initialized above
 
   const getSlotLabelByDate = (date: string) => {
     return monthScheduleDates.find((slot) => slot.date === date)?.label ?? date;
@@ -1507,10 +1577,6 @@ export function App() {
     [activeKey, visibleCategories]
   );
 
-
-  const hasScheduleContent = (entry?: RecordItem) =>
-    Boolean(entry && ((entry.mapel || "").trim() || (entry.pengajar || "").trim() || (entry.waktu || "").trim()));
-
   const buildScheduleGroups = (
     sourceRecords: RecordItem[],
     cabangFilter: string,
@@ -1690,22 +1756,7 @@ export function App() {
     return buildScheduleGroups(records.jadwalTambahanPelayanan ?? [], restrictedCabang, "");
   }, [records.jadwalTambahanPelayanan, restrictedCabang]);
 
-  const allScheduleEntries = useMemo(
-    () => [
-      ...(records.bulanIni ?? []),
-      ...(records.jadwalTambahanPelayanan ?? []),
-    ],
-    [records]
-  );
-
-  const resolveCanonicalDate = useCallback(
-    (value: string) => {
-      const norm = normalizeDateValue(String(value || ""));
-      if (norm) return norm;
-      return String(value || "").trim().slice(0, 10);
-    },
-    [monthScheduleDates]
-  );
+  // allScheduleEntries and resolveCanonicalDate are initialized above
 
   const conflictingScheduleEntryIds = useMemo(() => {
     const groupedByPengajarTanggal = new Map<string, RecordItem[]>();
@@ -1865,6 +1916,7 @@ export function App() {
   const pengajarAvailabilityInfo = useMemo(() => {
     const defaultResult = {
       warning: "",
+      infoNote: "",
       availableDateLabels: [] as string[],
     };
 
@@ -1908,6 +1960,7 @@ export function App() {
       const reason = (izinMatch.Keterangan || "").trim();
       return {
         warning: `Pengajar sedang izin pada rentang ${startLabel} s.d. ${endLabel}${reason ? ` (${reason})` : ""}.`,
+        infoNote: "",
         availableDateLabels,
       };
     }
@@ -1925,6 +1978,7 @@ export function App() {
       return {
         warning:
           "Pengajar belum memiliki data penempatan atau permintaan yang disetujui untuk cabang ini, silakan hubungi cabang domisili.",
+        infoNote: "",
         availableDateLabels,
       };
     }
@@ -1947,13 +2001,14 @@ export function App() {
       return {
         warning:
           "Pengajar tidak tersedia di cabang ini, silakan hubungi cabang domisili.",
+        infoNote: "",
         availableDateLabels,
       };
     }
 
     const parsedDate = parseFlexibleDate(editingSlot.tanggal);
     if (!parsedDate) {
-      return { warning: "", availableDateLabels };
+      return { warning: "", infoNote: "", availableDateLabels };
     }
 
     const dayName = titleCase(
@@ -1966,12 +2021,88 @@ export function App() {
     if (dayMatchedRecords.length === 0) {
       return {
         warning: `Pengajar tidak tersedia pada hari ${dayName} di cabang ini, silakan hubungi cabang domisili.`,
+        infoNote: "",
         availableDateLabels,
       };
     }
 
+    // Check existing schedule entries on the selected date for this teacher
+    const targetCanonicalDate = resolveCanonicalDate(editingSlot.tanggal);
+    const existingScheduleOnDate = allScheduleEntries.filter((item) => {
+      if (!hasScheduleContent(item)) return false;
+      if (editingSlot.entryId && item.id === editingSlot.entryId) return false;
+      if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
+      if (resolvePengajarCode(item.pengajar || "") !== pengajarKey) return false;
+
+      if (gabungEnabled && gabungClassKeys.length > 0) {
+        const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+        if (gabungClassKeys.includes(itemKey)) return false;
+      }
+      return true;
+    });
+
     const startTime = parseTimeValue(draft.waktuMulai);
     const endTime = parseTimeValue(draft.waktuSelesai);
+
+    let scheduleWarning = "";
+    let scheduleInfoNote = "";
+
+    if (existingScheduleOnDate.length > 0) {
+      if (startTime !== null && endTime !== null && startTime < endTime) {
+        for (const entry of existingScheduleOnDate) {
+          if (!entry.waktu) continue;
+          const range = parseRangeFromString(entry.waktu);
+          if (!range) continue;
+
+          // Check direct time overlap
+          const overlap = startTime < range.end && endTime > range.start;
+          if (overlap) {
+            const cabangLabel = entry.cabang || "Cabang lain";
+            const kelasLabel = entry.kelas || "Kelas lain";
+            const waktuLabel = entry.waktu || "jam tersebut";
+            scheduleWarning = `⚠️ Bentrok Jadwal Pengajar: ${draft.pengajar} sudah mengajar di ${cabangLabel} (${kelasLabel}) pada tanggal ini pukul ${waktuLabel}.`;
+            break;
+          }
+
+          // Check inter-branch gap (< 30 minutes)
+          if (normalizeText(entry.cabang || "") !== normalizeText(editingSlot.cabang || "")) {
+            const INTER_BRANCH_MIN_GAP_MINUTES = 30;
+            const hasGap =
+              startTime >= range.end + INTER_BRANCH_MIN_GAP_MINUTES ||
+              range.start >= endTime + INTER_BRANCH_MIN_GAP_MINUTES;
+            if (!hasGap) {
+              const cabangLabel = entry.cabang || "Cabang lain";
+              const kelasLabel = entry.kelas || "Kelas lain";
+              const waktuLabel = entry.waktu || "";
+              scheduleWarning = `⚠️ Bentrok Jeda Cabang: ${draft.pengajar} mengajar di ${cabangLabel} (${kelasLabel}) pukul ${waktuLabel}. Butuh jeda minimal 30 menit antar cabang.`;
+              break;
+            }
+          }
+        }
+
+        if (!scheduleWarning) {
+          const details = existingScheduleOnDate
+            .map((e) => `${e.cabang || ""} - ${e.kelas || ""} (${e.waktu || "sesi"})`)
+            .join(", ");
+          scheduleInfoNote = `ℹ️ Pengajar juga memiliki ${existingScheduleOnDate.length} sesi mengajar lain pada tanggal ini: ${details}.`;
+        }
+      } else {
+        // Time not set or invalid yet, but teacher has existing schedule on this date
+        const details = existingScheduleOnDate
+          .map((e) => `${e.cabang || ""} (${e.kelas || ""}) [${e.waktu || "sesi"}]`)
+          .join(", ");
+        scheduleWarning = `⚠️ Catatan Jadwal: Pengajar ${draft.pengajar} sudah memiliki ${existingScheduleOnDate.length} sesi mengajar pada tanggal ini: ${details}.`;
+      }
+    }
+
+    if (scheduleWarning) {
+      return {
+        warning: scheduleWarning,
+        infoNote: "",
+        availableDateLabels,
+      };
+    }
+
     if (startTime !== null && endTime !== null && startTime < endTime) {
       const hasMatchingTime = dayMatchedRecords.some((record) => {
         const placementStart = parseTimeValue(record["Jam Mulai"] || "");
@@ -1986,12 +2117,17 @@ export function App() {
         return {
           warning:
             "Pengajar tidak tersedia pada rentang jam tersebut di cabang ini.",
+          infoNote: scheduleInfoNote,
           availableDateLabels,
         };
       }
     }
 
-    return { warning: "", availableDateLabels };
+    return {
+      warning: "",
+      infoNote: scheduleInfoNote,
+      availableDateLabels,
+    };
   }, [
     activeScheduleDates,
     allScheduleEntries,
@@ -2002,6 +2138,8 @@ export function App() {
     izinRecords,
     approvedPermintaanRecords,
     penempatanRecords,
+    gabungEnabled,
+    gabungClassKeys,
   ]);
 
   const monitoringRows = useMemo(() => {
@@ -5728,7 +5866,7 @@ export function App() {
       
     if (nextValues.pengajar && pengajarAvailabilityInfo.warning) {
       setConflictError(pengajarAvailabilityInfo.warning);
-      
+      setSheetStatus((prev) => ({ ...prev, saving: false }));
       return;
     }
     if (nextValues.pengajar) {
@@ -5740,6 +5878,7 @@ export function App() {
         setConflictError(
           `Pengajar sedang izin pada rentang ${startLabel} s.d. ${endLabel}${reason ? ` (${reason})` : ""}.`
         );
+        setSheetStatus((prev) => ({ ...prev, saving: false }));
         return;
       }
     }
@@ -5749,7 +5888,7 @@ export function App() {
     if (nextValues.pengajar && startTime !== null && endTime !== null) {
       if (startTime >= endTime) {
         setConflictError("Jam mulai harus lebih awal daripada jam selesai.");
-      
+        setSheetStatus((prev) => ({ ...prev, saving: false }));
         return;
       }
       const targetTeacherCode = resolvePengajarCode(nextValues.pengajar);
@@ -5834,6 +5973,7 @@ export function App() {
           setConflictError(
             `Pengajar sudah mengajar di ${cabangLabel} (${kelasLabel}) pada ${tanggalLabel} pukul ${waktuLabel}.`
           );
+          setSheetStatus((prev) => ({ ...prev, saving: false }));
           return;
         }
         if (normalizeText(entry.cabang || "") !== normalizeText(cabang || "")) {
@@ -5846,6 +5986,7 @@ export function App() {
             setConflictError(
               `Pengajar sudah mengajar di ${cabangLabel} (${kelasLabel}) pada ${tanggalLabel} pukul ${waktuLabel}. Antar cabang wajib jeda minimal ${INTER_BRANCH_MIN_GAP_MINUTES} menit.`
             );
+            setSheetStatus((prev) => ({ ...prev, saving: false }));
             return;
           }
         }
@@ -6651,6 +6792,7 @@ export function App() {
         copyDateOptions={copyDateOptions}
         selectedCopyDates={copyTargetDates}
         pengajarAvailabilityWarning={pengajarAvailabilityInfo.warning}
+        pengajarAvailabilityInfoNote={pengajarAvailabilityInfo.infoNote}
         pengajarAvailableDateLabels={pengajarAvailabilityInfo.availableDateLabels}
         conflictError={conflictError}
         saving={sheetStatus.saving}

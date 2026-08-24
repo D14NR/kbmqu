@@ -16,6 +16,7 @@ type EditScheduleModalProps = {
   copyDateOptions: SelectOption[];
   selectedCopyDates: string[];
   pengajarAvailabilityWarning: string;
+  pengajarAvailabilityInfoNote?: string;
   pengajarAvailableDateLabels: string[];
   conflictError: string;
   saving: boolean;
@@ -91,6 +92,7 @@ export function EditScheduleModal({
   copyDateOptions,
   selectedCopyDates,
   pengajarAvailabilityWarning,
+  pengajarAvailabilityInfoNote,
   pengajarAvailableDateLabels,
   conflictError,
   saving,
@@ -354,6 +356,22 @@ export function EditScheduleModal({
                 styles={customSelectStyles}
               />
 
+              {/* Live Alert Warning under Teacher Field */}
+              {pengajarAvailabilityWarning && (
+                <div className="alert alert-warning border-warning-subtle d-flex align-items-start gap-2 p-2 mt-2 mb-0 rounded-3 text-xs" role="alert">
+                  <i className="bi bi-exclamation-triangle-fill text-warning fs-6 flex-shrink-0 mt-0.5" />
+                  <div className="fw-medium">{pengajarAvailabilityWarning}</div>
+                </div>
+              )}
+
+              {/* Live Info Note under Teacher Field */}
+              {!pengajarAvailabilityWarning && pengajarAvailabilityInfoNote && (
+                <div className="alert alert-info border-info-subtle d-flex align-items-start gap-2 p-2 mt-2 mb-0 rounded-3 text-xs" role="alert">
+                  <i className="bi bi-info-circle-fill text-info fs-6 flex-shrink-0 mt-0.5" />
+                  <div>{pengajarAvailabilityInfoNote}</div>
+                </div>
+              )}
+
               {draft.pengajar && pengajarAvailableDateLabels.length > 0 && (
                 <div className="mt-1.5 d-flex align-items-center gap-1 text-xxs text-muted">
                   <i className="bi bi-info-circle text-info" />
@@ -513,7 +531,16 @@ export function EditScheduleModal({
               type="button"
               className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-1.5 rounded-2"
               onClick={onSave}
-              disabled={saving || isToday || !draft.mapel}
+              disabled={saving || isToday || !draft.mapel || Boolean(pengajarAvailabilityWarning)}
+              title={
+                isToday
+                  ? "Mengubah jadwal hari ini tidak diperbolehkan"
+                  : pengajarAvailabilityWarning
+                  ? "Pengajar mengalami bentrok jadwal/tidak tersedia. Silakan pilih pengajar lain."
+                  : !draft.mapel
+                  ? "Pilih Mata Pelajaran terlebih dahulu"
+                  : "Simpan Sesi"
+              }
             >
               {saving ? (
                 <>
