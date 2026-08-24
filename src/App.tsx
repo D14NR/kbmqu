@@ -6375,8 +6375,8 @@ export function App() {
 
   return (
     <div className="min-vh-100 app-font-10 app-shell">
-      <div className="container-fluid py-4">
-        <div className="row g-4">
+      <div className="container-fluid py-3 px-3">
+        <div className="row g-2">
           <div className="d-none d-lg-flex col-auto">
             <div style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: 320 }}>
               <SidebarMenu
