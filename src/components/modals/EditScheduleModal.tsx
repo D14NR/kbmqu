@@ -510,8 +510,17 @@ export function EditScheduleModal({
               disabled={isToday || saving}
               title={isToday ? "Menghapus jadwal hari ini tidak diperbolehkan" : "Hapus sesi jadwal ini"}
             >
-              <i className="bi bi-trash3" />
-              <span>Hapus Sesi</span>
+              {saving ? (
+                <>
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                  <span>Menghapus...</span>
+                </>
+              ) : (
+                <>
+                  <i className="bi bi-trash3" />
+                  <span>Hapus Sesi</span>
+                </>
+              )}
             </button>
           ) : (
             <div />

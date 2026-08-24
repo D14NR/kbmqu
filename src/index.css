@@ -60,20 +60,16 @@ body {
   min-width: 0;
 }
 
-.app-shell .col-12 > .card.app-header-card {
-  flex: 0 0 auto;
-}
-
-.app-shell .col-12 > .card.surface-panel:not(.app-header-card) {
+.app-shell .col-12 > .card.surface-panel {
   flex: 1 1 auto;
-  max-height: calc(100vh - 160px);
+  max-height: calc(100vh - 32px);
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.app-shell .col-12 > .card.surface-panel:not(.app-header-card) > .card-body {
+.app-shell .col-12 > .card.surface-panel > .card-body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;

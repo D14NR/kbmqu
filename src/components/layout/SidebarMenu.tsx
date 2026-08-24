@@ -5,6 +5,7 @@ type SidebarMenuProps = {
   activeKey: string;
   sidebarCollapsed: boolean;
   isMobile?: boolean;
+  authSession?: { username: string; cabang?: string } | null;
   onToggle: () => void;
   onResize?: (width: number) => void;
   onCloseMobile?: () => void;
@@ -16,6 +17,7 @@ export function SidebarMenu({
   activeKey,
   sidebarCollapsed,
   isMobile = false,
+  authSession,
   onToggle,
   onResize,
   onCloseMobile,
@@ -31,6 +33,15 @@ export function SidebarMenu({
           {!sidebarCollapsed && (
             <div className="sidebar-brand-text">
               <div className="sidebar-brand-title">KBM-Qu</div>
+              {authSession?.username && (
+                <div
+                  className="sidebar-brand-subtitle mt-0.5"
+                  title={`Login sebagai: ${authSession.username}${authSession.cabang ? ` (${authSession.cabang})` : ""}`}
+                >
+                  Login sebagai: <span className="fw-medium">{authSession.username}</span>
+                  {authSession.cabang ? ` (${authSession.cabang})` : ""}
+                </div>
+              )}
             </div>
           )}
           {isMobile && onCloseMobile ? (

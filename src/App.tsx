@@ -2190,11 +2190,7 @@ export function App() {
   }, [mapelRecords, query]);
 
   const filteredPengajarRecords = useMemo(() => {
-    const source = restrictedCabang
-      ? pengajarRecords.filter(
-          (record) => normalizeText(record["Domisili"] || "") === normalizeText(restrictedCabang)
-        )
-      : pengajarRecords;
+    const source = pengajarRecords;
 
     if (!query.trim()) {
       return source;
@@ -2204,7 +2200,7 @@ export function App() {
     return source.filter((record) =>
       Object.values(record).some((value) => String(value).toLowerCase().includes(lowered))
     );
-  }, [pengajarRecords, query, restrictedCabang]);
+  }, [pengajarRecords, query]);
 
   const filteredPenempatanRecords = useMemo(() => {
     const source = restrictedCabang
@@ -2918,7 +2914,7 @@ export function App() {
         "Bidang Studi": record["Bidang Studi"] || "",
         "Email": record["Email"] || "",
         "No.WhatsApp": existingWhatsapp,
-        "Domisili": restrictedCabang || record["Domisili"] || "",
+        "Domisili": record["Domisili"] || restrictedCabang || "",
         "Username": computedUsername || record["Username"] || "",
         "Password": sanitizePasswordInput(record["Password"] || ""),
       });
@@ -5581,7 +5577,6 @@ export function App() {
     scheduleKey: ScheduleMenuKey = activeScheduleKey
   ) => {
     setSheetStatus((prev) => ({ ...prev, saving: true }));
-    await new Promise((resolve) => setTimeout(resolve, 150));
     setSheetStatusError("");
     const bucket = dataBucket[scheduleSheetByKey[scheduleKey]];
 
@@ -5846,10 +5841,6 @@ export function App() {
     if (!editingSlot) {
       return;
     }
-    
-    // Force UI to show loading state immediately before running conflict checks
-    setSheetStatus((prev) => ({ ...prev, saving: true }));
-    await new Promise((resolve) => setTimeout(resolve, 150));
 
     const { cabang, kelas, sekolah, tanggal, tanggalSheet, entryId } = editingSlot;
     const sekolahValue = sekolah || "";
@@ -6294,6 +6285,7 @@ export function App() {
       clearEditing();
       return;
     }
+    setSheetStatus((prev) => ({ ...prev, saving: true }));
     const existingEntry = (records[activeScheduleKey] ?? []).find((item) => item.id === editingSlot.entryId);
     const sheetRecord = buildSheetRecord(
       editingSlot.cabang,
@@ -6391,6 +6383,7 @@ export function App() {
                 categories={visibleCategories}
                 activeKey={activeKey}
                 sidebarCollapsed={sidebarCollapsed}
+                authSession={authSession}
                 onToggle={() => setSidebarWidth(sidebarCollapsed ? 240 : 80)}
                 onResize={(width) => setSidebarWidth(Math.max(80, Math.min(320, width)))}
                 onSelect={(key) => {
@@ -6401,9 +6394,9 @@ export function App() {
           </div>
 
           <div className="col d-flex flex-column">
-            <div className="card shadow-sm mb-4 surface-panel app-header-card">
+            <div className="card shadow-sm surface-panel">
               <div className="card-body">
-                <div className="d-flex justify-content-between align-items-center gap-2">
+                <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 pb-3 mb-3 border-bottom">
                   <div className="d-flex align-items-center gap-2">
                     <button
                       type="button"
@@ -6414,14 +6407,10 @@ export function App() {
                       <i className="bi bi-list" />
                     </button>
                     <div>
-                    <h2 className="h4 mb-0">{activeConfig.name}</h2>
-                    <div className="text-muted small mt-1">
-                      Login sebagai: {authSession.username}
-                      {authSession.cabang ? ` (${authSession.cabang})` : ""}
-                    </div>
+                      <h2 className="h4 mb-0 fw-bold">{activeConfig.name}</h2>
                     </div>
                   </div>
-                  <div className="d-flex align-items-center gap-2">
+                  <div className="d-flex flex-wrap align-items-center gap-2">
                     {isAdmin &&
                     importTargetByMenu[activeKey as keyof typeof importTargetByMenu] ? (
                       <button
@@ -6489,11 +6478,6 @@ export function App() {
                     </button>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="card shadow-sm surface-panel">
-              <div className="card-body">
                 {activeKey !== "suratTugasMengajar" && (
                   <TopToolbar
                     activeKey={activeKey}
@@ -6939,6 +6923,7 @@ export function App() {
           activeKey={activeKey}
           sidebarCollapsed={false}
           isMobile
+          authSession={authSession}
           onCloseMobile={() => setSidebarMobileOpen(false)}
           onToggle={() => {
             // Desktop collapse is not used in mobile drawer.
