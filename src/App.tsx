@@ -5342,17 +5342,24 @@ export function App() {
       pushToast("Mode lihat cabang lain aktif. Anda tidak dapat menghapus kelas.", "error");
       return;
     }
+    const monthKey = isJadwalTambahanMenu ? "" : selectedMonthKey;
+    const monthLabel = monthKey ? ` untuk bulan ${monthKey}` : "";
     openConfirmDialog(
-      `Hapus seluruh jadwal untuk ${group.kelas} (${group.cabang})? Tindakan ini akan menghapus semua data terkait di Surat Tugas Pengajar.`,
+      `Hapus seluruh jadwal untuk ${group.kelas} (${group.cabang})${monthLabel}? Tindakan ini akan menghapus semua data terkait di Surat Tugas Pengajar.`,
       async () => {
         setRecords((prev) => ({
           ...prev,
-          [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter(
-            (item) =>
-              item.cabang !== group.cabang ||
-              item.kelas !== group.kelas ||
-              (item.sekolah || "") !== (group.sekolah || "")
-          ),
+          [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => {
+            const matchClass =
+              item.cabang === group.cabang &&
+              item.kelas === group.kelas &&
+              (item.sekolah || "") === (group.sekolah || "");
+            if (!matchClass) return true;
+            if (!monthKey) return false;
+            const tanggal = (item.tanggal as string) || (item.Tanggal as string) || "";
+            const itemMonth = tanggal.slice(0, 7);
+            return itemMonth !== monthKey;
+          }),
         }));
         if (
           editingSlot &&
@@ -5360,15 +5367,18 @@ export function App() {
           editingSlot.kelas === group.kelas &&
           (editingSlot.sekolah || "") === (group.sekolah || "")
         ) {
-          clearEditing();
+          if (!monthKey || editingSlot.tanggal?.slice(0, 7) === monthKey) {
+            clearEditing();
+          }
         }
         await postToSheet({
           action: "deleteClass",
           cabang: group.cabang,
           kelas: group.kelas,
           sekolah: group.sekolah || "",
+          monthKey,
         });
-        pushToast("Kelas dan seluruh jadwalnya berhasil dihapus.", "success");
+        pushToast(`Kelas dan seluruh jadwalnya${monthLabel} berhasil dihapus.`, "success");
       },
       { title: "Hapus Kelas", confirmLabel: "Hapus" }
     );
@@ -5585,13 +5595,23 @@ export function App() {
         const cabang = String(payload.cabang ?? "");
         const kelas = String(payload.kelas ?? "");
         const sekolah = String(payload.sekolah ?? "");
+        const monthKey = String(payload.monthKey ?? "");
         const targetIds = rows
-          .filter(
-            (row) =>
-              normalizeValueKey(row.data.Cabang) === normalizeValueKey(cabang) &&
-              normalizeValueKey(row.data.Kelas) === normalizeValueKey(kelas) &&
-              normalizeValueKey(row.data.Sekolah || "") === normalizeValueKey(sekolah)
-          )
+          .filter((row) => {
+            if (
+              normalizeValueKey(row.data.Cabang) !== normalizeValueKey(cabang) ||
+              normalizeValueKey(row.data.Kelas) !== normalizeValueKey(kelas) ||
+              normalizeValueKey(row.data.Sekolah || "") !== normalizeValueKey(sekolah)
+            ) {
+              return false;
+            }
+            if (!monthKey || scheduleKey === "jadwalTambahanPelayanan") {
+              return true;
+            }
+            const rawTanggal = String(row.data.Tanggal || row.data.tanggal || row.data.tanggalSheet || "");
+            const parsedTanggal = parseFlexibleDate(rawTanggal);
+            return parsedTanggal ? formatLocalDate(parsedTanggal).slice(0, 7) === monthKey : false;
+          })
           .map((row) => row.id);
         await deleteRowsByIds(targetIds);
         return;
