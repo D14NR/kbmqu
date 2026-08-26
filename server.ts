@@ -24,12 +24,14 @@ dbStore.set("accounts_cabang", [
 ]);
 
 dbStore.set("mata_pelajaran", [
-  { id: crypto.randomUUID(), mata_pelajaran: "Matematika", kode_mata_pelajaran: "MTK" },
-  { id: crypto.randomUUID(), mata_pelajaran: "Bahasa Indonesia", kode_mata_pelajaran: "BIND" },
-  { id: crypto.randomUUID(), mata_pelajaran: "Bahasa Inggris", kode_mata_pelajaran: "BING" },
-  { id: crypto.randomUUID(), mata_pelajaran: "Fisika", kode_mata_pelajaran: "FIS" },
-  { id: crypto.randomUUID(), mata_pelajaran: "Kimia", kode_mata_pelajaran: "KIM" },
-  { id: crypto.randomUUID(), mata_pelajaran: "Biologi", kode_mata_pelajaran: "BIO" }
+  { id: crypto.randomUUID(), mata_pelajaran: "Matematika", kode_mata_pelajaran: "MTK", kategory: "UMUM" },
+  { id: crypto.randomUUID(), mata_pelajaran: "Bahasa Indonesia", kode_mata_pelajaran: "BIND", kategory: "UMUM" },
+  { id: crypto.randomUUID(), mata_pelajaran: "Bahasa Inggris", kode_mata_pelajaran: "BING", kategory: "UMUM" },
+  { id: crypto.randomUUID(), mata_pelajaran: "Fisika", kode_mata_pelajaran: "FIS", kategory: "TKA" },
+  { id: crypto.randomUUID(), mata_pelajaran: "Kimia", kode_mata_pelajaran: "KIM", kategory: "TKA" },
+  { id: crypto.randomUUID(), mata_pelajaran: "Biologi", kode_mata_pelajaran: "BIO", kategory: "TKA" },
+  { id: crypto.randomUUID(), mata_pelajaran: "Tes Potensi Skolastik", kode_mata_pelajaran: "TPS", kategory: "SNBT" },
+  { id: crypto.randomUUID(), mata_pelajaran: "Tes Karakteristik Pribadi", kode_mata_pelajaran: "TKP", kategory: "KEDINASAN" }
 ]);
 
 dbStore.set("pengajar", [

@@ -190,10 +190,12 @@ const schemas: Record<BucketName, BucketSchema> = {
     fromDb: (row) => ({
       Mapel: asString(row.mata_pelajaran),
       Kode_Mapel: asString(row.kode_mata_pelajaran),
+      Kategori: asString(row.kategory || row.kategori || "UMUM"),
     }),
     toDb: (data) => ({
       mata_pelajaran: asString(data.Mapel),
       kode_mata_pelajaran: asString(data.Kode_Mapel),
+      kategory: asString(data.Kategori || data.kategori || data.Kategory || "UMUM"),
     }),
   },
   pengajar: {

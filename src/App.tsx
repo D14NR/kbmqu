@@ -256,7 +256,7 @@ export function App() {
   const [groupDisplayOrder, setGroupDisplayOrder] = useState<Record<string, number>>({});
   const [conflictError, setConflictError] = useState("");
   const [isMapelModalOpen, setIsMapelModalOpen] = useState(false);
-  const [mapelDraft, setMapelDraft] = useState({ Mapel: "", Kode_Mapel: "" });
+  const [mapelDraft, setMapelDraft] = useState({ Mapel: "", Kode_Mapel: "", Kategori: "UMUM" });
   const [gabungEnabled, setGabungEnabled] = useState(false);
   const [gabungClassKeys, setGabungClassKeys] = useState<string[]>([]);
   const [gabungOptions, setGabungOptions] = useState<{ value: string; label: string }[]>([]);
@@ -2729,10 +2729,14 @@ export function App() {
 
   const handleOpenMapelModal = (record?: Record<string, string>) => {
     if (record) {
-      setMapelDraft({ Mapel: record.Mapel || "", Kode_Mapel: record.Kode_Mapel || "" });
+      setMapelDraft({
+        Mapel: record.Mapel || "",
+        Kode_Mapel: record.Kode_Mapel || "",
+        Kategori: record.Kategori || record.kategori || record.kategory || "UMUM",
+      });
       setEditingMapelOldName(record.Mapel || "");
     } else {
-      setMapelDraft({ Mapel: "", Kode_Mapel: "" });
+      setMapelDraft({ Mapel: "", Kode_Mapel: "", Kategori: "UMUM" });
       setEditingMapelOldName(null);
     }
     setMapelError("");
@@ -2742,6 +2746,7 @@ export function App() {
   const handleSaveMapel = async () => {
     const mapel = mapelDraft.Mapel.trim();
     const kode = mapelDraft.Kode_Mapel.trim();
+    const kategori = (mapelDraft.Kategori || "UMUM").trim();
     if (!mapel || !kode) {
       setMapelError("Mata Pelajaran dan Singkatan wajib diisi.");
       return;
@@ -2757,9 +2762,9 @@ export function App() {
       });
 
       if (existing) {
-        await updateRow(existing.id, { Mapel: mapel, Kode_Mapel: kode });
+        await updateRow(existing.id, { Mapel: mapel, Kode_Mapel: kode, Kategori: kategori });
       } else {
-        await insertRow(bucket, { Mapel: mapel, Kode_Mapel: kode });
+        await insertRow(bucket, { Mapel: mapel, Kode_Mapel: kode, Kategori: kategori });
       }
 
       setIsMapelModalOpen(false);
@@ -3878,7 +3883,7 @@ export function App() {
     ],
     monitoringKelas: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
     printJadwal: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
-    mataPelajaran: ["Mapel", "Kode_Mapel"],
+    mataPelajaran: ["Mapel", "Kode_Mapel", "Kategori"],
     pengajar: [
       "Kode Pengajar",
       "Nama",
@@ -3977,6 +3982,7 @@ export function App() {
         .map((row) => ({
           Mapel: getEntryValue(row, ["Mapel", "Mata Pelajaran"]).trim(),
           Kode_Mapel: getEntryValue(row, ["Kode_Mapel", "Kode Mapel", "Singkatan"]).trim(),
+          Kategori: getEntryValue(row, ["Kategori", "Kategory", "Category", "Jenis"]).trim() || "UMUM",
         }))
         .filter((row) => row.Mapel || row.Kode_Mapel);
     }
@@ -4219,8 +4225,9 @@ export function App() {
         rows = filteredMapelRecords.map((row) => ({
           Mapel: row.Mapel ?? "",
           Kode_Mapel: row.Kode_Mapel ?? "",
+          Kategori: row.Kategori ?? row.kategori ?? row.kategory ?? "UMUM",
         }));
-        headers = ["Mapel", "Kode_Mapel"];
+        headers = ["Mapel", "Kode_Mapel", "Kategori"];
         filename = "mata-pelajaran.xlsx";
         break;
       case "pengajar":
@@ -6580,7 +6587,15 @@ export function App() {
                         onOpenEditClass={handleOpenEditClass}
                       />
                     ) : activeKey === "monitoringKelas" ? (
-                      <MonitoringKelasView loading={sheetStatus.loading} rows={monitoringRows} mapelNameByKode={mapelNameByKode} />
+                      <MonitoringKelasView 
+                        loading={sheetStatus.loading} 
+                        rows={monitoringRows} 
+                        mapelNameByKode={mapelNameByKode} 
+                        mapelCategoryByKode={Object.fromEntries(mapelRecords.map(r => [
+                          (r.Kode_Mapel || r.kode_mapel || r.kode || "").toLowerCase(),
+                          (r.Kategori || r.kategori || r.kategory || "UMUM")
+                        ]))}
+                      />
                     ) : activeKey === "mataPelajaran" ? (
                       <MapelTableView
                         headers={mapelHeaders}
@@ -6777,6 +6792,7 @@ export function App() {
         onClose={() => setIsMapelModalOpen(false)}
         onMapelChange={(value) => setMapelDraft((prev) => ({ ...prev, Mapel: value }))}
         onKodeMapelChange={(value) => setMapelDraft((prev) => ({ ...prev, Kode_Mapel: value }))}
+        onKategoriChange={(value) => setMapelDraft((prev) => ({ ...prev, Kategori: value }))}
         onSave={handleSaveMapel}
       />
 

@@ -10,7 +10,35 @@ type MapelTableViewProps = {
 };
 
 type ViewMode = "table" | "grid";
-type SortOption = "name-asc" | "name-desc" | "code-asc" | "code-desc";
+type SortOption = "name-asc" | "name-desc" | "code-asc" | "code-desc" | "category-asc";
+
+const getCategoryBadgeStyle = (category: string) => {
+  const norm = (category || "").toUpperCase().trim();
+  switch (norm) {
+    case "SNBT":
+      return "bg-primary text-white"; // Using Bootstrap Primary
+    case "TKA":
+      return "bg-info text-white";    // Using Bootstrap Info
+    case "KEDINASAN":
+      return "bg-warning text-dark";  // Using Bootstrap Warning
+    case "UMUM":
+      return "bg-success text-white"; // Using Bootstrap Success
+    default:
+      return "bg-secondary text-white"; // Using Bootstrap Secondary
+  }
+};
+
+export const getNormalizedKategori = (record: Record<string, string>): string => {
+  const val = (
+    record.Kategori ||
+    record.kategori ||
+    record.kategory ||
+    record.Category ||
+    record.Jenis ||
+    ""
+  ).trim();
+  return val ? val.toUpperCase() : "UMUM";
+};
 
 export function MapelTableView({
   headers,
@@ -21,18 +49,41 @@ export function MapelTableView({
   onDelete,
 }: MapelTableViewProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [sortBy, setSortBy] = useState<SortOption>("name-asc");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  // Extract distinct categories
+  const categoriesAvailable = useMemo(() => {
+    const set = new Set<string>();
+    set.add("SNBT");
+    set.add("TKA");
+    set.add("KEDINASAN");
+    set.add("UMUM");
+
+    records.forEach((r) => {
+      const cat = getNormalizedKategori(r);
+      if (cat) set.add(cat);
+    });
+
+    return Array.from(set);
+  }, [records]);
 
   // Filter & Sort
   const processedRecords = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
     let result = records.filter((r) => {
-      if (!term) return true;
       const mapel = (r.Mapel || r.mapel || "").toLowerCase();
       const kode = (r.Kode_Mapel || r.kode_mapel || r.kode || "").toLowerCase();
-      return mapel.includes(term) || kode.includes(term);
+      const kategori = getNormalizedKategori(r).toLowerCase();
+
+      const matchesSearch = !term || mapel.includes(term) || kode.includes(term) || kategori.includes(term);
+      const matchesCategory =
+        selectedCategory === "ALL" ||
+        kategori === selectedCategory.toLowerCase();
+
+      return matchesSearch && matchesCategory;
     });
 
     result.sort((a, b) => {
@@ -40,6 +91,8 @@ export function MapelTableView({
       const nameB = (b.Mapel || b.mapel || "").toLowerCase();
       const codeA = (a.Kode_Mapel || a.kode_mapel || "").toLowerCase();
       const codeB = (b.Kode_Mapel || b.kode_mapel || "").toLowerCase();
+      const catA = getNormalizedKategori(a).toLowerCase();
+      const catB = getNormalizedKategori(b).toLowerCase();
 
       switch (sortBy) {
         case "name-asc":
@@ -50,13 +103,15 @@ export function MapelTableView({
           return codeA.localeCompare(codeB);
         case "code-desc":
           return codeB.localeCompare(codeA);
+        case "category-asc":
+          return catA.localeCompare(catB) || nameA.localeCompare(nameB);
         default:
           return 0;
       }
     });
 
     return result;
-  }, [records, searchTerm, sortBy]);
+  }, [records, searchTerm, selectedCategory, sortBy]);
 
   const handleCopyCode = (code: string) => {
     if (!code) return;
@@ -96,12 +151,12 @@ export function MapelTableView({
                 className="rounded-3 bg-indigo-subtle text-indigo d-flex align-items-center justify-content-center flex-shrink-0"
                 style={{ width: 44, height: 44 }}
               >
-                <i className="bi bi-tags-fill fs-4 text-primary" />
+                <i className="bi bi-grid-3x3-gap-fill fs-4 text-primary" />
               </div>
               <div>
-                <div className="text-muted text-xxs fw-semibold text-uppercase">Hasil Pencarian</div>
+                <div className="text-muted text-xxs fw-semibold text-uppercase">Kategori Terdaftar</div>
                 <div className="h4 fw-bold text-dark mb-0">
-                  {totalFiltered} <span className="text-xs fw-normal text-muted">dari {totalMapel}</span>
+                  {categoriesAvailable.length} <span className="text-xs fw-normal text-muted">Kategori ({totalFiltered} Tampil)</span>
                 </div>
               </div>
             </div>
@@ -131,9 +186,10 @@ export function MapelTableView({
       {/* 2. TOOLBAR & FILTER CONTROLS */}
       <div className="card border-0 shadow-sm rounded-4 bg-white p-3">
         <div className="d-flex flex-wrap justify-content-between align-items-center gap-3">
-          {/* Search Box */}
-          <div className="d-flex flex-wrap align-items-center gap-2 flex-grow-1" style={{ maxWidth: 460 }}>
-            <div className="input-group input-group-sm flex-grow-1">
+          {/* Search Box & Category Filter */}
+          <div className="d-flex flex-wrap align-items-center gap-2 flex-grow-1" style={{ maxWidth: 600 }}>
+            {/* Search */}
+            <div className="input-group input-group-sm flex-grow-1" style={{ minWidth: 200 }}>
               <span className="input-group-text bg-light text-muted border-end-0">
                 <i className="bi bi-search" />
               </span>
@@ -141,7 +197,7 @@ export function MapelTableView({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Cari nama mata pelajaran atau kode..."
+                placeholder="Cari nama, kode, atau kategori..."
                 className="form-control border-start-0"
               />
               {searchTerm && (
@@ -154,6 +210,25 @@ export function MapelTableView({
                   <i className="bi bi-x" />
                 </button>
               )}
+            </div>
+
+            {/* Category Filter */}
+            <div className="input-group input-group-sm" style={{ width: 170 }}>
+              <span className="input-group-text bg-light text-muted border-end-0">
+                <i className="bi bi-funnel-fill" />
+              </span>
+              <select
+                className="form-select form-select-sm border-start-0 fw-semibold"
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+              >
+                <option value="ALL">Semua Kategori</option>
+                {categoriesAvailable.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -173,6 +248,7 @@ export function MapelTableView({
                 <option value="name-desc">Nama (Z - A)</option>
                 <option value="code-asc">Kode (A - Z)</option>
                 <option value="code-desc">Kode (Z - A)</option>
+                <option value="category-asc">Kategori</option>
               </select>
             </div>
 
@@ -197,6 +273,41 @@ export function MapelTableView({
             </div>
           </div>
         </div>
+
+        {/* Quick Category Quick Filter Badges */}
+        <div className="d-flex flex-wrap align-items-center gap-1.5 mt-3 pt-2.5 border-top">
+          <span className="text-muted text-xxs fw-bold text-uppercase me-1">
+            <i className="bi bi-tags me-1" />
+            Filter Cepat:
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedCategory("ALL")}
+            className={`btn btn-xs rounded-pill px-2.5 ${
+              selectedCategory === "ALL" ? "btn-dark fw-bold" : "btn-light text-muted"
+            }`}
+          >
+            Semua ({totalMapel})
+          </button>
+          {categoriesAvailable.map((cat) => {
+            const count = records.filter(
+              (r) => getNormalizedKategori(r) === cat
+            ).length;
+            const isSelected = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={`btn btn-xs rounded-pill px-2.5 transition-all ${
+                  isSelected ? "btn-primary fw-bold shadow-xs" : getCategoryBadgeStyle(cat)
+                }`}
+              >
+                {cat} <span className="opacity-75 ms-0.5">({count})</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* 3. CONTENT AREA */}
@@ -215,21 +326,26 @@ export function MapelTableView({
             <i className="bi bi-journal-x fs-2" />
           </div>
           <h6 className="fw-bold text-dark mb-1">
-            {searchTerm ? "Tidak Ada Hasil Pencarian" : "Belum Ada Data Mata Pelajaran"}
+            {searchTerm || selectedCategory !== "ALL"
+              ? "Tidak Ada Hasil Pencarian / Filter"
+              : "Belum Ada Data Mata Pelajaran"}
           </h6>
           <p className="text-muted text-xs mb-3" style={{ maxWidth: 360, margin: "0 auto" }}>
-            {searchTerm
-              ? `Tidak ditemukan mata pelajaran dengan kata kunci "${searchTerm}". Silakan periksa kembali kata kunci Anda.`
+            {searchTerm || selectedCategory !== "ALL"
+              ? "Tidak ditemukan mata pelajaran yang sesuai dengan kriteria filter Anda."
               : "Mata pelajaran belum ditambahkan ke dalam database. Tambahkan data pertama Anda sekarang."}
           </p>
           <div>
-            {searchTerm ? (
+            {searchTerm || selectedCategory !== "ALL" ? (
               <button
                 type="button"
                 className="btn btn-outline-secondary btn-sm rounded-3"
-                onClick={() => setSearchTerm("")}
+                onClick={() => {
+                  setSearchTerm("");
+                  setSelectedCategory("ALL");
+                }}
               >
-                Reset Pencarian
+                Reset Filter & Pencarian
               </button>
             ) : (
               <button
@@ -258,6 +374,9 @@ export function MapelTableView({
                   <th className="py-3">
                     Nama Mata Pelajaran
                   </th>
+                  <th className="py-3" style={{ width: 150 }}>
+                    Kategori
+                  </th>
                   <th className="text-center py-3" style={{ width: 120 }}>
                     Aksi
                   </th>
@@ -267,6 +386,7 @@ export function MapelTableView({
                 {processedRecords.map((record, index) => {
                   const mapelName = record.Mapel || record.mapel || "-";
                   const kodeMapel = record.Kode_Mapel || record.kode_mapel || record.kode || "-";
+                  const kategori = getNormalizedKategori(record);
 
                   return (
                     <tr key={`mapel-row-${index}`} className="transition-all">
@@ -312,6 +432,13 @@ export function MapelTableView({
                         </div>
                       </td>
 
+                      {/* Kategori Badge */}
+                      <td>
+                        <span className={`badge px-2.5 py-1 text-xxs rounded-pill fw-bold ${getCategoryBadgeStyle(kategori)}`}>
+                          {kategori}
+                        </span>
+                      </td>
+
                       {/* Actions */}
                       <td className="text-center">
                         <div className="d-flex justify-content-center align-items-center gap-1.5">
@@ -350,15 +477,21 @@ export function MapelTableView({
           {processedRecords.map((record, index) => {
             const mapelName = record.Mapel || record.mapel || "-";
             const kodeMapel = record.Kode_Mapel || record.kode_mapel || record.kode || "-";
+            const kategori = getNormalizedKategori(record);
 
             return (
               <div key={`mapel-card-${index}`} className="col-12 col-sm-6 col-lg-4 col-xl-3">
                 <div className="card border-0 shadow-sm rounded-4 p-3.5 bg-white h-100 d-flex flex-column justify-content-between hover:shadow-md transition-all">
                   <div>
                     <div className="d-flex justify-content-between align-items-start mb-2.5">
-                      <span className="badge bg-primary text-white font-monospace px-2.5 py-1 text-xs rounded-2 fw-bold shadow-xs">
-                        {kodeMapel}
-                      </span>
+                      <div className="d-flex align-items-center gap-1.5">
+                        <span className="badge bg-primary text-white font-monospace px-2.5 py-1 text-xs rounded-2 fw-bold shadow-xs">
+                          {kodeMapel}
+                        </span>
+                        <span className={`badge px-2 py-0.5 text-xxs rounded-pill fw-bold ${getCategoryBadgeStyle(kategori)}`}>
+                          {kategori}
+                        </span>
+                      </div>
                       <div className="d-flex align-items-center gap-1">
                         <button
                           type="button"
@@ -395,7 +528,7 @@ export function MapelTableView({
                       className="btn btn-link btn-xs p-0 text-decoration-none text-muted d-flex align-items-center gap-1"
                     >
                       <i className={`bi ${copiedCode === kodeMapel ? "bi-check2 text-success" : "bi-copy"}`} />
-                      {copiedCode === kodeMapel ? "Tersalin" : "Salin Kode"}
+                      {copiedCode === copiedCode ? "Tersalin" : "Salin Kode"}
                     </button>
                     <span className="text-muted"># {index + 1}</span>
                   </div>

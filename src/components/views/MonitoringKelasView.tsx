@@ -5,10 +5,11 @@ type MonitoringKelasViewProps = {
   loading: boolean;
   rows: MonitoringRow[];
   mapelNameByKode?: Record<string, string>;
+  mapelCategoryByKode?: Record<string, string>;
 };
 
 type ViewMode = "matrix" | "cards" | "distribution";
-type SubjectCategoryFilter = "ALL" | "UMUM" | "SNBT-UTBK" | "TKA" | "LAINNYA";
+type SubjectCategoryFilter = "ALL" | string;
 type SessionStatusFilter = "ALL" | "HEAVY" | "MODERATE" | "EMPTY";
 type SortOption = "name_asc" | "name_desc" | "sessions_desc" | "sessions_asc" | "subjects_desc";
 
@@ -74,7 +75,7 @@ const SUBJECT_GROUPS_CONFIG = [
   },
 ];
 
-export function MonitoringKelasView({ loading, rows, mapelNameByKode }: MonitoringKelasViewProps) {
+export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCategoryByKode }: MonitoringKelasViewProps) {
   // UI State
   const [viewMode, setViewMode] = useState<ViewMode>("matrix");
   const [searchQuery, setSearchQuery] = useState("");
@@ -148,6 +149,36 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode }: Monitori
 
   // Group subject codes
   const { visibleGroups, orderedCodes, codeToCategoryMap } = useMemo(() => {
+    // Dynamic grouping based on passed category map
+    if (mapelCategoryByKode) {
+      const allCategories = Array.from(new Set(Object.values(mapelCategoryByKode)));
+      
+      const dynamicGroups = allCategories.map(cat => ({
+        label: cat,
+        name: cat,
+        color: "#2563eb",
+        bgSoft: "#eff6ff",
+        borderSoft: "#bfdbfe",
+        badgeClass: "bg-blue-subtle text-blue",
+        codes: allMapelKodes.filter(code => (mapelCategoryByKode[code.toLowerCase()] || "UMUM") === cat)
+      }));
+
+      const ordered = dynamicGroups.flatMap((group) => group.codes.filter(Boolean));
+      
+      const map = new Map<string, string>();
+      dynamicGroups.forEach((g) => {
+        g.codes.forEach((c) => {
+          map.set(normalizeRawKode(c), g.label);
+        });
+      });
+      
+      return {
+        visibleGroups: dynamicGroups,
+        orderedCodes: ordered,
+        codeToCategoryMap: map
+      };
+    }
+
     const groups = SUBJECT_GROUPS_CONFIG.map((g) => ({
       label: g.label,
       name: g.name,
@@ -201,7 +232,7 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode }: Monitori
       orderedCodes: ordered,
       codeToCategoryMap: map,
     };
-  }, [allMapelKodes, selectedCategory]);
+  }, [allMapelKodes, selectedCategory, mapelCategoryByKode]);
 
   // Helper to extract session count for a specific subject in a row
   const getSubjectCountInRow = (row: MonitoringRow, kode: string) => {

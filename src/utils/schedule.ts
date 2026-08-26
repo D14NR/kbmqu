@@ -5,7 +5,7 @@ export const appsScriptUrl =
 
 export const mainSpreadsheetId = "1Wa3AUT9JsQOf6gMaNqWvIDBoucqJQ0ZN3A4K4C7nQW8";
 
-export const mapelHeadersExpected = ["Mapel", "Kode_Mapel"];
+export const mapelHeadersExpected = ["Mapel", "Kode_Mapel", "Kategori"];
 export const sesiHeaders = Array.from({ length: 10 }, (_, index) => `Sesi ${index + 1}`);
 
 export const normalizeHeader = (value: string) =>
@@ -30,9 +30,12 @@ export const mapMapelRecord = (record: Record<string, string>) => {
     return "";
   };
 
+  const categoryVal = getValue(["Kategori", "Kategory", "Category", "Jenis"]);
+
   return {
     Mapel: getValue(["Mapel", "Mata Pelajaran", "Nama Mapel"]),
     Kode_Mapel: getValue(["Kode_Mapel", "Kode Mapel", "Singkatan"]),
+    Kategori: categoryVal || "UMUM",
   };
 };
 

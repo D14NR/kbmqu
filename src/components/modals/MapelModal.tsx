@@ -3,29 +3,44 @@ import React, { useEffect, useState } from "react";
 type MapelModalProps = {
   isOpen: boolean;
   editingMapelOldName: string | null;
-  mapelDraft: { Mapel: string; Kode_Mapel: string };
+  mapelDraft: { Mapel: string; Kode_Mapel: string; Kategori?: string };
   mapelError: string;
   loading: boolean;
   onClose: () => void;
   onMapelChange: (value: string) => void;
   onKodeMapelChange: (value: string) => void;
+  onKategoriChange: (value: string) => void;
   onSave: () => void;
 };
 
+// Standard Kategori options
+export const KATEGORI_OPTIONS = [
+  { value: "SNBT", label: "SNBT", badgeBg: "bg-purple-600 text-white" },
+  { value: "TKA", label: "TKA", badgeBg: "bg-primary text-white" },
+  { value: "KEDINASAN", label: "KEDINASAN", badgeBg: "bg-warning text-dark" },
+  { value: "UMUM", label: "UMUM", badgeBg: "bg-success text-white" },
+  { value: "LAIN-LAIN", label: "LAIN-LAIN", badgeBg: "bg-secondary-subtle text-secondary border-secondary-subtle" },
+];
+
 // Preset populer untuk mempermudah pengisian
 const POPULAR_PRESETS = [
-  { name: "Matematika", code: "MTK" },
-  { name: "Fisika", code: "FIS" },
-  { name: "Kimia", code: "KIM" },
-  { name: "Biologi", code: "BIO" },
-  { name: "Bahasa Indonesia", code: "IND" },
-  { name: "Bahasa Inggris", code: "ING" },
-  { name: "Sejarah", code: "SEJ" },
-  { name: "Geografi", code: "GEO" },
-  { name: "Ekonomi", code: "EKO" },
-  { name: "Sosiologi", code: "SOS" },
-  { name: "Tes Potensi Skolastik (TPS)", code: "TPS" },
-  { name: "Literasi & Penalaran", code: "LIT" },
+  { name: "Matematika", code: "MTK", category: "UMUM" },
+  { name: "Fisika", code: "FIS", category: "TKA" },
+  { name: "Kimia", code: "KIM", category: "TKA" },
+  { name: "Biologi", code: "BIO", category: "TKA" },
+  { name: "Bahasa Indonesia", code: "IND", category: "UMUM" },
+  { name: "Bahasa Inggris", code: "ING", category: "UMUM" },
+  { name: "Sejarah", code: "SEJ", category: "TKA" },
+  { name: "Geografi", code: "GEO", category: "TKA" },
+  { name: "Ekonomi", code: "EKO", category: "TKA" },
+  { name: "Sosiologi", code: "SOS", category: "TKA" },
+  { name: "Tes Potensi Skolastik (TPS)", code: "TPS", category: "SNBT" },
+  { name: "Penalaran Matematika", code: "PM", category: "SNBT" },
+  { name: "Literasi Bahasa Indonesia", code: "LIND", category: "SNBT" },
+  { name: "Literasi Bahasa Inggris", code: "LING", category: "SNBT" },
+  { name: "Tes Karakteristik Pribadi (TKP)", code: "TKP", category: "KEDINASAN" },
+  { name: "Tes Inteligensia Umum (TIU)", code: "TIU", category: "KEDINASAN" },
+  { name: "Tes Wawasan Kebangsaan (TWK)", code: "TWK", category: "KEDINASAN" },
 ];
 
 export function MapelModal({
@@ -37,13 +52,22 @@ export function MapelModal({
   onClose,
   onMapelChange,
   onKodeMapelChange,
+  onKategoriChange,
   onSave,
 }: MapelModalProps) {
   const [localError, setLocalError] = useState("");
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
 
   useEffect(() => {
     setLocalError(mapelError);
   }, [mapelError]);
+
+  const currentCategory = mapelDraft.Kategori || "LAIN-LAIN";
+
+  useEffect(() => {
+    const isStandard = ["SNBT", "TKA", "KEDINASAN", "UMUM"].includes(currentCategory);
+    setIsCustomCategory(!isStandard && currentCategory !== "");
+  }, [currentCategory]);
 
   if (!isOpen) {
     return null;
@@ -60,9 +84,10 @@ export function MapelModal({
     }
   };
 
-  const handleApplyPreset = (preset: { name: string; code: string }) => {
+  const handleApplyPreset = (preset: { name: string; code: string; category: string }) => {
     onMapelChange(preset.name);
     onKodeMapelChange(preset.code);
+    onKategoriChange(preset.category);
   };
 
   const handleAutoGenerateCode = () => {
@@ -78,8 +103,23 @@ export function MapelModal({
     onKodeMapelChange(code);
   };
 
+  const handleSelectCategory = (val: string) => {
+    if (val === "LAIN-LAIN") {
+      setIsCustomCategory(true);
+      if (["SNBT", "TKA", "KEDINASAN", "UMUM"].includes(currentCategory)) {
+        onKategoriChange("LAIN-LAIN");
+      }
+    } else {
+      setIsCustomCategory(false);
+      onKategoriChange(val);
+    }
+  };
+
   const isEditing = Boolean(editingMapelOldName);
-  const isValid = mapelDraft.Mapel.trim().length > 0 && mapelDraft.Kode_Mapel.trim().length > 0;
+  const isValid =
+    mapelDraft.Mapel.trim().length > 0 &&
+    mapelDraft.Kode_Mapel.trim().length > 0 &&
+    (currentCategory.trim().length > 0 || isCustomCategory);
 
   return (
     <div
@@ -101,7 +141,7 @@ export function MapelModal({
       <div
         className="modal-content-card bg-white rounded-4 shadow-2xl border-0 w-100 overflow-hidden"
         style={{
-          maxWidth: 520,
+          maxWidth: 540,
           maxHeight: "92vh",
           display: "flex",
           flexDirection: "column",
@@ -136,7 +176,7 @@ export function MapelModal({
               <p className="text-muted text-xs mb-0">
                 {isEditing
                   ? `Mengubah rincian mata pelajaran: ${editingMapelOldName}`
-                  : "Daftarkan mata pelajaran dan kode singkatan resmi KBM"}
+                  : "Daftarkan mata pelajaran, kode singkatan, dan kategori"}
               </p>
             </div>
           </div>
@@ -162,7 +202,7 @@ export function MapelModal({
                   <i className="bi bi-lightning-charge text-amber-500" />
                   Pilihan Cepat (Preset Mata Pelajaran)
                 </label>
-                <div className="d-flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1.5 bg-light rounded-3 border border-dashed">
+                <div className="d-flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1.5 bg-light rounded-3 border border-dashed">
                   {POPULAR_PRESETS.map((preset) => (
                     <button
                       key={preset.code}
@@ -178,6 +218,9 @@ export function MapelModal({
                         {preset.code}
                       </span>
                       <span>{preset.name}</span>
+                      <span className="badge bg-light text-muted border text-xxs ms-0.5">
+                        {preset.category}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -248,10 +291,55 @@ export function MapelModal({
                   className="form-control border-start-0 fw-bold font-monospace text-uppercase"
                 />
               </div>
-              <div className="text-muted text-xxs mt-1 d-flex align-items-center gap-1">
-                <i className="bi bi-info-circle text-primary" />
-                Kode ini digunakan pada badge sesi jadwal kelas, surat tugas, dan matriks.
+            </div>
+
+            {/* Field 3: Kategori */}
+            <div>
+              <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                <i className="bi bi-grid-3x3-gap-fill text-primary" />
+                Kategori Mata Pelajaran <span className="text-danger">*</span>
+              </label>
+
+              {/* Category Pills / Badges Selection */}
+              <div className="d-flex flex-wrap gap-2 mb-2">
+                {KATEGORI_OPTIONS.map((opt) => {
+                  const isSelected =
+                    opt.value === "Lainnya" ? isCustomCategory : currentCategory === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleSelectCategory(opt.value)}
+                      className={`btn btn-sm rounded-3 fw-bold transition-all d-flex align-items-center gap-1.5 ${
+                        isSelected
+                          ? "btn-primary shadow-xs"
+                          : "btn-outline-secondary bg-white text-dark border-secondary-subtle"
+                      }`}
+                    >
+                      <i className={`bi ${isSelected ? "bi-check-circle-fill" : "bi-circle"}`} />
+                      <span>{opt.label}</span>
+                    </button>
+                  );
+                })}
               </div>
+
+              {/* Custom Category Input (If "Lainnya" or custom value) */}
+              {isCustomCategory && (
+                <div className="mt-2">
+                  <div className="input-group input-group-sm">
+                    <span className="input-group-text bg-light text-muted border-end-0">
+                      <i className="bi bi-pencil" />
+                    </span>
+                    <input
+                      type="text"
+                      value={currentCategory}
+                      onChange={(e) => onKategoriChange(e.target.value.toUpperCase())}
+                      placeholder="Masukkan nama kategori kustom (contoh: OSN / OLIMPIADE)"
+                      className="form-control border-start-0 fw-bold text-uppercase"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Live Preview Card */}
@@ -268,8 +356,8 @@ export function MapelModal({
                 <span className="text-dark fw-bold text-sm">
                   {mapelDraft.Mapel.trim() || "Nama Mata Pelajaran"}
                 </span>
-                <span className="badge bg-white text-muted border text-xxs rounded-pill ms-auto">
-                  Format Resmi
+                <span className="badge bg-dark text-white text-xxs rounded-pill px-2.5 py-1 ms-auto fw-bold">
+                  {currentCategory.trim() || "UMUM"}
                 </span>
               </div>
             </div>
