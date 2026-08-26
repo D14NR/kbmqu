@@ -186,7 +186,7 @@ export function SettingsView({
                   )}
                </div>
                
-               <h4 className="fw-bold mb-1">Versi 1.2.0</h4>
+               <h4 className="fw-bold mb-1">Versi 1.3.5</h4>
                <p className="text-white-50 text-sm mb-4">Sistem berjalan dengan baik.</p>
 
                <button
