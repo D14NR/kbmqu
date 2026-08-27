@@ -335,7 +335,7 @@ export function App() {
     "bulanIni"
   );
   // Minimum required gap (in minutes) between classes in different branches for the same teacher
-  const INTER_BRANCH_MIN_GAP_MINUTES = 45;
+  const INTER_BRANCH_MIN_GAP_MINUTES = 30;
   const [deleteMonthKey, setDeleteMonthKey] = useState(() => getMonthKey(new Date()));
   const [isDeletingByMonth, setIsDeletingByMonth] = useState(false);
   const [scheduleCabangView, setScheduleCabangView] = useState<Record<ScheduleMenuKey, string>>({
@@ -2028,9 +2028,8 @@ export function App() {
             break;
           }
 
-          // Check inter-branch gap (< 30 minutes)
+          // Check inter-branch gap
           if (normalizeText(entry.cabang || "") !== normalizeText(editingSlot.cabang || "")) {
-            const INTER_BRANCH_MIN_GAP_MINUTES = 30;
             const hasGap =
               startTime >= range.end + INTER_BRANCH_MIN_GAP_MINUTES ||
               range.start >= endTime + INTER_BRANCH_MIN_GAP_MINUTES;
@@ -2038,7 +2037,7 @@ export function App() {
               const cabangLabel = entry.cabang || "Cabang lain";
               const kelasLabel = entry.kelas || "Kelas lain";
               const waktuLabel = entry.waktu || "";
-              scheduleWarning = `⚠️ Bentrok Jeda Cabang: ${draft.pengajar} mengajar di ${cabangLabel} (${kelasLabel}) pukul ${waktuLabel}. Butuh jeda minimal 30 menit antar cabang.`;
+              scheduleWarning = `⚠️ Bentrok Jeda Cabang: ${draft.pengajar} mengajar di ${cabangLabel} (${kelasLabel}) pukul ${waktuLabel}. Butuh jeda minimal ${INTER_BRANCH_MIN_GAP_MINUTES} menit antar cabang.`;
               break;
             }
           }
