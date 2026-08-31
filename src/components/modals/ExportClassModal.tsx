@@ -10,7 +10,8 @@ type ExportClassModalProps = {
   isOpen: boolean;
   onClose: () => void;
   classes: ClassGroup[];
-  onExport: (selectedGroupKey: string | "all") => void;
+  months: { value: string; label: string }[];
+  onExport: (selectedGroupKey: string | "all", selectedMonth: string | "all") => void;
   isAdmin: boolean;
 };
 
@@ -18,15 +19,17 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
   isOpen,
   onClose,
   classes,
+  months,
   onExport,
   isAdmin,
 }) => {
   const [selectedKey, setSelectedKey] = useState<string>("all");
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
 
   if (!isOpen) return null;
 
   const handleExport = () => {
-    onExport(selectedKey);
+    onExport(selectedKey, selectedMonth);
   };
 
   return (
@@ -44,7 +47,7 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
             <div className="mb-3">
               <label className="form-label fw-medium text-dark small">Pilih Kelas</label>
               <select
-                className="form-select bg-light border-0 shadow-none px-3 py-2 text-sm"
+                className="form-select bg-light border-0 shadow-none px-3 py-2 text-sm mb-3"
                 value={selectedKey}
                 onChange={(e) => setSelectedKey(e.target.value)}
               >
@@ -59,6 +62,20 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
                     </option>
                   );
                 })}
+              </select>
+
+              <label className="form-label fw-medium text-dark small">Pilih Bulan</label>
+              <select
+                className="form-select bg-light border-0 shadow-none px-3 py-2 text-sm"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+              >
+                <option value="all">-- Semua Bulan --</option>
+                {months.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

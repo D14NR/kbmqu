@@ -4139,7 +4139,7 @@ export function App() {
     pushToast(`Template ${target.label} berhasil diunduh.`, "success");
   };
 
-  const handleConfirmExportClass = (selectedKey: string) => {
+  const handleConfirmExportClass = (selectedKey: string, selectedMonth: string = "all") => {
     setIsExportClassModalOpen(false);
 
     let scheduleRows = records[activeKey as "bulanIni" | "jadwalTambahanPelayanan"] ?? [];
@@ -4155,14 +4155,32 @@ export function App() {
        return;
     }
 
+    if (selectedMonth !== "all") {
+      scheduleRows = scheduleRows.filter((row) => {
+        const rowDate = (row.tanggal || row.Tanggal || "").trim();
+        return rowDate.startsWith(selectedMonth);
+      });
+    }
+
     const rows = scheduleRows.map((row) => ({
       Cabang: (row as any).cabang ?? (row as any).Cabang ?? "",
       Kelas: (row as any).kelas ?? (row as any).Kelas ?? "",
       Sekolah: (row as any).sekolah ?? (row as any).Sekolah ?? "",
       "Jenjang Studi": (row as any).jenjang ?? (row as any)["Jenjang Studi"] ?? "",
       Tanggal: (row as any).tanggal ?? (row as any).Tanggal ?? "",
-      Mapel: (row as any).mapel ?? (row as any).Mapel ?? "",
-      Pengajar: (row as any).pengajar ?? (row as any).Pengajar ?? "",
+      Mapel: (() => {
+        const rawMapel = (row as any).mapel ?? (row as any).Mapel ?? "";
+        return mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
+      })(),
+      Pengajar: (() => {
+        const rawPengajar = (row as any).pengajar ?? (row as any).Pengajar ?? "";
+        const kode = normalizeText(rawPengajar);
+        const pengajarRecord = pengajarByKode[kode];
+        if (pengajarRecord) {
+          return pengajarRecord["Nama"] || pengajarRecord["Nama Pengajar"] || pengajarRecord["nama_pengajar"] || rawPengajar;
+        }
+        return rawPengajar;
+      })(),
       Waktu: (row as any).waktu ?? (row as any).Waktu ?? "",
       "Urutan Kelas": (row as any)["Urutan Kelas"] ?? (row as any).classOrder ?? (row as any).class_order ?? "",
       "Jenis KBM": (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
@@ -4171,7 +4189,7 @@ export function App() {
     }));
 
     const headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
-    const filename = `${activeKey}${selectedKey !== "all" ? `-${selectedKey.replace(/\|\|/g, "-")}` : ""}-data.xlsx`;
+    const filename = `${activeKey}${selectedKey !== "all" ? `-${selectedKey.replace(/\|\|/g, "-")}` : ""}${selectedMonth !== "all" ? `-${selectedMonth}` : ""}-data.xlsx`;
 
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
@@ -6730,6 +6748,7 @@ export function App() {
           kelas: g.kelas,
           sekolah: g.sekolah,
         }))}
+        months={monthOptions}
         onExport={handleConfirmExportClass}
         isAdmin={isAdmin}
       />
