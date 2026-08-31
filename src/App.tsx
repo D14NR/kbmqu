@@ -5161,7 +5161,12 @@ export function App() {
         item.cabang === group.cabang &&
         item.kelas === group.kelas &&
         (item.sekolah || "") === (group.sekolah || "");
-      return isSameClass;
+      if (!isSameClass) return false;
+      if (activeScheduleKey !== "jadwalTambahanPelayanan") {
+        const itemMonth = ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7);
+        if (itemMonth !== selectedMonthKey) return false;
+      }
+      return true;
     });
     if (matchingItems.length === 0) {
       pushToast("Data kelas tidak ditemukan.", "error");
@@ -5179,7 +5184,9 @@ export function App() {
         const shouldUpdate =
           item.cabang === group.cabang &&
           item.kelas === group.kelas &&
-          (item.sekolah || "") === (group.sekolah || "");
+          (item.sekolah || "") === (group.sekolah || "") &&
+          (activeScheduleKey === "jadwalTambahanPelayanan" ||
+            ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7) === selectedMonthKey);
         if (shouldUpdate) {
           return {
             ...item,
@@ -5458,6 +5465,12 @@ export function App() {
     setRecords((prev) => ({
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).map((item) => {
+        if (activeScheduleKey !== "jadwalTambahanPelayanan") {
+          const itemMonth = ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7);
+          if (itemMonth !== selectedMonthKey) {
+            return item;
+          }
+        }
         const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
         if (itemKey === currentKey) {
           return { ...item, classOrder: String(finalCurrentOrder) };
