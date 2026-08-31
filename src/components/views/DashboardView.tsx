@@ -786,12 +786,12 @@ export function DashboardView({
                             return (
                               <div
                                 key={item.id}
-                                className="p-2 rounded-2 border bg-light d-flex align-items-center justify-content-between gap-2"
+                                className="p-2 rounded-2 border bg-light d-flex align-items-start justify-content-between gap-2"
                               >
-                                <div className="d-flex align-items-center gap-2 text-truncate">
+                                <div className="d-flex align-items-start gap-2 flex-grow-1">
                                   {/* Jam Sesi */}
                                   <div
-                                    className="px-2 py-1 bg-white border rounded text-dark font-monospace fw-semibold text-center flex-shrink-0"
+                                    className="px-2 py-1 bg-white border rounded text-dark font-monospace fw-semibold text-center flex-shrink-0 mt-1"
                                     style={{ fontSize: "11px", minWidth: 80 }}
                                   >
                                     <i className="bi bi-clock me-1 text-primary" />
@@ -799,20 +799,23 @@ export function DashboardView({
                                   </div>
 
                                   {/* Mapel & Kelas */}
-                                  <div className="d-flex align-items-center gap-1.5 text-truncate">
+                                  <div className="d-flex flex-wrap gap-1.5 flex-grow-1">
                                     <span
-                                      className="badge px-2 py-1 rounded-pill border fw-semibold text-truncate"
+                                      className="badge px-2 py-1 rounded border fw-semibold text-wrap text-start"
                                       style={{
                                         backgroundColor: tagStyle.backgroundColor || "#e2e8f0",
                                         borderColor: tagStyle.borderColor || "#cbd5e1",
                                         color: tagStyle.color || "#1e293b",
-                                        maxWidth: 130,
+                                        lineHeight: "1.3",
                                       }}
                                       title={item.mapel}
                                     >
                                       {item.mapel || "-"}
                                     </span>
-                                    <span className="badge bg-white text-dark border px-2 py-1 rounded-pill text-truncate">
+                                    <span 
+                                      className="badge bg-white text-dark border px-2 py-1 rounded text-wrap text-start"
+                                      style={{ lineHeight: "1.3" }}
+                                    >
                                       {item.kelas || "-"}
                                     </span>
                                   </div>
@@ -820,7 +823,7 @@ export function DashboardView({
 
                                 {/* Jenis KBM */}
                                 <span
-                                  className={`badge px-2 py-1 rounded-pill flex-shrink-0 ${
+                                  className={`badge px-2 py-1 rounded-pill flex-shrink-0 mt-1 ${
                                     isReguler
                                       ? "bg-secondary-subtle text-secondary border border-secondary-subtle"
                                       : "bg-info-subtle text-info border border-info-subtle"
