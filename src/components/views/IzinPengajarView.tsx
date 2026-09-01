@@ -102,7 +102,7 @@ export function IzinPengajarView({
   const totalIzin = records.length;
   const pendingIzin = records.filter(r => {
     const status = (r["Keterangan Status"] || r.keterangan_status || "").toLowerCase();
-    return !status || status === "-" || status === "pending";
+    return !status || status === "-" || status === "pending" || status === "menunggu";
   }).length;
 
   const getStatusBadge = (status: string) => {

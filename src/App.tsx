@@ -22,6 +22,7 @@ import {
   PermintaanPengajarModal,
   type PermintaanDraft,
 } from "./components/modals/PermintaanPengajarModal";
+import { PendingNotificationModal } from "./components/modals/PendingNotificationModal";
 import { TopToolbar } from "./components/views/TopToolbar";
 import { DashboardView } from "./components/views/DashboardView";
 import { ScheduleTableView } from "./components/views/ScheduleTableView";
@@ -310,6 +311,8 @@ export function App() {
     catatan: "",
   });
   const [permintaanError, setPermintaanError] = useState("");
+  const [isPendingNotificationModalOpen, setIsPendingNotificationModalOpen] = useState(false);
+  const [hasAutoPromptedPending, setHasAutoPromptedPending] = useState(false);
 
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const sidebarCollapsed = sidebarWidth <= 220;
@@ -2185,7 +2188,7 @@ export function App() {
       if (!restrictedCabang) {
         return true;
       }
-      const cabangTarget = normalizeText(record["Cabang Target"] || "");
+      const cabangTarget = normalizeText(record["Cabang Target"] || record["cabang_target"] || "");
       const cabangKey = normalizeText(restrictedCabang);
       return cabangTarget === cabangKey;
     });
@@ -2293,6 +2296,51 @@ export function App() {
         return aDate - bDate;
       });
   }, [filteredIzinRecords]);
+
+  const pendingIzinList = useMemo(() => {
+    return dashboardIzinRequests.filter(
+      (item) => normalizeText(item.status || "Menunggu") === "menunggu"
+    );
+  }, [dashboardIzinRequests]);
+
+  const pendingPermintaanList = useMemo(() => {
+    return filteredPermintaanRecords
+      .filter((record) => normalizeText(record.Status || "") === "menunggu")
+      .map((record, idx) => ({
+        id: record.ID || `${record["Kode Pengajar"] || ""}-${record["Cabang Peminta"] || ""}-${idx}`,
+        namaPengajar: record["Nama Pengajar"] || "",
+        dariCabang: record["Dari Cabang"] || "",
+        cabangPeminta: record["Cabang Peminta"] || "",
+        tanggal: record["Tanggal"] || record["Tanggal KBM"] || "",
+        sesi: record["Sesi"] || record["Waktu"] || "",
+        status: record.Status || "Menunggu",
+        keterangan: record.Keterangan || record.Catatan || "",
+      }));
+  }, [filteredPermintaanRecords]);
+
+  const totalPendingNotifications = pendingIzinList.length + pendingPermintaanList.length;
+
+  const menuBadges = useMemo(() => {
+    return {
+      izinPengajar: pendingIzinList.length,
+      permintaanPengajarAntarCabang: pendingPermintaanList.length,
+    };
+  }, [pendingIzinList.length, pendingPermintaanList.length]);
+
+  useEffect(() => {
+    if (authSession && !izinStatus.loading && !permintaanStatus.loading) {
+      if (!hasAutoPromptedPending && totalPendingNotifications > 0) {
+        setIsPendingNotificationModalOpen(true);
+        setHasAutoPromptedPending(true);
+      }
+    }
+  }, [
+    authSession,
+    izinStatus.loading,
+    permintaanStatus.loading,
+    totalPendingNotifications,
+    hasAutoPromptedPending,
+  ]);
 
   const handleUpdateIzinStatus = async (
     item: { id: string; namaPengajar: string },
@@ -6392,6 +6440,7 @@ export function App() {
                 activeKey={activeKey}
                 sidebarCollapsed={sidebarCollapsed}
                 authSession={authSession}
+                badges={menuBadges}
                 onToggle={() => setSidebarWidth(sidebarCollapsed ? 240 : 80)}
                 onResize={(width) => setSidebarWidth(Math.max(80, Math.min(320, width)))}
                 onSelect={(key) => {
@@ -6465,6 +6514,27 @@ export function App() {
                         Export Excel
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${totalPendingNotifications > 0 ? "btn-warning position-relative fw-bold text-dark shadow-sm" : "btn-outline-secondary"}`}
+                      title={
+                        totalPendingNotifications > 0
+                          ? `Ada ${totalPendingNotifications} Permintaan & Izin Menunggu Persetujuan`
+                          : "Pemberitahuan Persetujuan"
+                      }
+                      aria-label="Pemberitahuan Persetujuan"
+                      onClick={() => setIsPendingNotificationModalOpen(true)}
+                    >
+                      <i className={`bi ${totalPendingNotifications > 0 ? "bi-bell-fill" : "bi-bell"}`} />
+                      {totalPendingNotifications > 0 && (
+                        <span
+                          className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-white"
+                          style={{ fontSize: "0.65rem", padding: "0.25em 0.45em" }}
+                        >
+                          {totalPendingNotifications}
+                        </span>
+                      )}
+                    </button>
                     <button
                       type="button"
                       className="btn btn-outline-secondary btn-sm"
@@ -6905,6 +6975,18 @@ export function App() {
         onSave={handleSaveAccountsCabang}
       />
 
+      <PendingNotificationModal
+        isOpen={isPendingNotificationModalOpen}
+        onClose={() => setIsPendingNotificationModalOpen(false)}
+        userCabang={restrictedCabang || authSession?.cabang}
+        isAdmin={isAdmin}
+        pendingIzinList={pendingIzinList}
+        pendingPermintaanList={pendingPermintaanList}
+        onNavigate={(menuKey) => {
+          void handleMenuSelect(menuKey);
+        }}
+      />
+
       <ConfirmDialog
         isOpen={confirmDialog.open}
         title={confirmDialog.title}
@@ -6942,6 +7024,7 @@ export function App() {
           sidebarCollapsed={false}
           isMobile
           authSession={authSession}
+          badges={menuBadges}
           onCloseMobile={() => setSidebarMobileOpen(false)}
           onToggle={() => {
             // Desktop collapse is not used in mobile drawer.

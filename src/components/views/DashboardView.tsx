@@ -206,6 +206,13 @@ export function DashboardView({
   const showPermintaanSection = pendingRequests.length > 0;
   const hasPendingApprovals = showIzinSection || showPermintaanSection;
 
+  const effectiveApprovalTab =
+    activeApprovalTab === "permintaan" && !showPermintaanSection && showIzinSection
+      ? "izin"
+      : activeApprovalTab === "izin" && !showIzinSection && showPermintaanSection
+      ? "permintaan"
+      : activeApprovalTab;
+
   // Active Teachers count
   const uniqueTeachersCount = useMemo(() => {
     const teacherSet = new Set(dateSchedules.map((s) => (s.pengajar || "").trim()).filter(Boolean));
@@ -305,7 +312,42 @@ export function DashboardView({
         </div>
       </div>
 
-      {/* 2. KPI Stat Cards */}
+      {/* 2. Alert Notification Banner (Jika ada persetujuan yang menunggu) */}
+      {hasPendingApprovals && (
+        <div className="alert alert-warning border-warning border-2 d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between p-3 mb-3 rounded-3 shadow-sm gap-3">
+          <div className="d-flex align-items-center gap-3">
+            <div
+              className="p-2 bg-warning rounded-circle text-dark d-flex align-items-center justify-content-center flex-shrink-0 shadow-sm"
+              style={{ width: 42, height: 42 }}
+            >
+              <i className="bi bi-bell-fill fs-5" />
+            </div>
+            <div>
+              <h6 className="fw-bold mb-0 text-dark d-flex align-items-center gap-2">
+                Peringatan: Terdapat {waitingIzinRequests.length + pendingRequests.length} Pengajuan Menunggu Persetujuan!
+                <span className="badge bg-danger text-white rounded-pill px-2 py-0.5 text-xxs">
+                  Butuh Tindakan
+                </span>
+              </h6>
+              <div className="small text-dark-emphasis mt-0.5">
+                {waitingIzinRequests.length > 0 && <span><strong>{waitingIzinRequests.length}</strong> Izin Pengajar</span>}
+                {waitingIzinRequests.length > 0 && pendingRequests.length > 0 && <span> dan </span>}
+                {pendingRequests.length > 0 && <span><strong>{pendingRequests.length}</strong> Permintaan Pengajar Antar Cabang</span>}
+                {" "}memerlukan verifikasi / persetujuan cabang Anda.
+              </div>
+            </div>
+          </div>
+          <a
+            href="#approval-section"
+            className="btn btn-warning btn-sm fw-bold text-dark px-3 py-1.5 text-nowrap shadow-sm"
+          >
+            <i className="bi bi-arrow-down-circle me-1.5" />
+            Tinjau Persetujuan Sekarang
+          </a>
+        </div>
+      )}
+
+      {/* 3. KPI Stat Cards */}
       <div className="row g-3 mb-3">
         {/* KPI 1 */}
         <div className="col-12 col-sm-6 col-xl-3">
@@ -422,9 +464,9 @@ export function DashboardView({
         </div>
       </div>
 
-      {/* 3. Action Center Section (Jika ada persetujuan yang menunggu) */}
+      {/* 4. Action Center Section (Jika ada persetujuan yang menunggu) */}
       {hasPendingApprovals && (
-        <div className="card shadow-sm border rounded-3 mb-3 bg-white overflow-hidden">
+        <div id="approval-section" className="card shadow-sm border rounded-3 mb-3 bg-white overflow-hidden">
           <div className="card-header bg-warning-subtle py-2.5 px-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div className="d-flex align-items-center gap-2">
               <i className="bi bi-exclamation-octagon text-warning fs-5" />
@@ -434,7 +476,7 @@ export function DashboardView({
               {showPermintaanSection && (
                 <button
                   type="button"
-                  className={`btn btn-sm ${activeApprovalTab === "permintaan" ? "btn-warning text-dark fw-bold" : "btn-outline-secondary bg-white"}`}
+                  className={`btn btn-sm ${effectiveApprovalTab === "permintaan" ? "btn-warning text-dark fw-bold" : "btn-outline-secondary bg-white"}`}
                   onClick={() => setActiveApprovalTab("permintaan")}
                 >
                   <i className="bi bi-arrow-left-right me-1" />
@@ -444,7 +486,7 @@ export function DashboardView({
               {showIzinSection && (
                 <button
                   type="button"
-                  className={`btn btn-sm ${activeApprovalTab === "izin" ? "btn-primary fw-bold" : "btn-outline-secondary bg-white"}`}
+                  className={`btn btn-sm ${effectiveApprovalTab === "izin" ? "btn-primary fw-bold" : "btn-outline-secondary bg-white"}`}
                   onClick={() => setActiveApprovalTab("izin")}
                 >
                   <i className="bi bi-file-earmark-medical me-1" />
@@ -455,7 +497,7 @@ export function DashboardView({
           </div>
 
           <div className="table-responsive">
-            {activeApprovalTab === "permintaan" && showPermintaanSection && (
+            {effectiveApprovalTab === "permintaan" && showPermintaanSection && (
               <table className="table table-hover align-middle mb-0 small">
                 <thead className="table-light">
                   <tr>
@@ -534,7 +576,7 @@ export function DashboardView({
               </table>
             )}
 
-            {activeApprovalTab === "izin" && showIzinSection && (
+            {effectiveApprovalTab === "izin" && showIzinSection && (
               <table className="table table-hover align-middle mb-0 small">
                 <thead className="table-light">
                   <tr>
@@ -549,7 +591,8 @@ export function DashboardView({
                 <tbody>
                   {waitingIzinRequests.map((item) => {
                     const normalizedStatus = normalizeText(item.status || "Menunggu");
-                    const canShowAction = canManageIzin && normalizedStatus === "menunggu";
+                    const isFromDomisili = isAdmin || !userCabang || normalizeText(userCabang) === normalizeText(item.domisili || "");
+                    const canShowAction = canManageIzin && normalizedStatus === "menunggu" && isFromDomisili;
 
                     return (
                       <tr key={item.id}>
@@ -597,7 +640,9 @@ export function DashboardView({
                               </button>
                             </div>
                           ) : (
-                            <span className="text-muted fst-italic small">Tidak diizinkan</span>
+                            <span className="text-muted fst-italic small">
+                              {!isFromDomisili ? "Hanya cabang asal / Admin" : "Tidak diizinkan"}
+                            </span>
                           )}
                         </td>
                       </tr>

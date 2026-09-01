@@ -6,6 +6,7 @@ type SidebarMenuProps = {
   sidebarCollapsed: boolean;
   isMobile?: boolean;
   authSession?: { username: string; cabang?: string } | null;
+  badges?: Record<string, number>;
   onToggle: () => void;
   onResize?: (width: number) => void;
   onCloseMobile?: () => void;
@@ -18,6 +19,7 @@ export function SidebarMenu({
   sidebarCollapsed,
   isMobile = false,
   authSession,
+  badges,
   onToggle,
   onResize,
   onCloseMobile,
@@ -102,6 +104,8 @@ export function SidebarMenu({
         <div className="sidebar-nav-list">
           {categories.map((category) => {
             const isActive = activeKey === category.key;
+            const badgeCount = badges?.[category.key] || 0;
+
             return (
               <button
                 key={category.key}
@@ -114,14 +118,25 @@ export function SidebarMenu({
                 }}
                 title={category.name}
                 aria-label={category.name}
-                className={`sidebar-nav-item ${sidebarCollapsed ? "justify-content-center" : "justify-content-start"} ${
+                className={`sidebar-nav-item ${sidebarCollapsed ? "justify-content-center position-relative" : "justify-content-start"} ${
                   isActive ? "active" : ""
                 }`}
               >
-                <span className="sidebar-nav-icon">
+                <span className="sidebar-nav-icon position-relative">
                   <i className={`bi ${category.icon}`} />
+                  {sidebarCollapsed && badgeCount > 0 && (
+                    <span
+                      className="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle"
+                      style={{ transform: "translate(-30%, -30%)" }}
+                    />
+                  )}
                 </span>
                 <span className="sidebar-label">{category.name}</span>
+                {!sidebarCollapsed && badgeCount > 0 && (
+                  <span className="badge rounded-pill bg-danger ms-auto text-xxs px-1.5 py-0.5">
+                    {badgeCount}
+                  </span>
+                )}
                 {isActive && !sidebarCollapsed && (
                   <span className="sidebar-active-indicator" />
                 )}
