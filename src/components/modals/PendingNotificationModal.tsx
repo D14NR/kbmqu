@@ -216,9 +216,11 @@ export function PendingNotificationModal({
 
           {/* Footer */}
           <div className="modal-footer bg-light py-2.5 px-4 justify-content-between">
-            <div className="text-muted small">
-              <i className="bi bi-info-circle me-1" />
-              Anda dapat membuka kembali jendela ini melalui ikon lonceng di pojok kanan atas.
+            <div className="text-muted small d-flex align-items-center gap-1">
+              <i className="bi bi-clock-history text-warning-emphasis" />
+              <span>
+                Pengingat ini akan otomatis muncul setiap <strong>1 jam sekali</strong> selama pengajuan belum dikonfirmasi.
+              </span>
             </div>
             <div className="d-flex gap-2">
               <button

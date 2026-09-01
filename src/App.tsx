@@ -312,7 +312,6 @@ export function App() {
   });
   const [permintaanError, setPermintaanError] = useState("");
   const [isPendingNotificationModalOpen, setIsPendingNotificationModalOpen] = useState(false);
-  const [hasAutoPromptedPending, setHasAutoPromptedPending] = useState(false);
 
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const sidebarCollapsed = sidebarWidth <= 220;
@@ -2328,18 +2327,37 @@ export function App() {
   }, [pendingIzinList.length, pendingPermintaanList.length]);
 
   useEffect(() => {
-    if (authSession && !izinStatus.loading && !permintaanStatus.loading) {
-      if (!hasAutoPromptedPending && totalPendingNotifications > 0) {
-        setIsPendingNotificationModalOpen(true);
-        setHasAutoPromptedPending(true);
-      }
+    if (!authSession || izinStatus.loading || permintaanStatus.loading) {
+      return;
     }
+
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const storageKey = `last_pending_prompt_${authSession?.username || "user"}_${authSession?.cabang || "all"}`;
+
+    const checkAndPrompt = () => {
+      if (totalPendingNotifications <= 0) return;
+      const lastPromptStr = localStorage.getItem(storageKey);
+      const lastPromptTime = lastPromptStr ? parseInt(lastPromptStr, 10) : 0;
+      const now = Date.now();
+
+      // If never prompted, or more than 1 hour (3600000ms) has elapsed since last prompt
+      if (!lastPromptTime || now - lastPromptTime >= ONE_HOUR_MS) {
+        setIsPendingNotificationModalOpen(true);
+        localStorage.setItem(storageKey, String(now));
+      }
+    };
+
+    // Run immediately when loaded or data updates
+    checkAndPrompt();
+
+    // Check periodically every 30 seconds while user is working on the app
+    const intervalId = window.setInterval(checkAndPrompt, 30000);
+    return () => window.clearInterval(intervalId);
   }, [
     authSession,
     izinStatus.loading,
     permintaanStatus.loading,
     totalPendingNotifications,
-    hasAutoPromptedPending,
   ]);
 
   const handleUpdateIzinStatus = async (
