@@ -312,6 +312,7 @@ export function App() {
   });
   const [permintaanError, setPermintaanError] = useState("");
   const [isPendingNotificationModalOpen, setIsPendingNotificationModalOpen] = useState(false);
+  const lastRefreshAllTimestampRef = useRef<number>(0);
 
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const sidebarCollapsed = sidebarWidth <= 220;
@@ -3828,6 +3829,21 @@ export function App() {
     if (!authSession || isRefreshingAll) {
       return;
     }
+
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    const elapsed = now - lastRefreshAllTimestampRef.current;
+
+    // Terapkan mekanisme caching di memori (menggunakan state/ref yang ada):
+    // Jika tidak bypassCache dan sinkronisasi dilakukan dalam rentang waktu kurang dari 5 menit,
+    // data tidak perlu diambil ulang dari D1.
+    if (!bypassCache && lastRefreshAllTimestampRef.current > 0 && elapsed < FIVE_MINUTES_MS) {
+      if (showToast) {
+        pushToast("Data disajikan dari memori (sinkronisasi < 5 menit yang lalu).", "info");
+      }
+      return;
+    }
+
     if (bypassCache) {
       clearAllReadCache();
     }
@@ -3844,6 +3860,7 @@ export function App() {
         handleLoadPermintaanPengajar(),
         handleLoadAccountsCabang(),
       ]);
+      lastRefreshAllTimestampRef.current = Date.now();
       if (showToast) {
         pushToast("Semua data berhasil direfresh.", "success");
       }
@@ -4494,7 +4511,7 @@ export function App() {
             });
 
       await replaceBucketRows(target.bucket, rowsToSave);
-      await refreshAllData(false);
+      await refreshAllData(false, true);
       pushToast(`Import ${target.label} berhasil (${rowsToSave.length} baris).`, "success");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "Import Excel gagal diproses.", "error");
