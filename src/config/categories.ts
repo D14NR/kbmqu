@@ -116,6 +116,13 @@ export const categories: CategoryConfig[] = [
     fields: [],
   },
   {
+    key: "donasi",
+    name: "Kelola Donasi",
+    icon: "bi-heart-fill",
+    description: "Kelola data rekening dan donasi pemeliharaan database.",
+    fields: [],
+  },
+  {
     key: "settings",
     name: "Pengaturan",
     icon: "bi-gear-wide-connected",

@@ -21,6 +21,7 @@ const bucketTableMap = {
   permintaan_pengajar: "permintaan_pengajar_antar_cabang",
   libur_nasional: "libur_nasional",
   riwayat_notifikasi_pengajar: "riwayat_notifikasi_pengajar",
+  donasi: "donasi",
 } as const;
 
 type BucketName = keyof typeof bucketTableMap;
@@ -237,6 +238,24 @@ const schemas: Record<BucketName, BucketSchema> = {
       password: asString(data.Password),
       roll: asString(data.Roll),
       cabang: asString(data.Cabang),
+    }),
+  },
+  donasi: {
+    table: bucketTableMap.donasi,
+    fromDb: (row) => ({
+      ID: asString(row.id),
+      "Nama Pemilik": asString(row.nama_pemilik),
+      "Nama Bank": asString(row.nama_bank),
+      "Alamat Rekening": asString(row.alamat_rekening),
+      "Nominal Terkumpul": String(row.nominal_terkumpul ?? 0),
+      "Created At": asString((row as any).created_at),
+      "Updated At": asString((row as any).updated_at),
+    }),
+    toDb: (data) => ({
+      nama_pemilik: asString(data["Nama Pemilik"] || data.nama_pemilik),
+      nama_bank: asString(data["Nama Bank"] || data.nama_bank),
+      alamat_rekening: asString(data["Alamat Rekening"] || data.alamat_rekening),
+      nominal_terkumpul: asNumberOrNull(data["Nominal Terkumpul"] ?? data.nominal_terkumpul) ?? 0,
     }),
   },
   surat_tugas: {

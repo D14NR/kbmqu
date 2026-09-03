@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { categories, initialRecords } from "./config/categories";
 import { SidebarMenu } from "./components/layout/SidebarMenu";
 import { LoginScreen } from "./components/layout/LoginScreen";
+import { DatabaseMaintenanceBanner } from "./components/layout/DatabaseMaintenanceBanner";
 import { ClassModal } from "./components/modals/ClassModal";
 import { ExportClassModal } from "./components/modals/ExportClassModal";
 import { EditScheduleModal } from "./components/modals/EditScheduleModal";
@@ -18,6 +19,7 @@ import {
   type IzinPengajarDraft,
 } from "./components/modals/IzinPengajarModal";
 import { AccountsCabangModal } from "./components/modals/AccountsCabangModal";
+import { DonasiModal } from "./components/modals/DonasiModal";
 import {
   PermintaanPengajarModal,
   type PermintaanDraft,
@@ -30,6 +32,8 @@ import { MonitoringKelasView } from "./components/views/MonitoringKelasView";
 import { MapelTableView } from "./components/views/MapelTableView";
 import { PengajarTableView } from "./components/views/PengajarTableView";
 import { AccountsCabangView } from "./components/views/AccountsCabangView";
+import { DonasiView } from "./components/views/DonasiView";
+import type { DonasiRecord, DonasiDraft } from "./types/donasi";
 import { PenempatanPengajarView } from "./components/views/PenempatanPengajarView";
 import { IzinPengajarView } from "./components/views/IzinPengajarView";
 import { PermintaanPengajarView } from "./components/views/PermintaanPengajarView";
@@ -103,6 +107,7 @@ export function App() {
     "Izin Pengajar": "izin_pengajar",
     "Permintaan Pengajar Antar Cabang": "permintaan_pengajar",
     "accounts_cabang": "accounts_cabang",
+    "donasi": "donasi",
     "Riwayat Notifikasi Pengajar": "riwayat_notifikasi_pengajar",
   } as const;
 
@@ -233,6 +238,22 @@ export function App() {
   });
   const [editingAccountsCabangId, setEditingAccountsCabangId] = useState<string | null>(null);
   const [accountsCabangError, setAccountsCabangError] = useState("");
+
+  const [donasiRecords, setDonasiRecords] = useState<DonasiRecord[]>([]);
+  const [donasiStatus, setDonasiStatus] = useState({
+    loading: false,
+    error: "",
+    lastSync: "",
+  });
+  const [isDonasiModalOpen, setIsDonasiModalOpen] = useState(false);
+  const [donasiDraft, setDonasiDraft] = useState<DonasiDraft>({
+    nama_pemilik: "",
+    nama_bank: "",
+    alamat_rekening: "",
+    nominal_terkumpul: 0,
+  });
+  const [editingDonasiId, setEditingDonasiId] = useState<string | null>(null);
+  const [donasiError, setDonasiError] = useState("");
   const [selectedSuratTugasMonthKey, setSelectedSuratTugasMonthKey] = useState<string>(() => {
     try {
       const saved = localStorage.getItem("selectedMonthKey");
@@ -1522,7 +1543,8 @@ export function App() {
         if (
           category.key === "hapusJadwal" ||
           category.key === "liburNasional" ||
-          category.key === "accounts_cabang"
+          category.key === "accounts_cabang" ||
+          category.key === "donasi"
         ) {
           return isAdmin;
         }
@@ -3825,6 +3847,131 @@ export function App() {
     );
   };
 
+  const handleLoadDonasi = async () => {
+    setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const rows = await listRows(dataBucket["donasi"]);
+      const normalized: DonasiRecord[] = rows.map((row) => ({
+        id: row.id,
+        nama_pemilik: String(row.data["Nama Pemilik"] || (row.data as any).nama_pemilik || ""),
+        nama_bank: String(row.data["Nama Bank"] || (row.data as any).nama_bank || ""),
+        alamat_rekening: String(row.data["Alamat Rekening"] || (row.data as any).alamat_rekening || ""),
+        nominal_terkumpul: Number(row.data["Nominal Terkumpul"] ?? (row.data as any).nominal_terkumpul ?? 0),
+        created_at: String(row.data["Created At"] || (row as any).createdAt || (row as any).created_at || ""),
+        updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
+      }));
+      setDonasiRecords(normalized);
+      setDonasiStatus({
+        loading: false,
+        error: "",
+        lastSync: new Date().toLocaleString("id-ID"),
+      });
+    } catch (error) {
+      setDonasiStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Gagal memuat data donasi.",
+      }));
+      pushToast("Gagal memuat data donasi.", "error");
+    }
+  };
+
+  const handleOpenDonasiModal = (record?: DonasiRecord) => {
+    if (record) {
+      setDonasiDraft({
+        nama_pemilik: record.nama_pemilik || "",
+        nama_bank: record.nama_bank || "",
+        alamat_rekening: record.alamat_rekening || "",
+        nominal_terkumpul: record.nominal_terkumpul ?? 0,
+      });
+      setEditingDonasiId(record.id || null);
+    } else {
+      setDonasiDraft({
+        nama_pemilik: "",
+        nama_bank: "",
+        alamat_rekening: "",
+        nominal_terkumpul: 0,
+      });
+      setEditingDonasiId(null);
+    }
+    setDonasiError("");
+    setIsDonasiModalOpen(true);
+  };
+
+  const handleDonasiDraftChange = (field: keyof DonasiDraft, value: string | number) => {
+    setDonasiDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveDonasi = async () => {
+    const nama_pemilik = String(donasiDraft.nama_pemilik || "").trim();
+    const nama_bank = String(donasiDraft.nama_bank || "").trim();
+    const alamat_rekening = String(donasiDraft.alamat_rekening || "").trim();
+    const nominal_terkumpul = Number(String(donasiDraft.nominal_terkumpul || 0).replace(/[^0-9.-]+/g, "")) || 0;
+
+    if (!nama_bank) {
+      setDonasiError("Nama bank atau saluran donasi wajib diisi.");
+      return;
+    }
+    if (!nama_pemilik) {
+      setDonasiError("Nama pemilik rekening/akun wajib diisi.");
+      return;
+    }
+    if (!alamat_rekening) {
+      setDonasiError("Alamat rekening atau nomor akun wajib diisi.");
+      return;
+    }
+
+    const payload = {
+      "Nama Pemilik": nama_pemilik,
+      "Nama Bank": nama_bank,
+      "Alamat Rekening": alamat_rekening,
+      "Nominal Terkumpul": String(nominal_terkumpul),
+    };
+
+    try {
+      if (editingDonasiId) {
+        await updateRow(editingDonasiId, payload);
+        pushToast("Data donasi berhasil diperbarui.", "success");
+      } else {
+        await insertRow(dataBucket["donasi"], payload);
+        pushToast("Data donasi berhasil ditambahkan.", "success");
+      }
+      setIsDonasiModalOpen(false);
+      await handleLoadDonasi();
+    } catch (error) {
+      setDonasiError("Gagal menyimpan data donasi.");
+      pushToast("Gagal menyimpan data donasi.", "error");
+    }
+  };
+
+  const handleDeleteDonasi = (record: DonasiRecord) => {
+    openConfirmDialog(
+      `Hapus data donasi untuk ${record.nama_bank} (${record.alamat_rekening})?`,
+      async () => {
+        setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          await deleteRowsByIds([record.id]);
+          await handleLoadDonasi();
+          pushToast("Data donasi berhasil dihapus.", "success");
+        } catch (error) {
+          setDonasiStatus((prev) => ({
+            ...prev,
+            loading: false,
+            error: "Gagal menghapus data donasi.",
+          }));
+          pushToast("Gagal menghapus data donasi.", "error");
+        }
+      },
+      { title: "Hapus Data Donasi", confirmLabel: "Hapus" }
+    );
+  };
+
+  useEffect(() => {
+    if (activeKey === "donasi" && isAdmin) {
+      void handleLoadDonasi();
+    }
+  }, [activeKey, isAdmin]);
+
   const refreshAllData = async (showToast = false, bypassCache = false) => {
     if (!authSession || isRefreshingAll) {
       return;
@@ -3859,6 +4006,7 @@ export function App() {
         handleLoadIzinPengajar(),
         handleLoadPermintaanPengajar(),
         handleLoadAccountsCabang(),
+        isAdmin ? handleLoadDonasi() : Promise.resolve(),
       ]);
       lastRefreshAllTimestampRef.current = Date.now();
       if (showToast) {
@@ -3882,7 +4030,8 @@ export function App() {
     | "permintaan"
     | "accountsCabang"
     | "holiday"
-    | "izin";
+    | "izin"
+    | "donasi";
 
   const importTargetByMenu = {
     bulanIni: {
@@ -3944,6 +4093,11 @@ export function App() {
       bucket: dataBucket["accounts_cabang"],
       label: "accounts_cabang",
       mode: "accountsCabang",
+    },
+    donasi: {
+      bucket: dataBucket["donasi"],
+      label: "donasi",
+      mode: "donasi",
     },
   } as const;
 
@@ -4023,6 +4177,7 @@ export function App() {
     ],
     liburNasional: ["Tanggal", "Keterangan"],
     accounts_cabang: ["Username", "Password", "Roll", "Cabang"],
+    donasi: ["Nama Pemilik", "Nama Bank", "Alamat Rekening", "Nominal Terkumpul"],
   } as const;
 
   const normalizeImportRows = (
@@ -4163,6 +4318,17 @@ export function App() {
           };
         })
         .filter((row) => row["Kode Pengajar"] || row["Nama Pengajar"]);
+    }
+
+    if (mode === "donasi") {
+      return rows
+        .map((row) => ({
+          "Nama Pemilik": getEntryValue(row, ["Nama Pemilik", "nama_pemilik"]).trim(),
+          "Nama Bank": getEntryValue(row, ["Nama Bank", "nama_bank"]).trim(),
+          "Alamat Rekening": getEntryValue(row, ["Alamat Rekening", "alamat_rekening", "No Rekening", "Nomor Rekening"]).trim(),
+          "Nominal Terkumpul": getEntryValue(row, ["Nominal Terkumpul", "nominal_terkumpul"]).trim() || "0",
+        }))
+        .filter((row) => row["Nama Bank"] || row["Alamat Rekening"]);
     }
 
     return rows
@@ -4424,6 +4590,18 @@ export function App() {
         }));
         headers = ["Username", "Password", "Roll", "Cabang"];
         filename = "accounts-cabang.xlsx";
+        break;
+      case "donasi":
+        rows = donasiRecords.map((row) => ({
+          "Nama Pemilik": row.nama_pemilik,
+          "Nama Bank": row.nama_bank,
+          "Alamat Rekening": row.alamat_rekening,
+          "Nominal Terkumpul": String(row.nominal_terkumpul || 0),
+          "Created At": row.created_at || "",
+          "Updated At": row.updated_at || "",
+        }));
+        headers = ["Nama Pemilik", "Nama Bank", "Alamat Rekening", "Nominal Terkumpul", "Created At", "Updated At"];
+        filename = "donasi-pemeliharaan-database.xlsx";
         break;
       default:
         pushToast("Menu ini belum memiliki ekspor Excel.", "error");
@@ -6440,6 +6618,7 @@ export function App() {
   if (!authSession) {
     return (
       <div className="app-shell">
+        <DatabaseMaintenanceBanner />
         <LoginScreen
           username={loginUsername}
           password={loginPassword}
@@ -6466,6 +6645,7 @@ export function App() {
 
   return (
     <div className="min-vh-100 app-font-10 app-shell">
+      <DatabaseMaintenanceBanner />
       <div className="container-fluid py-3 px-3">
         <div className="row g-2">
           <div className="d-none d-lg-flex col-auto">
@@ -6792,6 +6972,15 @@ export function App() {
                         onEdit={handleOpenAccountsCabangModal}
                         onDelete={handleDeleteAccountsCabang}
                       />
+                    ) : activeKey === "donasi" && isAdmin ? (
+                      <DonasiView
+                        loading={donasiStatus.loading}
+                        records={donasiRecords}
+                        onAdd={() => handleOpenDonasiModal()}
+                        onEdit={handleOpenDonasiModal}
+                        onDelete={handleDeleteDonasi}
+                        onRefresh={handleLoadDonasi}
+                      />
                     ) : activeKey === "suratTugasMengajar" ? (
                       <SuratTugasView
                         loading={suratTugasStatus.loading}
@@ -7008,6 +7197,17 @@ export function App() {
         onClose={() => setIsAccountsCabangModalOpen(false)}
         onChange={handleAccountsCabangDraftChange}
         onSave={handleSaveAccountsCabang}
+      />
+
+      <DonasiModal
+        isOpen={isDonasiModalOpen}
+        isEditing={Boolean(editingDonasiId)}
+        draft={donasiDraft}
+        error={donasiError}
+        loading={donasiStatus.loading}
+        onClose={() => setIsDonasiModalOpen(false)}
+        onChange={handleDonasiDraftChange}
+        onSave={handleSaveDonasi}
       />
 
       <PendingNotificationModal

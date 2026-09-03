@@ -33,6 +33,7 @@ const allowedTables = new Set([
 
   "surat_tugas_pengajar",
   "penempatan_pengajar_dicabang",
+  "donasi",
 ]);
 
 

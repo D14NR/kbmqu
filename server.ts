@@ -45,6 +45,35 @@ dbStore.set("surat_tugas_pengajar", []);
 dbStore.set("penempatan_pengajar_dicabang", []);
 dbStore.set("izin_pengajar", []);
 dbStore.set("permintaan_pengajar_antar_cabang", []);
+dbStore.set("donasi", [
+  {
+    id: crypto.randomUUID(),
+    nama_pemilik: "Dian Rizki Sofiawan",
+    nama_bank: "Bank Jago",
+    alamat_rekening: "109760181905",
+    nominal_terkumpul: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: crypto.randomUUID(),
+    nama_pemilik: "Dian Rizki Sofiawan",
+    nama_bank: "PayPal",
+    alamat_rekening: "dianrizkisofiawan9@gmail.com",
+    nominal_terkumpul: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: crypto.randomUUID(),
+    nama_pemilik: "Dian Rizki Sofiawan",
+    nama_bank: "ShopeePay",
+    alamat_rekening: "08999990431",
+    nominal_terkumpul: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+]);
 
 const getTableRows = (table: string) => {
   if (!dbStore.has(table)) {
