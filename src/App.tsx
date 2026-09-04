@@ -1908,6 +1908,10 @@ export function App() {
     }
 
     return izinRecords.find((record) => {
+      const status = normalizeText(record["Keterangan Status"] || record.Status || "");
+      if (status.includes("ditolak")) {
+        return false;
+      }
       if (resolvePengajarCode(record["Kode Pengajar"] || record.Nama || "") !== kodeKey) {
         return false;
       }
@@ -2228,9 +2232,31 @@ export function App() {
       if (!restrictedCabang) {
         return true;
       }
-      const cabangTarget = normalizeText(record["Cabang Target"] || record["cabang_target"] || "");
       const cabangKey = normalizeText(restrictedCabang);
-      return cabangTarget === cabangKey;
+
+      // 1. Home branch (Domisili) can always see teacher's izin
+      const domisiliKey = normalizeText(record.Domisili || record.domisili || "");
+      if (domisiliKey && domisiliKey === cabangKey) {
+        return true;
+      }
+
+      const cabangTargetRaw = record["Cabang Target"] || record["cabang_target"] || "";
+      // 2. If cabang target is empty, it applies to all branches
+      if (!cabangTargetRaw.trim()) {
+        return true;
+      }
+
+      // 3. Check list of target branches (separated by comma)
+      const targetList = cabangTargetRaw
+        .split(",")
+        .map((item) => normalizeText(item))
+        .filter(Boolean);
+
+      if (targetList.includes("semua cabang") || targetList.includes("semua")) {
+        return true;
+      }
+
+      return targetList.includes(cabangKey);
     });
     if (!query.trim()) {
       return source;
@@ -3548,7 +3574,20 @@ export function App() {
     if (!currentCabangKey) {
       return true;
     }
-    return normalizeText(record.Domisili || "") === currentCabangKey;
+    const domisiliKey = normalizeText(record.Domisili || record.domisili || "");
+    if (domisiliKey && domisiliKey === currentCabangKey) {
+      return true;
+    }
+    const targetList = (record["Cabang Target"] || record["cabang_target"] || "")
+      .split(",")
+      .map((item) => normalizeText(item))
+      .filter(Boolean);
+
+    if (targetList.length === 0 || targetList.includes("semua cabang") || targetList.includes("semua")) {
+      return true;
+    }
+
+    return targetList.includes(currentCabangKey);
   };
 
   const handleOpenIzinModal = (record?: Record<string, string>) => {
