@@ -116,7 +116,52 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Generic DB CRUD routes
+// Proxy middleware to Cloudflare Worker if VITE_API_URL is set
+app.use("/db", async (req, res, next) => {
+  const remoteUrl = process.env.VITE_API_URL || "https://db-kbmqu.dianrizkisofiawan0431.workers.dev";
+  if (!remoteUrl) {
+    return next(); // Fallback to in-memory store
+  }
+
+  try {
+    let baseUrl = remoteUrl.trim();
+    if (baseUrl.endsWith('/')) {
+      baseUrl = baseUrl.slice(0, -1);
+    }
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      baseUrl = `https://${baseUrl}`;
+    }
+
+    const targetUrl = `${baseUrl}/db${req.url}`;
+    
+    const fetchOptions: RequestInit = {
+      method: req.method,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+    if (req.method !== "GET" && req.method !== "HEAD" && req.body) {
+      fetchOptions.body = JSON.stringify(req.body);
+    }
+    
+    const remoteRes = await fetch(targetUrl, fetchOptions);
+    const data = await remoteRes.text();
+    
+    res.status(remoteRes.status);
+    remoteRes.headers.forEach((val, key) => {
+      // Avoid forwarding content-encoding to prevent double compression issues
+      if (key.toLowerCase() !== 'content-encoding') {
+         res.setHeader(key, val);
+      }
+    });
+    res.send(data);
+  } catch (error: any) {
+    console.error("Remote DB Proxy Error:", error);
+    res.status(502).json({ success: false, message: "Gagal menghubungi remote database: " + error.message });
+  }
+});
+
+// Generic DB CRUD routes (In-Memory Fallback)
 app.get("/db/:table", (req, res) => {
   try {
     const table = req.params.table;
