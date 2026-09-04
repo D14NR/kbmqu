@@ -22,6 +22,7 @@ const bucketTableMap = {
   libur_nasional: "libur_nasional",
   riwayat_notifikasi_pengajar: "riwayat_notifikasi_pengajar",
   donasi: "donasi",
+  donasi_transaksi: "donasi_transaksi",
 } as const;
 
 type BucketName = keyof typeof bucketTableMap;
@@ -247,7 +248,6 @@ const schemas: Record<BucketName, BucketSchema> = {
       "Nama Pemilik": asString(row.nama_pemilik),
       "Nama Bank": asString(row.nama_bank),
       "Alamat Rekening": asString(row.alamat_rekening),
-      "Nominal Terkumpul": String(row.nominal_terkumpul ?? 0),
       "Created At": asString((row as any).created_at),
       "Updated At": asString((row as any).updated_at),
     }),
@@ -255,7 +255,26 @@ const schemas: Record<BucketName, BucketSchema> = {
       nama_pemilik: asString(data["Nama Pemilik"] || data.nama_pemilik),
       nama_bank: asString(data["Nama Bank"] || data.nama_bank),
       alamat_rekening: asString(data["Alamat Rekening"] || data.alamat_rekening),
-      nominal_terkumpul: asNumberOrNull(data["Nominal Terkumpul"] ?? data.nominal_terkumpul) ?? 0,
+    }),
+  },
+  donasi_transaksi: {
+    table: bucketTableMap.donasi_transaksi,
+    fromDb: (row) => ({
+      ID: asString(row.id),
+      "Nama Pengirim": asString(row.nama_pengirim),
+      Tanggal: asString(row.tanggal),
+      "Jumlah Transaksi Masuk": String(row.jumlah_transaksi_masuk ?? 0),
+      "Jumlah Transaksi Keluar": String(row.jumlah_transaksi_keluar ?? 0),
+      Keterangan: asString(row.keterangan || "donasi masuk"),
+      "Created At": asString((row as any).created_at),
+      "Updated At": asString((row as any).updated_at),
+    }),
+    toDb: (data) => ({
+      nama_pengirim: asString(data["Nama Pengirim"] || data.nama_pengirim),
+      tanggal: asString(data.Tanggal || data.tanggal),
+      jumlah_transaksi_masuk: asNumberOrNull(data["Jumlah Transaksi Masuk"] ?? data.jumlah_transaksi_masuk) ?? 0,
+      jumlah_transaksi_keluar: asNumberOrNull(data["Jumlah Transaksi Keluar"] ?? data.jumlah_transaksi_keluar) ?? 0,
+      keterangan: asString(data.Keterangan || data.keterangan || "donasi masuk"),
     }),
   },
   surat_tugas: {

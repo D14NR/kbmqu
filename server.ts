@@ -51,7 +51,6 @@ dbStore.set("donasi", [
     nama_pemilik: "Dian Rizki Sofiawan",
     nama_bank: "Bank Jago",
     alamat_rekening: "109760181905",
-    nominal_terkumpul: 0,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -60,7 +59,6 @@ dbStore.set("donasi", [
     nama_pemilik: "Dian Rizki Sofiawan",
     nama_bank: "PayPal",
     alamat_rekening: "dianrizkisofiawan9@gmail.com",
-    nominal_terkumpul: 0,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -69,7 +67,38 @@ dbStore.set("donasi", [
     nama_pemilik: "Dian Rizki Sofiawan",
     nama_bank: "ShopeePay",
     alamat_rekening: "08999990431",
-    nominal_terkumpul: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+]);
+dbStore.set("donasi_transaksi", [
+  {
+    id: 1,
+    nama_pengirim: "Hamba Allah",
+    tanggal: "2026-09-01",
+    jumlah_transaksi_masuk: 100000,
+    jumlah_transaksi_keluar: 0,
+    keterangan: "donasi masuk",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 2,
+    nama_pengirim: "Alumni Pengajar",
+    tanggal: "2026-09-02",
+    jumlah_transaksi_masuk: 250000,
+    jumlah_transaksi_keluar: 0,
+    keterangan: "donasi masuk",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 3,
+    nama_pengirim: "Cloudflare D1 & Host",
+    tanggal: "2026-09-03",
+    jumlah_transaksi_masuk: 0,
+    jumlah_transaksi_keluar: 50000,
+    keterangan: "pemeliharaan database & server",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -117,8 +146,20 @@ app.post("/db/:table", (req, res) => {
     const table = req.params.table;
     const rows = getTableRows(table);
     const body = req.body || {};
+    
+    // Auto-increment logic for donasi_transaksi, UUID for others
+    let newId = body.id;
+    if (!newId) {
+      if (table === 'donasi_transaksi') {
+        const maxId = rows.reduce((max, r) => Math.max(max, Number(r.id) || 0), 0);
+        newId = maxId + 1;
+      } else {
+        newId = crypto.randomUUID();
+      }
+    }
+
     const newRow = {
-      id: body.id || crypto.randomUUID(),
+      id: newId,
       ...body,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -193,12 +234,23 @@ app.post("/db/:table/replace", (req, res) => {
     if (!Array.isArray(rows)) {
       return res.status(400).json({ success: false, message: "Format rows tidak valid." });
     }
-    const newRows = rows.map((r: any) => ({
-      id: r.id || crypto.randomUUID(),
-      ...r,
-      created_at: r.created_at || new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }));
+    const newRows = rows.map((r: any, idx: number) => {
+      let newId = r.id;
+      if (!newId) {
+        if (table === 'donasi_transaksi') {
+          const currentMaxId = dbStore.get(table)?.reduce((max: number, row: any) => Math.max(max, Number(row.id) || 0), 0) || 0;
+          newId = currentMaxId + idx + 1;
+        } else {
+          newId = crypto.randomUUID();
+        }
+      }
+      return {
+        id: newId,
+        ...r,
+        created_at: r.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+    });
     dbStore.set(table, newRows);
     res.status(201).json({ success: true, message: "Data berhasil diganti.", data: newRows, count: newRows.length });
   } catch (error: any) {

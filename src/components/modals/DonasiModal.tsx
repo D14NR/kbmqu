@@ -8,7 +8,7 @@ type DonasiModalProps = {
   error: string;
   loading: boolean;
   onClose: () => void;
-  onChange: (field: keyof DonasiDraft, value: string | number) => void;
+  onChange: (field: keyof DonasiDraft, value: string) => void;
   onSave: () => void;
 };
 
@@ -39,16 +39,6 @@ export function DonasiModal({
     return null;
   }
 
-  const formatRupiahPreview = (val: string | number) => {
-    const num = typeof val === "number" ? val : parseFloat(String(val).replace(/[^0-9.-]+/g, ""));
-    if (isNaN(num) || num < 0) return "Rp 0";
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      maximumFractionDigits: 0,
-    }).format(num);
-  };
-
   return (
     <div
       className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center modal-backdrop-custom p-3"
@@ -57,7 +47,7 @@ export function DonasiModal({
     >
       <div
         className="bg-white rounded-4 shadow-lg p-4 w-100 border-0"
-        style={{ maxWidth: 540 }}
+        style={{ maxWidth: 520 }}
         onClick={(event) => event.stopPropagation()}
       >
         {/* Header */}
@@ -70,8 +60,10 @@ export function DonasiModal({
               <i className="bi bi-heart-fill text-danger fs-5" />
             </div>
             <div>
-              <h5 className="mb-0 fw-bold text-dark">{isEditing ? "Edit Data Donasi" : "Tambah Data Donasi"}</h5>
-              <div className="text-muted text-xs">Kelola nomor rekening donasi pemeliharaan database.</div>
+              <h5 className="mb-0 fw-bold text-dark">{isEditing ? "Edit Saluran Rekening" : "Tambah Saluran Rekening"}</h5>
+              <div className="text-muted text-xs">
+                Tabel Database: <code className="text-dark fw-bold">donasi</code>
+              </div>
             </div>
           </div>
           <button type="button" className="btn-close" aria-label="Tutup" onClick={onClose} />
@@ -83,7 +75,7 @@ export function DonasiModal({
           <div>
             <label className="form-label text-xs fw-bold text-dark mb-1 d-flex align-items-center gap-1.5">
               <i className="bi bi-bank2 text-primary" />
-              Nama Bank / Saluran Donasi <span className="text-danger">*</span>
+              Nama Bank / Saluran (nama_bank) <span className="text-danger">*</span>
             </label>
             <input
               type="text"
@@ -115,7 +107,7 @@ export function DonasiModal({
           <div>
             <label className="form-label text-xs fw-bold text-dark mb-1 d-flex align-items-center gap-1.5">
               <i className="bi bi-person-fill text-primary" />
-              Nama Pemilik Rekening / Akun <span className="text-danger">*</span>
+              Nama Pemilik Rekening / Akun (nama_pemilik) <span className="text-danger">*</span>
             </label>
             <input
               type="text"
@@ -130,45 +122,17 @@ export function DonasiModal({
           <div>
             <label className="form-label text-xs fw-bold text-dark mb-1 d-flex align-items-center gap-1.5">
               <i className="bi bi-credit-card text-primary" />
-              Alamat Rekening / Nomor Rekening / Email / No. HP <span className="text-danger">*</span>
+              Alamat Rekening / Nomor / Email (alamat_rekening) <span className="text-danger">*</span>
             </label>
             <input
               type="text"
               value={draft.alamat_rekening}
               onChange={(event) => onChange("alamat_rekening", event.target.value)}
-              placeholder="Contoh: 109760181905 / 08999990431 / email@example.com"
+              placeholder="Contoh: 109760181905 / 08999990431 / dianrizkisofiawan9@gmail.com"
               className="form-control form-control-sm font-monospace rounded-3 py-2"
             />
             <div className="form-text text-xxs text-muted mt-1">
-              Nomor atau alamat ini yang akan disalin oleh donatur saat membuka banner donasi.
-            </div>
-          </div>
-
-          {/* Nominal Terkumpul */}
-          <div>
-            <div className="d-flex justify-content-between align-items-center mb-1">
-              <label className="form-label text-xs fw-bold text-dark mb-0 d-flex align-items-center gap-1.5">
-                <i className="bi bi-cash-stack text-success" />
-                Nominal Terkumpul (Rp)
-              </label>
-              <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 text-xxs fw-bold">
-                Preview: {formatRupiahPreview(draft.nominal_terkumpul)}
-              </span>
-            </div>
-            <div className="input-group input-group-sm">
-              <span className="input-group-text bg-light text-muted fw-semibold">Rp</span>
-              <input
-                type="number"
-                min="0"
-                step="1000"
-                value={draft.nominal_terkumpul}
-                onChange={(event) => onChange("nominal_terkumpul", event.target.value)}
-                placeholder="0"
-                className="form-control rounded-end-3 py-2"
-              />
-            </div>
-            <div className="form-text text-xxs text-muted mt-1">
-              Jumlah dana donasi yang telah tercatat masuk melalui saluran ini.
+              Nomor/alamat ini yang disalin oleh donatur saat membuka banner donasi pemeliharaan database.
             </div>
           </div>
 
@@ -199,7 +163,7 @@ export function DonasiModal({
             ) : (
               <>
                 <i className="bi bi-check2-circle fs-6" />
-                <span>{isEditing ? "Simpan Perubahan" : "Simpan Data Donasi"}</span>
+                <span>{isEditing ? "Simpan Perubahan" : "Simpan Saluran Rekening"}</span>
               </>
             )}
           </button>

@@ -34,6 +34,7 @@ const allowedTables = new Set([
   "surat_tugas_pengajar",
   "penempatan_pengajar_dicabang",
   "donasi",
+  "donasi_transaksi",
 ]);
 
 
@@ -115,7 +116,8 @@ const parseJsonBody = async (request) => {
 const buildInsertSql = (table, row) => {
   const normalizedRow = { ...row };
 
-  if (!normalizedRow.id) {
+  // Generate UUID if not provided, EXCEPT for tables with AUTOINCREMENT id
+  if (!normalizedRow.id && table !== 'donasi_transaksi') {
     normalizedRow.id = crypto.randomUUID();
   }
 
