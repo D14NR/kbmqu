@@ -2753,9 +2753,11 @@ export function App() {
 
   const handleLoadFromSheet = async (
     scheduleKey: ScheduleMenuKey = "bulanIni",
-    options?: { preserveUiState?: boolean }
+    options?: { preserveUiState?: boolean; silent?: boolean }
   ) => {
-    setSheetStatus((prev) => ({ ...prev, loading: true }));
+    if (!options?.silent) {
+      setSheetStatus((prev) => ({ ...prev, loading: true }));
+    }
     setSheetStatusError("");
     try {
       const targetSheet = scheduleSheetByKey[scheduleKey];
@@ -2836,8 +2838,10 @@ export function App() {
     }
   };
 
-  const handleLoadMapel = async () => {
-    setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadMapel = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const rows = await listRows(dataBucket["Mata Pelajaran"]);
       const parsed = rows.map((row) => toRecord(row));
@@ -2939,8 +2943,10 @@ export function App() {
     );
   };
 
-  const handleLoadPengajar = async () => {
-    setPengajarStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadPengajar = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setPengajarStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const rows = await listRows(dataBucket["Data Pengajar"]);
       const expectedHeaders = ["Kode Pengajar", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
@@ -3088,8 +3094,10 @@ export function App() {
     setPengajarDraft((prev) => ({ ...prev, Password: generatePassword() }));
   };
 
-  const handleLoadSuratTugas = async () => {
-    setSuratTugasStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadSuratTugas = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setSuratTugasStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       // Data is now computed automatically from jadwal_reguler and jadwal_khusus
       // No need to load from database, just update the sync status
@@ -3232,8 +3240,10 @@ export function App() {
     };
   };
 
-  const handleLoadPenempatanPengajar = async () => {
-    setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadPenempatanPengajar = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const rows = await listRows(dataBucket["Penempatan Pengajar"]);
       
@@ -3541,8 +3551,10 @@ export function App() {
     };
   };
 
-  const handleLoadIzinPengajar = async () => {
-    setIzinStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadIzinPengajar = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setIzinStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const rows = await listRows(dataBucket["Izin Pengajar"]);
       console.debug("[debug] loaded izin rows count:", rows.length);
@@ -3754,8 +3766,10 @@ export function App() {
     };
   };
 
-  const handleLoadPermintaanPengajar = async () => {
-    setPermintaanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadPermintaanPengajar = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setPermintaanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const rows = await listRows(dataBucket["Permintaan Pengajar Antar Cabang"]);
       console.debug("[debug] loaded permintaan rows count:", rows.length);
@@ -3779,8 +3793,10 @@ export function App() {
     }
   };
 
-  const handleLoadAccountsCabang = async () => {
-    setAccountsCabangStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadAccountsCabang = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setAccountsCabangStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const rows = await listRows(dataBucket["accounts_cabang"]);
       const normalized = rows.map((row) => ({
@@ -3904,8 +3920,10 @@ export function App() {
     );
   };
 
-  const handleLoadDonasi = async () => {
-    setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadDonasi = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const [donasiRows, transaksiRows] = await Promise.all([
         listRows(dataBucket["donasi"]),
@@ -4144,21 +4162,24 @@ export function App() {
     }
   }, [activeKey, isAdmin]);
 
-  const refreshAllData = async (showToast = false, bypassCache = false) => {
+  const refreshAllData = async (
+    showToast = false,
+    bypassCache = false,
+    silent = false
+  ) => {
     if (!authSession || isRefreshingAll) {
       return;
     }
 
-    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    const REALTIME_SYNC_TTL_MS = 30 * 1000;
     const now = Date.now();
     const elapsed = now - lastRefreshAllTimestampRef.current;
 
-    // Terapkan mekanisme caching di memori (menggunakan state/ref yang ada):
-    // Jika tidak bypassCache dan sinkronisasi dilakukan dalam rentang waktu kurang dari 5 menit,
+    // Jika tidak bypassCache dan sinkronisasi dilakukan dalam rentang waktu kurang dari 30 detik,
     // data tidak perlu diambil ulang dari D1.
-    if (!bypassCache && lastRefreshAllTimestampRef.current > 0 && elapsed < FIVE_MINUTES_MS) {
+    if (!bypassCache && lastRefreshAllTimestampRef.current > 0 && elapsed < REALTIME_SYNC_TTL_MS) {
       if (showToast) {
-        pushToast("Data disajikan dari memori (sinkronisasi < 5 menit yang lalu).", "info");
+        pushToast("Data disajikan dari memori (sinkronisasi < 30 detik yang lalu).", "info");
       }
       return;
     }
@@ -4168,17 +4189,18 @@ export function App() {
     }
     setIsRefreshingAll(true);
     try {
+      const opts = { silent };
       await Promise.all([
-        handleLoadFromSheet("bulanIni", { preserveUiState: true }),
-        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true }),
-        handleLoadMapel(),
-        handleLoadPengajar(),
-        handleLoadSuratTugas(),
-        handleLoadPenempatanPengajar(),
-        handleLoadIzinPengajar(),
-        handleLoadPermintaanPengajar(),
-        handleLoadAccountsCabang(),
-        isAdmin ? handleLoadDonasi() : Promise.resolve(),
+        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent }),
+        handleLoadMapel(opts),
+        handleLoadPengajar(opts),
+        handleLoadSuratTugas(opts),
+        handleLoadPenempatanPengajar(opts),
+        handleLoadIzinPengajar(opts),
+        handleLoadPermintaanPengajar(opts),
+        handleLoadAccountsCabang(opts),
+        isAdmin ? handleLoadDonasi(opts) : Promise.resolve(),
       ]);
       lastRefreshAllTimestampRef.current = Date.now();
       if (showToast) {
@@ -5385,30 +5407,33 @@ export function App() {
     if (!authSession) {
       return;
     }
-    const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // Auto-refresh data & cache every 5 minutes
+    const AUTO_REFRESH_INTERVAL_MS = 1 * 60 * 1000; // Auto-refresh data & cache silently every 1 minute
     let lastRefreshTime = Date.now();
 
-    const triggerPeriodicSync = () => {
-      lastRefreshTime = Date.now();
-      void refreshAllData(false, true);
+    const triggerPeriodicSync = (forceBypass = false) => {
+      const elapsed = Date.now() - lastRefreshTime;
+      // Only refresh if at least 30 seconds have passed since last refresh
+      if (forceBypass || elapsed >= 30 * 1000) {
+        lastRefreshTime = Date.now();
+        void refreshAllData(false, forceBypass, true); // silent = true: no modal popup, no UI interruption
+      }
     };
 
-    const refreshInterval = window.setInterval(triggerPeriodicSync, AUTO_REFRESH_INTERVAL_MS);
+    const refreshInterval = window.setInterval(() => triggerPeriodicSync(true), AUTO_REFRESH_INTERVAL_MS);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        const elapsed = Date.now() - lastRefreshTime;
-        if (elapsed >= AUTO_REFRESH_INTERVAL_MS) {
-          triggerPeriodicSync();
-        }
+        triggerPeriodicSync(false);
       }
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", () => triggerPeriodicSync(false));
 
     return () => {
       window.clearInterval(refreshInterval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", () => triggerPeriodicSync(false));
     };
   }, [authSession, restrictedCabang]);
 
@@ -6356,7 +6381,42 @@ export function App() {
         setSheetStatus((prev) => ({ ...prev, saving: false }));
         return;
       }
-      const otherEntries = allScheduleEntries.filter((item) => {
+
+      // Real-time multi-branch verification: fetch latest schedule entries directly from DB before conflict check
+      let latestEntries = allScheduleEntries;
+      try {
+        const currentBucketName = dataBucket[scheduleSheetByKey[activeScheduleKey]];
+        const freshRows = await listRows(currentBucketName);
+        const parsedFresh = freshRows
+          .filter((row) => isMatchingScheduleJenis(row, activeScheduleKey))
+          .map((row, index) => {
+            const item = parseAppsScriptRecords([toRecord(row)])[0];
+            return {
+              ...(item || {
+                id: `${currentBucketName}-${index}-${Date.now()}`,
+                cabang: "",
+                kelas: "",
+                sekolah: "",
+                tanggal: "",
+                mapel: "",
+                pengajar: "",
+                waktu: "",
+              }),
+              _id: row.id,
+              id: row.id,
+            };
+          });
+
+        const otherKey = activeScheduleKey === "bulanIni" ? "jadwalTambahanPelayanan" : "bulanIni";
+        const otherRecords = records[otherKey] ?? [];
+        latestEntries = activeScheduleKey === "bulanIni"
+          ? [...parsedFresh, ...otherRecords]
+          : [...otherRecords, ...parsedFresh];
+      } catch (err) {
+        console.warn("[realtime] Failed pre-save fresh schedule fetch, fallback to local records", err);
+      }
+
+      const otherEntries = latestEntries.filter((item) => {
         if (item.id === entryId) return false;
         if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
         if (resolvePengajarCode(item.pengajar || "") !== targetTeacherCode) return false;
