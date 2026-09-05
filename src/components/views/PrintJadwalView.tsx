@@ -1014,9 +1014,10 @@ export function PrintJadwalView({
           <div class="notes-box">
             <div class="notes-title">📌 Tata Tertib & Catatan KBM</div>
             <ul class="notes-list">
-              <li>Siswa wajib hadir di kelas bimbingan minimal 10 menit sebelum jam KBM dimulai.</li>
-              <li>Wajib membawa buku paket modul bimbingan dan alat tulis lengkap.</li>
-              <li>Izin berhalangan hadir harap dikonfirmasikan ke admin cabang minimal H-1.</li>
+              <li>Siswa link jadwal dan laporan perkembangan https://lps-siswa.pages.dev</li>                        
+              <li>Siswa wajib hadir di kelas bimbingan minimal 10 menit sebelum jam KBM dimulai</li>
+              <li>Wajib membawa buku paket modul bimbingan dan alat tulis lengkap</li>
+              <li>Izin berhalangan hadir harap mengisi di https://lps-siswa.pages.dev atau ke admin cabang minimal H-1</li>
             </ul>
           </div>` : `<div></div>`}
 
@@ -1027,7 +1028,7 @@ export function PrintJadwalView({
               <div class="sig-line">( ____________________ )</div>
             </div>
             <div class="signature-col">
-              <div class="sig-title">Siswa / Orang Tua</div>
+              <div class="sig-title">Pendidikan Cabang</div>
               <div class="sig-line">( ${escapeHtml(selectedClassGroup?.kelas || "________________")} )</div>
             </div>
           </div>` : `<div></div>`}
@@ -1889,9 +1890,10 @@ export function PrintJadwalView({
                           📌 Tata Tertib & Catatan KBM
                         </div>
                         <ul className="mb-0 ps-3 text-muted">
-                          <li>Siswa wajib hadir di kelas bimbingan minimal 10 menit sebelum jam KBM dimulai.</li>
-                          <li>Wajib membawa buku paket modul bimbingan dan alat tulis lengkap.</li>
-                          <li>Izin berhalangan hadir harap dikonfirmasikan ke admin cabang minimal H-1.</li>
+                          <li>Siswa link jadwal dan laporan perkembangan https://lps-siswa.pages.dev</li>                        
+                          <li>Siswa wajib hadir di kelas bimbingan minimal 10 menit sebelum jam KBM dimulai</li>
+                          <li>Wajib membawa buku paket modul bimbingan dan alat tulis lengkap</li>
+                          <li>Izin berhalangan hadir harap mengisi di https://lps-siswa.pages.dev atau ke admin cabang minimal H-1</li>
                         </ul>
                       </div>
                     </div>
@@ -1905,7 +1907,7 @@ export function PrintJadwalView({
                           <div className="fw-bold border-top pt-1 text-dark">( ____________________ )</div>
                         </div>
                         <div>
-                          <div className="text-muted mb-4">Siswa / Orang Tua</div>
+                          <div className="text-muted mb-4">Pendidikan Cabang</div>
                           <div className="fw-bold border-top pt-1 text-dark">
                             ( {selectedClassGroup.kelas} )
                           </div>
