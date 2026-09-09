@@ -269,6 +269,7 @@ export function App() {
     jumlah_transaksi_masuk: 0,
     jumlah_transaksi_keluar: 0,
     keterangan: "donasi masuk",
+    hidden_nama_pengirim: 0,
   });
   const [editingTransaksiDonasiId, setEditingTransaksiDonasiId] = useState<string | null>(null);
   const [transaksiDonasiError, setTransaksiDonasiError] = useState("");
@@ -3957,6 +3958,11 @@ export function App() {
             0
         ),
         keterangan: String(row.data["Keterangan"] || (row.data as any).keterangan || "donasi masuk"),
+        hidden_nama_pengirim: Number(
+          row.data["Hidden Nama Pengirim"] ??
+            (row.data as any).hidden_nama_pengirim ??
+            0
+        ) ? 1 : 0,
         created_at: String(row.data["Created At"] || (row as any).createdAt || (row as any).created_at || ""),
         updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
       }));
@@ -3985,6 +3991,7 @@ export function App() {
         jumlah_transaksi_masuk: record.jumlah_transaksi_masuk || 0,
         jumlah_transaksi_keluar: record.jumlah_transaksi_keluar || 0,
         keterangan: record.keterangan || "donasi masuk",
+        hidden_nama_pengirim: record.hidden_nama_pengirim ? 1 : 0,
       });
       setEditingTransaksiDonasiId(String(record.id) || null);
     } else {
@@ -3994,6 +4001,7 @@ export function App() {
         jumlah_transaksi_masuk: 0,
         jumlah_transaksi_keluar: 0,
         keterangan: "donasi masuk",
+        hidden_nama_pengirim: 0,
       });
       setEditingTransaksiDonasiId(null);
     }
@@ -4009,11 +4017,12 @@ export function App() {
   };
 
   const handleSaveTransaksiDonasi = async () => {
-    const nama_pengirim = String(transaksiDonasiDraft.nama_pengirim || "").trim() || "Hamba Allah";
+    const nama_pengirim = String(transaksiDonasiDraft.nama_pengirim || "").trim() || "*******";
     const tanggal = String(transaksiDonasiDraft.tanggal || "").trim() || new Date().toISOString().slice(0, 10);
     const jumlah_transaksi_masuk = Number(String(transaksiDonasiDraft.jumlah_transaksi_masuk || 0).replace(/[^0-9.-]+/g, "")) || 0;
     const jumlah_transaksi_keluar = Number(String(transaksiDonasiDraft.jumlah_transaksi_keluar || 0).replace(/[^0-9.-]+/g, "")) || 0;
     const keterangan = String(transaksiDonasiDraft.keterangan || "").trim() || "donasi masuk";
+    const hidden_nama_pengirim = transaksiDonasiDraft.hidden_nama_pengirim ? 1 : 0;
 
     if (jumlah_transaksi_masuk <= 0 && jumlah_transaksi_keluar <= 0) {
       setTransaksiDonasiError("Jumlah transaksi masuk atau keluar harus diisi lebih besar dari Rp 0.");
@@ -4026,6 +4035,7 @@ export function App() {
       "Jumlah Transaksi Masuk": String(jumlah_transaksi_masuk),
       "Jumlah Transaksi Keluar": String(jumlah_transaksi_keluar),
       Keterangan: keterangan,
+      "Hidden Nama Pengirim": String(hidden_nama_pengirim),
     };
 
     try {
@@ -4048,7 +4058,7 @@ export function App() {
   const handleDeleteTransaksiDonasi = (record: DonasiTransaksiRecord) => {
     const nominal = record.jumlah_transaksi_masuk > 0 ? record.jumlah_transaksi_masuk : record.jumlah_transaksi_keluar;
     openConfirmDialog(
-      `Hapus transaksi donasi dari ${record.nama_pengirim || "Hamba Allah"} senilai Rp ${new Intl.NumberFormat("id-ID").format(
+      `Hapus transaksi donasi dari ${record.nama_pengirim || "*******"} senilai Rp ${new Intl.NumberFormat("id-ID").format(
         nominal
       )} (${record.keterangan || "donasi masuk"})?`,
       async () => {
@@ -4068,6 +4078,38 @@ export function App() {
       },
       { title: "Hapus Transaksi Donasi", confirmLabel: "Hapus" }
     );
+  };
+
+  const handleToggleHideNamaTransaksiDonasi = async (record: DonasiTransaksiRecord) => {
+    const currentVal = Number(record.hidden_nama_pengirim) === 1 ? 1 : 0;
+    const newVal = currentVal === 1 ? 0 : 1;
+    const payload = {
+      "Nama Pengirim": record.nama_pengirim,
+      Tanggal: record.tanggal,
+      "Jumlah Transaksi Masuk": String(record.jumlah_transaksi_masuk || 0),
+      "Jumlah Transaksi Keluar": String(record.jumlah_transaksi_keluar || 0),
+      Keterangan: record.keterangan || "donasi masuk",
+      "Hidden Nama Pengirim": String(newVal),
+    };
+    try {
+      if (record.id) {
+        await updateRow(String(record.id), payload);
+        setTransaksiDonasiRecords((prev) =>
+          prev.map((item) =>
+            String(item.id) === String(record.id) ? { ...item, hidden_nama_pengirim: newVal } : item
+          )
+        );
+        pushToast(
+          newVal === 1
+            ? `Nama "${record.nama_pengirim || "Donatur"}" kini disembunyikan di publik (*******).`
+            : `Nama "${record.nama_pengirim || "Donatur"}" kini ditampilkan di publik.`,
+          "success"
+        );
+      }
+    } catch (error: any) {
+      console.error("Toggle Hide Nama Error:", error);
+      pushToast("Gagal mengubah status privasi nama pengirim.", "error");
+    }
   };
 
   const handleOpenDonasiModal = (record?: DonasiRecord) => {
@@ -7235,6 +7277,7 @@ export function App() {
                         onAddTransaksi={() => handleOpenTransaksiDonasiModal()}
                         onEditTransaksi={handleOpenTransaksiDonasiModal}
                         onDeleteTransaksi={handleDeleteTransaksiDonasi}
+                        onToggleHideNamaTransaksi={handleToggleHideNamaTransaksiDonasi}
                         onRefresh={handleLoadDonasi}
                       />
                     ) : activeKey === "suratTugasMengajar" ? (

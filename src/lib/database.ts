@@ -266,6 +266,7 @@ const schemas: Record<BucketName, BucketSchema> = {
       "Jumlah Transaksi Masuk": String(row.jumlah_transaksi_masuk ?? 0),
       "Jumlah Transaksi Keluar": String(row.jumlah_transaksi_keluar ?? 0),
       Keterangan: asString(row.keterangan || "donasi masuk"),
+      "Hidden Nama Pengirim": String(row.hidden_nama_pengirim ?? 0),
       "Created At": asString((row as any).created_at),
       "Updated At": asString((row as any).updated_at),
     }),
@@ -275,6 +276,7 @@ const schemas: Record<BucketName, BucketSchema> = {
       jumlah_transaksi_masuk: asNumberOrNull(data["Jumlah Transaksi Masuk"] ?? data.jumlah_transaksi_masuk) ?? 0,
       jumlah_transaksi_keluar: asNumberOrNull(data["Jumlah Transaksi Keluar"] ?? data.jumlah_transaksi_keluar) ?? 0,
       keterangan: asString(data.Keterangan || data.keterangan || "donasi masuk"),
+      hidden_nama_pengirim: Number(data["Hidden Nama Pengirim"] ?? data.hidden_nama_pengirim ?? 0) ? 1 : 0,
     }),
   },
   surat_tugas: {

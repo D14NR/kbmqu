@@ -171,9 +171,9 @@ export function TransaksiDonasiModal({
                 <button
                   type="button"
                   className="btn btn-xs btn-outline-secondary rounded-pill py-0.5 px-2 text-xxs"
-                  onClick={() => onChange("nama_pengirim", "Hamba Allah")}
+                  onClick={() => onChange("nama_pengirim", "*******")}
                 >
-                  Set &quot;Hamba Allah&quot;
+                  Set &quot;*******&quot;
                 </button>
               )}
             </div>
@@ -181,10 +181,24 @@ export function TransaksiDonasiModal({
               type="text"
               value={draft.nama_pengirim}
               onChange={(event) => onChange("nama_pengirim", event.target.value)}
-              placeholder={transactionType === "masuk" ? "Contoh: Hamba Allah / Ahmad Fathoni / Alumni Pengajar" : "Contoh: Penyedia Server / Cloud Hosting / Admin Pusat"}
+              placeholder={transactionType === "masuk" ? "Contoh: ******* / Ahmad Fathoni / Alumni Pengajar" : "Contoh: Penyedia Server / Cloud Hosting / Admin Pusat"}
               className="form-control form-control-sm rounded-3 py-2"
               autoFocus
             />
+            {/* Opsi Privasi Sembunyikan Nama (hidden_nama_pengirim) */}
+            <div className="form-check form-switch mt-2">
+              <input
+                className="form-check-input cursor-pointer"
+                type="checkbox"
+                id="hidden_nama_pengirim_check"
+                checked={Number(draft.hidden_nama_pengirim) === 1}
+                onChange={(event) => onChange("hidden_nama_pengirim", event.target.checked ? 1 : 0)}
+              />
+              <label className="form-check-label text-xs fw-medium text-secondary cursor-pointer" htmlFor="hidden_nama_pengirim_check">
+                <i className="bi bi-eye-slash me-1 text-dark" />
+                Sembunyikan nama di publik (Tampilkan sebagai &quot;*******&quot; di rincian donasi)
+              </label>
+            </div>
           </div>
 
           {/* Jumlah Transaksi Masuk */}

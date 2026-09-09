@@ -125,7 +125,7 @@ export function DatabaseMaintenanceBanner() {
   const effectiveSaldo = Math.max(0, totalSaldoBersih);
   const progressPercent = Math.min(100, Math.round((effectiveSaldo / TARGET_MONTHLY_IDR) * 100));
   const sisaTarget = Math.max(0, TARGET_MONTHLY_IDR - effectiveSaldo);
-
+  const isTargetAchieved = effectiveSaldo >= TARGET_MONTHLY_IDR;
 
   const [timeLeft, setTimeLeft] = useState<number>(() => {
     try {
@@ -150,7 +150,8 @@ export function DatabaseMaintenanceBanner() {
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const isHidden = timeLeft <= 0;
+  // Banner otomatis tersembunyi jika timer habis ATAU jika Target Pemeliharaan sudah tercapai (100%)
+  const isHidden = timeLeft <= 0 || isTargetAchieved;
 
   useEffect(() => {
     if (timeLeft <= 0) return;
@@ -256,7 +257,7 @@ export function DatabaseMaintenanceBanner() {
       const rawList = Array.isArray(res) ? res : (res?.data || []);
       const mapped: DonasiTransaksiRecord[] = (rawList || []).map((row: any) => ({
         id: row.id,
-        nama_pengirim: String(row.data?.["Nama Pengirim"] || row.nama_pengirim || "Hamba Allah"),
+        nama_pengirim: String(row.data?.["Nama Pengirim"] || row.nama_pengirim || "*******"),
         tanggal: String(row.data?.["Tanggal"] || row.tanggal || ""),
         jumlah_transaksi_masuk: Number(
           row.data?.["Jumlah Transaksi Masuk"] ??
@@ -269,6 +270,7 @@ export function DatabaseMaintenanceBanner() {
           row.data?.["Jumlah Transaksi Keluar"] ?? row.jumlah_transaksi_keluar ?? 0
         ),
         keterangan: String(row.data?.["Keterangan"] || row.keterangan || "donasi masuk"),
+        hidden_nama_pengirim: Number(row.data?.["Hidden Nama Pengirim"] ?? row.hidden_nama_pengirim ?? 0) ? 1 : 0,
         created_at: String(row.data?.["Created At"] || row.created_at || ""),
         updated_at: String(row.data?.["Updated At"] || row.updated_at || ""),
       }));
@@ -281,9 +283,7 @@ export function DatabaseMaintenanceBanner() {
   };
 
   useEffect(() => {
-    if (isDetailTransaksiOpen || isModalOpen) {
-      void fetchTransaksiList();
-    }
+    void fetchTransaksiList();
   }, [isDetailTransaksiOpen, isModalOpen]);
 
   const donationAccounts = dynamicAccounts.length > 0 ? dynamicAccounts : DEFAULT_ACCOUNTS;
@@ -997,7 +997,9 @@ export function DatabaseMaintenanceBanner() {
                                     >
                                       <i className={`bi ${masuk > 0 ? "bi-arrow-down-left" : "bi-arrow-up-right"}`} style={{ fontSize: 10 }} />
                                     </div>
-                                    <span className="fw-bold text-dark text-xs">{item.nama_pengirim || "Hamba Allah"}</span>
+                                    <span className="fw-bold text-dark text-xs">
+                                      {item.hidden_nama_pengirim === 1 ? "*******" : (item.nama_pengirim || "*******")}
+                                    </span>
                                   </div>
                                 </td>
                                 <td className="px-2.5 py-2 text-muted text-xxs">

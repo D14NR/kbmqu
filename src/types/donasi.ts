@@ -20,6 +20,7 @@ export type DonasiTransaksiRecord = {
   jumlah_transaksi_masuk: number;
   jumlah_transaksi_keluar: number;
   keterangan: string;
+  hidden_nama_pengirim?: number;
   created_at?: string;
   updated_at?: string;
 };
@@ -30,4 +31,5 @@ export type DonasiTransaksiDraft = {
   jumlah_transaksi_masuk: string | number;
   jumlah_transaksi_keluar: string | number;
   keterangan: string;
+  hidden_nama_pengirim?: number;
 };

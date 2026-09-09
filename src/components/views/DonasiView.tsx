@@ -11,6 +11,7 @@ type DonasiViewProps = {
   onAddTransaksi?: () => void;
   onEditTransaksi?: (record: DonasiTransaksiRecord) => void;
   onDeleteTransaksi?: (record: DonasiTransaksiRecord) => void;
+  onToggleHideNamaTransaksi?: (record: DonasiTransaksiRecord) => void;
   onRefresh: () => void;
 };
 
@@ -24,6 +25,7 @@ export function DonasiView({
   onAddTransaksi,
   onEditTransaksi,
   onDeleteTransaksi,
+  onToggleHideNamaTransaksi,
   onRefresh,
 }: DonasiViewProps) {
   const [activeTab, setActiveTab] = useState<"rekening" | "transaksi">("rekening");
@@ -724,6 +726,24 @@ export function DonasiView({
                                   <i className="bi bi-pencil-square" />
                                 </button>
                               )}
+                              {onToggleHideNamaTransaksi && (
+                                <button
+                                  type="button"
+                                  className={`btn btn-xs rounded-2 px-2 py-1 ${
+                                    Number(item.hidden_nama_pengirim) === 1
+                                      ? "btn-secondary text-white"
+                                      : "btn-outline-secondary"
+                                  }`}
+                                  onClick={() => onToggleHideNamaTransaksi(item)}
+                                  title={
+                                    Number(item.hidden_nama_pengirim) === 1
+                                      ? "Status: Sembunyi di Publik (*******). Klik untuk TAMPILKAN nama pengirim di publik"
+                                      : "Status: Tampil Nama di Publik. Klik untuk SEMBUNYIKAN nama pengirim (*******) di publik"
+                                  }
+                                >
+                                  <i className={`bi ${Number(item.hidden_nama_pengirim) === 1 ? "bi-eye-slash-fill" : "bi-eye"}`} />
+                                </button>
+                              )}
                               {onDeleteTransaksi && (
                                 <button
                                   type="button"
@@ -756,7 +776,35 @@ export function DonasiView({
                               >
                                 <i className={`bi ${masuk > 0 ? "bi-arrow-down-left" : "bi-arrow-up-right"} text-xxs`} />
                               </div>
-                              <span className="fw-bold text-dark text-xs">{item.nama_pengirim || "Hamba Allah"}</span>
+                              <div className="d-flex align-items-center flex-wrap gap-1">
+                                <span className="fw-bold text-dark text-xs">{item.nama_pengirim || "*******"}</span>
+                                {onToggleHideNamaTransaksi ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onToggleHideNamaTransaksi(item)}
+                                    className={`btn btn-xs rounded-pill px-1.5 py-0.5 ms-1 align-middle ${
+                                      Number(item.hidden_nama_pengirim) === 1
+                                        ? "btn-secondary text-white"
+                                        : "btn-outline-secondary text-muted"
+                                    }`}
+                                    style={{ fontSize: "0.68rem" }}
+                                    title={
+                                      Number(item.hidden_nama_pengirim) === 1
+                                        ? "Publik melihat: ******* (Sembunyi). Klik untuk tampilkan nama asli di publik"
+                                        : "Publik melihat nama asli. Klik untuk sembunyikan sebagai ******* di publik"
+                                    }
+                                  >
+                                    <i className={`bi ${Number(item.hidden_nama_pengirim) === 1 ? "bi-eye-slash-fill me-1" : "bi-eye me-1"}`} />
+                                    {Number(item.hidden_nama_pengirim) === 1 ? "Publik: Hidden" : "Publik: Tampil"}
+                                  </button>
+                                ) : (
+                                  Number(item.hidden_nama_pengirim) === 1 && (
+                                    <span className="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill ms-1.5 px-1.5 py-0.5 text-xxs" title="Nama disembunyikan sebagai '*******' di rincian publik">
+                                      <i className="bi bi-eye-slash me-0.5" /> Publik: *******
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </div>
                           </td>
 
