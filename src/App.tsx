@@ -1590,12 +1590,15 @@ export function App() {
     cabangFilter: string,
     searchText: string
   ) => {
-    const getGroupOrderKey = (groupKey: string) => `${activeScheduleKey}:${selectedMonthKey}:${selectedScheduleCabang}:${groupKey}`;
+    const getGroupOrderKey = (groupKey: string) =>
+      `${activeScheduleKey}:${selectedMonthKey}:${selectedScheduleCabang}:${groupKey}`;
+
     const entries = cabangFilter
       ? sourceRecords.filter(
           (entry) => normalizeText(entry.cabang || "") === normalizeText(cabangFilter)
         )
       : sourceRecords;
+
     const grouped = new Map<
       string,
       {
@@ -1643,30 +1646,33 @@ export function App() {
 
     const globalRecords = records[activeScheduleKey] ?? [];
 
-    const sortedKeysByNatural = Array.from(grouped.keys()).sort((aKey, bKey) => {
-      const gA = grouped.get(aKey)!;
-      const gB = grouped.get(bKey)!;
-      const classCmp = gA.kelas.localeCompare(gB.kelas, "id", { numeric: true });
+    // Helper for deterministic natural class comparison
+    const naturalClassCompare = (
+      a: { kelas: string; sekolah: string },
+      b: { kelas: string; sekolah: string }
+    ) => {
+      const classCmp = a.kelas.localeCompare(b.kelas, "id", { numeric: true, sensitivity: "base" });
       if (classCmp !== 0) return classCmp;
-      return gA.sekolah.localeCompare(gB.sekolah, "id", { numeric: true });
-    });
+      return a.sekolah.localeCompare(b.sekolah, "id", { numeric: true, sensitivity: "base" });
+    };
 
-    const naturalRankMap = new Map<string, number>();
-    sortedKeysByNatural.forEach((key, idx) => {
-      naturalRankMap.set(key, idx + 1);
-    });
+    // Calculate explicit or fallback order for every class group
+    type GroupSortInfo = {
+      key: string;
+      cabang: string;
+      kelas: string;
+      sekolah: string;
+      explicitOrder: number | null;
+    };
 
-    const effectiveOrderMap = new Map<string, { order: number; isExplicit: boolean }>();
-    grouped.forEach((group, key) => {
+    const groupList: GroupSortInfo[] = Array.from(grouped.entries()).map(([key, group]) => {
       const overrideOrder = groupDisplayOrder[getGroupOrderKey(key)];
       if (overrideOrder !== undefined) {
-        effectiveOrderMap.set(key, { order: overrideOrder, isExplicit: true });
-        return;
+        return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: overrideOrder };
       }
 
       if (group.classOrdersFound.length > 0) {
-        effectiveOrderMap.set(key, { order: Math.min(...group.classOrdersFound), isExplicit: true });
-        return;
+        return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: Math.min(...group.classOrdersFound) };
       }
 
       const globalClassOrder = globalRecords
@@ -1675,16 +1681,35 @@ export function App() {
         .find((o): o is number => o !== null);
 
       if (globalClassOrder !== undefined) {
-        effectiveOrderMap.set(key, { order: globalClassOrder, isExplicit: true });
-        return;
+        return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: globalClassOrder };
       }
 
-      const natRank = naturalRankMap.get(key) ?? 999;
-      effectiveOrderMap.set(key, { order: natRank, isExplicit: false });
+      return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: null };
+    });
+
+    // Multi-tier stable sort:
+    // 1. Explicitly ordered classes sorted by explicitOrder ASC (with natural tie-break)
+    // 2. Unordered classes sorted by naturalClassCompare
+    groupList.sort((a, b) => {
+      if (a.explicitOrder !== null && b.explicitOrder !== null) {
+        if (a.explicitOrder !== b.explicitOrder) {
+          return a.explicitOrder - b.explicitOrder;
+        }
+        return naturalClassCompare(a, b);
+      }
+      if (a.explicitOrder !== null) return -1;
+      if (b.explicitOrder !== null) return 1;
+      return naturalClassCompare(a, b);
+    });
+
+    // Assign clean, 1-based sequential integers
+    const resolvedOrderMap = new Map<string, number>();
+    groupList.forEach((item, index) => {
+      resolvedOrderMap.set(item.key, index + 1);
     });
 
     const finalGroups = Array.from(grouped.entries()).map(([key, group]) => {
-      const { order: classOrder } = effectiveOrderMap.get(key)!;
+      const classOrder = resolvedOrderMap.get(key) ?? 999;
 
       Object.keys(group.entriesByDate).forEach((dateKey) => {
         group.entriesByDate[dateKey] = [...group.entriesByDate[dateKey]].sort((a, b) => {
@@ -1707,15 +1732,13 @@ export function App() {
     const groups = finalGroups.sort((a, b) => {
       const keyA = buildClassGroupKey(a.cabang, a.kelas, a.sekolah);
       const keyB = buildClassGroupKey(b.cabang, b.kelas, b.sekolah);
-      const infoA = effectiveOrderMap.get(keyA)!;
-      const infoB = effectiveOrderMap.get(keyB)!;
+      const orderA = resolvedOrderMap.get(keyA) ?? 999;
+      const orderB = resolvedOrderMap.get(keyB) ?? 999;
 
-      if (infoA.order !== infoB.order) {
-        return infoA.order - infoB.order;
+      if (orderA !== orderB) {
+        return orderA - orderB;
       }
-      const classCmp = a.kelas.localeCompare(b.kelas, "id", { numeric: true });
-      if (classCmp !== 0) return classCmp;
-      return a.sekolah.localeCompare(b.sekolah, "id", { numeric: true });
+      return naturalClassCompare(a, b);
     });
 
     if (!searchText.trim()) {
@@ -5970,82 +5993,60 @@ export function App() {
       return;
     }
 
-    const currentGroup = monthScheduleGroupsAll[currentIndex];
-    const targetGroup = monthScheduleGroupsAll[nextIndex];
-    const currentOrder = currentGroup.classOrder;
-    const targetOrder = targetGroup.classOrder;
+    // Reorder full group list
+    const reorderedGroups = [...monthScheduleGroupsAll];
+    const [moved] = reorderedGroups.splice(currentIndex, 1);
+    reorderedGroups.splice(nextIndex, 0, moved);
 
-    let finalCurrentOrder = targetOrder;
-    let finalTargetOrder = currentOrder;
-    if (finalCurrentOrder === finalTargetOrder) {
-      if (direction > 0) {
-        finalCurrentOrder = currentOrder + 1;
-        finalTargetOrder = currentOrder;
-      } else {
-        finalCurrentOrder = Math.max(1, currentOrder - 1);
-        finalTargetOrder = currentOrder;
-      }
-    }
+    // Build contiguous 1-based order map
+    const newOrderMap: Record<string, number> = {};
+    const classOrdersPayload: { cabang: string; kelas: string; sekolah: string; classOrder: string }[] = [];
 
-    const currentKey = buildClassGroupKey(currentGroup.cabang, currentGroup.kelas, currentGroup.sekolah || "");
-    const targetKey = buildClassGroupKey(targetGroup.cabang, targetGroup.kelas, targetGroup.sekolah || "");
-    const currentViewKey = `${activeScheduleKey}:${selectedMonthKey}:${selectedScheduleCabang}:${currentKey}`;
-    const targetViewKey = `${activeScheduleKey}:${selectedMonthKey}:${selectedScheduleCabang}:${targetKey}`;
+    reorderedGroups.forEach((g, idx) => {
+      const groupKey = buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "");
+      const order = idx + 1;
+      newOrderMap[groupKey] = order;
+      classOrdersPayload.push({
+        cabang: g.cabang,
+        kelas: g.kelas,
+        sekolah: g.sekolah || "",
+        classOrder: String(order),
+      });
+    });
 
-    setGroupDisplayOrder((prev) => ({
-      ...prev,
-      [currentViewKey]: nextIndex,
-      [targetViewKey]: currentIndex,
-    }));
+    // Update groupDisplayOrder for instant reactive UI
+    setGroupDisplayOrder((prev) => {
+      const next = { ...prev };
+      reorderedGroups.forEach((g, idx) => {
+        const groupKey = buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "");
+        const viewKey = `${activeScheduleKey}:${selectedMonthKey}:${selectedScheduleCabang}:${groupKey}`;
+        next[viewKey] = idx + 1;
+      });
+      return next;
+    });
 
+    // Synchronize all in-memory records of this active schedule
     setRecords((prev) => ({
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).map((item) => {
-        if (activeScheduleKey !== "jadwalTambahanPelayanan") {
-          const itemMonth = ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7);
-          if (itemMonth !== selectedMonthKey) {
-            return item;
-          }
-        }
         const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
-        if (itemKey === currentKey) {
-          return { ...item, classOrder: String(finalCurrentOrder) };
-        }
-        if (itemKey === targetKey) {
-          return { ...item, classOrder: String(finalTargetOrder) };
+        if (newOrderMap[itemKey] !== undefined) {
+          return { ...item, classOrder: String(newOrderMap[itemKey]) };
         }
         return item;
       }),
     }));
 
-    await Promise.all([
-      postToSheet(
-        {
-          action: "reorderClass",
-          cabang: currentGroup.cabang,
-          kelas: currentGroup.kelas,
-          sekolah: currentGroup.sekolah || "",
-          classOrder: String(finalCurrentOrder),
-          ...(activeScheduleKey === "jadwalTambahanPelayanan"
-            ? {}
-            : { monthKey: selectedMonthKey }),
-        },
-        activeScheduleKey
-      ),
-      postToSheet(
-        {
-          action: "reorderClass",
-          cabang: targetGroup.cabang,
-          kelas: targetGroup.kelas,
-          sekolah: targetGroup.sekolah || "",
-          classOrder: String(finalTargetOrder),
-          ...(activeScheduleKey === "jadwalTambahanPelayanan"
-            ? {}
-            : { monthKey: selectedMonthKey }),
-        },
-        activeScheduleKey
-      ),
-    ]);
+    // Persist all reordered classes in batch to database
+    await postToSheet(
+      {
+        action: "reorderClasses",
+        classOrders: classOrdersPayload,
+        ...(activeScheduleKey === "jadwalTambahanPelayanan" ? {} : { monthKey: selectedMonthKey }),
+      },
+      activeScheduleKey
+    );
+
     await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     pushToast("Urutan kelas berhasil diperbarui.", "success");
   };
@@ -6211,6 +6212,47 @@ export function App() {
             .map((row) => row.id);
         }
         await deleteRowsByIds(targetIds);
+        return;
+      }
+
+      if (action === "reorderClasses") {
+        const classOrders = (payload.classOrders || []) as Array<{
+          cabang: string;
+          kelas: string;
+          sekolah: string;
+          classOrder: string;
+        }>;
+        const monthKey = String(payload.monthKey ?? "");
+        const orderMap = new Map<string, string>();
+        classOrders.forEach((item) => {
+          orderMap.set(
+            buildClassGroupKey(item.cabang, item.kelas, item.sekolah || ""),
+            String(item.classOrder)
+          );
+        });
+
+        for (const row of rows) {
+          const rowCabang = String(row.data.Cabang || "");
+          const rowKelas = String(row.data.Kelas || "");
+          const rowSekolah = String(row.data.Sekolah || "");
+          const key = buildClassGroupKey(rowCabang, rowKelas, rowSekolah);
+          const newOrder = orderMap.get(key);
+          if (newOrder !== undefined) {
+            if (monthKey && scheduleKey !== "jadwalTambahanPelayanan") {
+              const rawTanggal = String(row.data.Tanggal || row.data.tanggal || row.data.tanggalSheet || "");
+              const parsedTanggal = parseFlexibleDate(rawTanggal);
+              if (parsedTanggal && formatLocalDate(parsedTanggal).slice(0, 7) !== monthKey) {
+                continue;
+              }
+            }
+            if (String(row.data["Urutan Kelas"] ?? "") !== newOrder) {
+              await updateRow(row.id, {
+                ...row.data,
+                "Urutan Kelas": newOrder,
+              });
+            }
+          }
+        }
         return;
       }
 
@@ -6605,18 +6647,19 @@ export function App() {
       : undefined;
 
     const targetClassKey = buildClassGroupKey(cabang, kelas, sekolahValue);
+    const existingGroup = monthScheduleGroupsAll.find(
+      (g) => buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "") === targetClassKey
+    );
+
     const existingClassOrder = (records[activeScheduleKey] ?? [])
       .filter((item) => buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "") === targetClassKey)
       .map((item) => parseClassOrder(item.classOrder))
       .find((order): order is number => order !== null);
 
-    const existingGroup = monthScheduleGroupsAll.find(
-      (g) => buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "") === targetClassKey
-    );
-
     const resolvedClassOrderNum =
-      existingClassOrder ??
-      (existingGroup?.classOrder !== undefined ? existingGroup.classOrder : null);
+      (existingGroup?.classOrder !== undefined && existingGroup.classOrder !== null)
+        ? existingGroup.classOrder
+        : (existingClassOrder ?? null);
 
     const classOrderValue =
       resolvedClassOrderNum !== null
@@ -6826,21 +6869,26 @@ export function App() {
         return {
           ...prev,
           [activeScheduleKey]: [
-            ...current.map((item) =>
-              item.id === entryId
-                ? {
-                    ...item,
-                    ...nextValues,
-                    cabang,
-                    kelas,
-                    sekolah: sekolahValue,
-                    classOrder: classOrderValue,
-                    tanggal,
-                    tanggalSheet: sheetRecord.Tanggal,
-                    ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : { isGabung: false, gabungWith: "" }),
-                  }
-                : item
-            ),
+            ...current.map((item) => {
+              const itemClassKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+              if (item.id === entryId) {
+                return {
+                  ...item,
+                  ...nextValues,
+                  cabang,
+                  kelas,
+                  sekolah: sekolahValue,
+                  classOrder: classOrderValue,
+                  tanggal,
+                  tanggalSheet: sheetRecord.Tanggal,
+                  ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : { isGabung: false, gabungWith: "" }),
+                };
+              }
+              if (itemClassKey === targetClassKey && classOrderValue && item.classOrder !== classOrderValue) {
+                return { ...item, classOrder: classOrderValue };
+              }
+              return item;
+            }),
             ...copiedItems,
           ],
         };
@@ -6863,7 +6911,17 @@ export function App() {
       };
       return {
         ...prev,
-        [activeScheduleKey]: [...current, newItem, ...copiedItems],
+        [activeScheduleKey]: [
+          ...current.map((item) => {
+            const itemClassKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+            if (itemClassKey === targetClassKey && classOrderValue && item.classOrder !== classOrderValue) {
+              return { ...item, classOrder: classOrderValue };
+            }
+            return item;
+          }),
+          newItem,
+          ...copiedItems,
+        ],
       };
     });
     clearEditing();
