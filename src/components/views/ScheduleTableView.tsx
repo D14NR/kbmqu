@@ -43,6 +43,7 @@ export function ScheduleTableView({
 }: ScheduleTableViewProps) {
   const [searchFilter, setSearchFilter] = useState("");
   const [selectedJenjangFilter, setSelectedJenjangFilter] = useState<string>("all");
+  const [onlyConflictFilter, setOnlyConflictFilter] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
 
   const todayStr = useMemo(() => {
@@ -64,12 +65,21 @@ export function ScheduleTableView({
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const hasVisibleConflict = useMemo(() => {
-    return monthScheduleGroups.some((group) =>
-      Object.values(group.entriesByDate).some((entryList) =>
-        entryList.some((entry) => conflictEntryIds.has(entry.id))
-      )
-    );
+  const { totalConflicts, hasVisibleConflict } = useMemo(() => {
+    let count = 0;
+    monthScheduleGroups.forEach((group) => {
+      Object.values(group.entriesByDate).forEach((entryList) => {
+        entryList.forEach((entry) => {
+          if (conflictEntryIds.has(entry.id)) {
+            count++;
+          }
+        });
+      });
+    });
+    return {
+      totalConflicts: count,
+      hasVisibleConflict: count > 0,
+    };
   }, [monthScheduleGroups, conflictEntryIds]);
 
   // Extract available jenjangs for filter
@@ -90,6 +100,14 @@ export function ScheduleTableView({
   // Filter groups
   const filteredGroups = useMemo(() => {
     return monthScheduleGroups.filter((group) => {
+      // Filter by Only Conflict
+      if (onlyConflictFilter) {
+        const hasConflict = Object.values(group.entriesByDate).some((entries) =>
+          entries.some((e) => conflictEntryIds.has(e.id))
+        );
+        if (!hasConflict) return false;
+      }
+
       // Filter by Jenjang
       if (selectedJenjangFilter !== "all") {
         const j = (group.jenjang || "Lainnya").toUpperCase();
@@ -120,7 +138,7 @@ export function ScheduleTableView({
 
       return true;
     });
-  }, [monthScheduleGroups, selectedJenjangFilter, searchFilter]);
+  }, [monthScheduleGroups, onlyConflictFilter, selectedJenjangFilter, searchFilter, conflictEntryIds]);
 
   // Total sessions and teachers count
   const { totalSessions, totalTeachers } = useMemo(() => {
@@ -191,10 +209,28 @@ export function ScheduleTableView({
                 </span>
 
                 {hasVisibleConflict ? (
-                  <span className="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1.5 rounded-pill d-flex align-items-center gap-1 animate-pulse">
-                    <i className="bi bi-exclamation-triangle-fill" />
-                    <strong>Ada Bentrok!</strong>
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOnlyConflictFilter((prev) => !prev)}
+                    className={`badge border px-2.5 py-1.5 rounded-pill d-flex align-items-center gap-1.5 text-decoration-none shadow-xs transition-all ${
+                      onlyConflictFilter
+                        ? "bg-danger text-white border-danger"
+                        : "bg-danger-subtle text-danger border-danger-subtle hover-bg-light"
+                    }`}
+                    style={{ cursor: "pointer" }}
+                    title={onlyConflictFilter ? "Klik untuk menampilkan semua kelas" : "Klik untuk memfilter hanya kelas yang memiliki bentrok"}
+                  >
+                    <i className="bi bi-exclamation-triangle-fill animate-pulse" />
+                    <strong>{totalConflicts} Sesi Bentrok</strong>
+                    <span
+                      className={`badge rounded-pill text-xxs ${
+                        onlyConflictFilter ? "bg-white text-danger" : "bg-danger text-white"
+                      }`}
+                      style={{ fontSize: "8px", padding: "1px 5px" }}
+                    >
+                      {onlyConflictFilter ? "Filter Aktif (Klik Reset)" : "Filter"}
+                    </span>
+                  </button>
                 ) : (
                   <span className="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1.5 rounded-pill d-flex align-items-center gap-1">
                     <i className="bi bi-shield-check" />
@@ -287,10 +323,10 @@ export function ScheduleTableView({
               <div className="d-flex flex-wrap align-items-center gap-3">
                 <div className="d-flex align-items-center gap-1.5">
                   <span
-                    className="d-inline-block rounded"
-                    style={{ width: 14, height: 14, backgroundColor: "#fee2e2", border: "1px solid #f87171" }}
+                    className="d-inline-block rounded shadow-xs"
+                    style={{ width: 14, height: 14, backgroundColor: "#fee2e2", border: "1.5px solid #ef4444", boxShadow: "0 0 6px rgba(239, 68, 68, 0.4)" }}
                   />
-                  <span>Jadwal Bentrok Antar Cabang</span>
+                  <span className="fw-semibold text-danger">Jadwal Bentrok Antar Cabang (Glow Merah)</span>
                 </div>
                 <div className="d-flex align-items-center gap-1.5">
                   <span
@@ -403,18 +439,32 @@ export function ScheduleTableView({
                       <i className="bi bi-calendar2-x fs-2" />
                     </div>
                     <h6 className="fw-bold text-dark mb-1">
-                      {searchFilter || selectedJenjangFilter !== "all"
+                      {onlyConflictFilter
+                        ? "Tidak Ada Jadwal Bentrok pada Filter Ini"
+                        : searchFilter || selectedJenjangFilter !== "all"
                         ? "Tidak Ada Kelas yang Cocok dengan Filter"
                         : isJadwalTambahanMenu
                         ? "Belum Ada Jadwal Tambahan & Pelayanan"
                         : "Belum Ada Kelas & Jadwal Bulan Ini"}
                     </h6>
                     <p className="text-muted small mb-3" style={{ maxWidth: 420 }}>
-                      {searchFilter || selectedJenjangFilter !== "all"
+                      {onlyConflictFilter
+                        ? "Semua jadwal pada tampilan ini aman dari bentrok antar cabang."
+                        : searchFilter || selectedJenjangFilter !== "all"
                         ? "Coba sesuaikan kata kunci pencarian atau reset filter jenjang."
                         : "Klik tombol Tambah Kelas untuk mulai membuat daftar kelas dan mengatur jadwal belajar."}
                     </p>
-                    {!readOnly && (
+                    {onlyConflictFilter && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-secondary px-3 shadow-sm"
+                        onClick={() => setOnlyConflictFilter(false)}
+                      >
+                        <i className="bi bi-arrow-counterclockwise me-1" />
+                        Tampilkan Semua Kelas
+                      </button>
+                    )}
+                    {!readOnly && !onlyConflictFilter && (
                       <button
                         type="button"
                         className="btn btn-sm btn-primary px-3 shadow-sm"
@@ -582,6 +632,8 @@ export function ScheduleTableView({
                         title={
                           slot.date === todayStr
                             ? "Terkunci: Tidak dapat menambah/mengubah jadwal hari ini"
+                            : hasConflictInCell
+                            ? "⚠️ Terdapat jadwal bentrok di sel ini! Klik untuk mengelola/memperbaiki sesi."
                             : !readOnly
                             ? "Klik untuk menambah / kelola jadwal sesi ini"
                             : undefined
@@ -633,12 +685,12 @@ export function ScheduleTableView({
                                     slot.date === todayStr
                                       ? "Terkunci: Tidak dapat mengubah/hapus jadwal hari ini"
                                       : isConflict
-                                      ? "⚠️ BENTROK: Pengajar sudah memiliki jadwal di cabang lain pada jam ini!"
+                                      ? `⚠️ BENTROK: Pengajar ${item.pengajar || ""} terjadwal di cabang lain pada jam ${item.waktu || ""}. Klik untuk memperbaiki jadwal!`
                                       : undefined
                                   }
                                 >
-                                  {/* Mapel Header Pill */}
-                                  <div className="d-flex align-items-center justify-content-between gap-1">
+                                  {/* Mapel Header Pill & Conflict Indicator */}
+                                  <div className="d-flex align-items-center justify-content-between gap-1 flex-wrap">
                                     <span
                                       className="name-chip fw-bold text-xxs"
                                       style={{
@@ -651,9 +703,16 @@ export function ScheduleTableView({
                                       {displayKode}
                                     </span>
                                     {isConflict && (
-                                      <i className="bi bi-exclamation-triangle-fill text-danger text-xxs animate-pulse" />
+                                      <span
+                                        className="badge bg-danger text-white border border-danger-subtle d-inline-flex align-items-center gap-0.5 px-1 py-0.5 rounded-pill shadow-xs"
+                                        style={{ fontSize: "7.5px", letterSpacing: "0.2px" }}
+                                        title="Pengajar bentrok pada jam ini! Klik untuk perbaiki."
+                                      >
+                                        <i className="bi bi-exclamation-triangle-fill" style={{ fontSize: "7.5px" }} />
+                                        <span>BENTROK</span>
+                                      </span>
                                     )}
-                                    {isToday && (
+                                    {isToday && !isConflict && (
                                       <i className="bi bi-lock-fill text-muted text-xxs" title="Terkunci hari ini" />
                                     )}
                                   </div>
@@ -670,9 +729,11 @@ export function ScheduleTableView({
                                   <div className="mt-1 d-flex align-items-center gap-1">
                                     {item.pengajar ? (
                                       <span
-                                        className="name-chip fw-semibold text-xxs"
+                                        className={`name-chip fw-semibold text-xxs ${
+                                          isConflict ? "border-danger text-danger bg-danger-subtle" : ""
+                                        }`}
                                         style={{
-                                          ...getTagStyle(item.pengajar, "pengajar"),
+                                          ...(!isConflict ? getTagStyle(item.pengajar, "pengajar") : {}),
                                           fontSize: "9px",
                                           padding: "1px 5px",
                                         }}
@@ -685,9 +746,20 @@ export function ScheduleTableView({
                                   </div>
 
                                   {/* Waktu Jam */}
-                                  <div className="text-muted text-xxs mt-1 font-monospace d-flex align-items-center gap-1">
-                                    <i className="bi bi-clock text-primary opacity-75" />
-                                    <span>{item.waktu || "-"}</span>
+                                  <div
+                                    className={`text-xxs mt-1 font-monospace d-flex align-items-center justify-content-between gap-1 ${
+                                      isConflict ? "text-danger fw-bold" : "text-muted"
+                                    }`}
+                                  >
+                                    <div className="d-flex align-items-center gap-1">
+                                      <i className={`bi bi-clock ${isConflict ? "text-danger" : "text-primary opacity-75"}`} />
+                                      <span>{item.waktu || "-"}</span>
+                                    </div>
+                                    {isConflict && !readOnly && slot.date !== todayStr && (
+                                      <span className="text-danger text-xxs opacity-75" title="Klik untuk perbaiki">
+                                        <i className="bi bi-pencil-fill" style={{ fontSize: "8px" }} />
+                                      </span>
+                                    )}
                                   </div>
                                 </button>
                               );
@@ -734,16 +806,25 @@ export function ScheduleTableView({
 
       {/* 3. Conflict Alert Banner */}
       {hasVisibleConflict && (
-        <div className="alert alert-danger shadow-sm border-danger rounded-3 d-flex align-items-center gap-3 p-3 mb-0" role="alert">
-          <div className="rounded-circle bg-danger text-white d-flex align-items-center justify-content-center flex-shrink-0" style={{ width: 36, height: 36 }}>
-            <i className="bi bi-exclamation-triangle-fill fs-5" />
-          </div>
-          <div>
-            <h6 className="fw-bold mb-0 text-danger">Terdeteksi Jadwal Bentrok Antar Cabang!</h6>
-            <div className="small text-danger-emphasis mt-0.5">
-              Sel jadwal dengan tanda merah menandakan pengajar telah dijadwalkan pada hari dan jam yang sama di cabang lain. Mohon sesuaikan jam sesi atau ganti pengajar yang tersedia.
+        <div className="alert alert-danger shadow-sm border-danger rounded-3 d-flex align-items-center justify-content-between gap-3 p-3 mb-0" role="alert">
+          <div className="d-flex align-items-center gap-3">
+            <div className="rounded-circle bg-danger text-white d-flex align-items-center justify-content-center flex-shrink-0" style={{ width: 36, height: 36 }}>
+              <i className="bi bi-exclamation-triangle-fill fs-5" />
+            </div>
+            <div>
+              <h6 className="fw-bold mb-0 text-danger">Terdeteksi {totalConflicts} Jadwal Bentrok Antar Cabang!</h6>
+              <div className="small text-danger-emphasis mt-0.5">
+                Sesi jadwal dengan bingkai merah bercahaya (*red glow*) menandakan pengajar terjadwal di cabang lain pada jam yang sama. Klik langsung pada sesi bentrok untuk mengubah pengajar atau jam sesi.
+              </div>
             </div>
           </div>
+          <button
+            type="button"
+            className={`btn btn-sm text-nowrap fw-semibold ${onlyConflictFilter ? "btn-danger" : "btn-outline-danger"}`}
+            onClick={() => setOnlyConflictFilter(!onlyConflictFilter)}
+          >
+            {onlyConflictFilter ? "Tampilkan Semua Kelas" : "Tampilkan Hanya Bentrok"}
+          </button>
         </div>
       )}
     </div>
