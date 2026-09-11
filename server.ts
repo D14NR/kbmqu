@@ -149,8 +149,9 @@ app.use("/db", async (req, res, next) => {
     
     res.status(remoteRes.status);
     remoteRes.headers.forEach((val, key) => {
-      // Avoid forwarding content-encoding to prevent double compression issues
-      if (key.toLowerCase() !== 'content-encoding') {
+      const lower = key.toLowerCase();
+      // Avoid forwarding encoding and length headers to prevent mismatch issues
+      if (lower !== 'content-encoding' && lower !== 'content-length' && lower !== 'transfer-encoding') {
          res.setHeader(key, val);
       }
     });

@@ -35,11 +35,16 @@ type BucketSchema = {
 
 const encodeId = (bucket: string, id: string) => `${bucket}:${id}`;
 
-export const decodeId = (encoded: string) => {
-  const [bucket, ...rest] = String(encoded || "").split(":");
+export const decodeId = (encoded: string, fallbackBucket: string = "jadwal_kbm") => {
+  const str = String(encoded || "");
+  if (!str.includes(":")) {
+    const bucket = fallbackBucket in bucketTableMap ? fallbackBucket : "jadwal_kbm";
+    return { bucket: bucket as BucketName, id: str };
+  }
+  const [bucket, ...rest] = str.split(":");
   const id = rest.join(":");
   if (!bucket || !id || !(bucket in bucketTableMap)) {
-    throw new Error("ID database tidak valid.");
+    return { bucket: (fallbackBucket in bucketTableMap ? fallbackBucket : "jadwal_kbm") as BucketName, id: id || str };
   }
   return { bucket: bucket as BucketName, id };
 };
@@ -147,9 +152,9 @@ const jadwalKbmSchema: BucketSchema = {
     Sekolah: asString(row.sekolah),
     "Jenjang Studi": asString((row as any).jenjang_studi),
     jenjang: asString((row as any).jenjang_studi),
-    Tanggal: asString(row.tanggal),
-    Bulan: asString(row.bulan),
-    bulan: asString(row.bulan),
+    Tanggal: normalizeDbDate(row.tanggal),
+    Bulan: extractMonthValue(row.bulan || row.tanggal),
+    bulan: extractMonthValue(row.bulan || row.tanggal),
     Mapel: asString((row as any).mata_pelajaran),
     Pengajar: asString((row as any).kode_pengajar || (row as any).nama_pengajar),
     "Kode Pengajar": asString((row as any).kode_pengajar),
@@ -168,11 +173,13 @@ const jadwalKbmSchema: BucketSchema = {
     kelas: asString(data.Kelas),
     sekolah: asString(data.Sekolah),
     jenjang_studi: asString((data as any)["Jenjang Studi"] || (data as any).jenjang || (data as any).jenjang_studi),
-    tanggal: asString(data.Tanggal),
-    bulan: extractMonthValue(data.Bulan || data.Tanggal),
+    tanggal: normalizeDbDate(data.Tanggal || data.tanggal),
+    bulan: extractMonthValue(data.Bulan || data.Tanggal || data.tanggal),
     mata_pelajaran: asString(data.Mapel),
     kode_pengajar: asString((data as any)["Kode Pengajar"] || data.Pengajar),
-    nama_pengajar: asString((data as any)["Nama Pengajar"] || (data as any).Nama || ""),
+    nama_pengajar: asString((data as any)["Kode Pengajar"] || data.Pengajar)
+      ? asString((data as any)["Nama Pengajar"] || (data as any).Nama || "")
+      : "",
     waktu: asString(data.Waktu),
     class_order: asNumberOrNull(data["Urutan Kelas"]),
     gabung: asString((data as any).Gabung || (data as any).gabung),
@@ -460,7 +467,7 @@ const normalizeData = (value: unknown) => {
   );
 };
 
-const READ_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL for real-time updates
+const READ_CACHE_TTL_MS = 1 * 60 * 1000; // 1 minute cache TTL for real-time updates as requested
 const READ_CACHE_STORAGE_KEY = "kbm_read_cache_v1";
 const readCache = new Map<string, { expiresAt: number; rows: DbRow[] }>();
 
@@ -577,14 +584,16 @@ const getDbRow = async (table: string, rawId: string) => {
   return apiRequest<Record<string, unknown>>(`/db/${table}/${encodeURIComponent(rawId)}`);
 };
 
-export const listRows = async (bucket: string) => {
+export const listRows = async (bucket: string, forceFresh = false) => {
   if (!(bucket in schemas)) {
     throw new Error(`Bucket tidak dikenal: ${bucket}`);
   }
 
-  const cached = getCachedRows(bucket);
-  if (cached) {
-    return cached;
+  if (!forceFresh) {
+    const cached = getCachedRows(bucket);
+    if (cached) {
+      return cached;
+    }
   }
 
   const schema = schemas[bucket as BucketName];
@@ -657,11 +666,24 @@ export const deleteRowsByIds = async (ids: string[]) => {
   }
 
   const grouped = ids.reduce<Record<string, string[]>>((acc, id) => {
-    const decoded = decodeId(id);
-    if (!acc[decoded.bucket]) {
-      acc[decoded.bucket] = [];
+    try {
+      const decoded = decodeId(id);
+      if (!decoded.id) return acc;
+      // Skip ephemeral client-side generated IDs
+      if (
+        decoded.id.startsWith("bulanIni-") ||
+        decoded.id.startsWith("jadwalTambahanPelayanan-") ||
+        decoded.id.startsWith("appscript-")
+      ) {
+        return acc;
+      }
+      if (!acc[decoded.bucket]) {
+        acc[decoded.bucket] = [];
+      }
+      acc[decoded.bucket].push(decoded.id);
+    } catch (_e) {
+      // ignore
     }
-    acc[decoded.bucket].push(decoded.id);
     return acc;
   }, {});
 

@@ -78,6 +78,7 @@ export const parseFlexibleDate = (value: string) => {
     return null;
   }
 
+  // 1. Match ISO date: YYYY-MM-DD
   const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (dateOnlyMatch) {
     return new Date(
@@ -87,23 +88,57 @@ export const parseFlexibleDate = (value: string) => {
     );
   }
 
-  const labelMatch = trimmed.match(/^(\d{1,2})\s+([A-Za-z\.]+)\s+(\d{4})$/);
+  // 2. Match DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmyMatch) {
+    return new Date(
+      Number(dmyMatch[3]),
+      Number(dmyMatch[2]) - 1,
+      Number(dmyMatch[1])
+    );
+  }
+
+  // 3. Strip optional day prefix like "Rabu, ", "Senin, ", "Minggu "
+  const withoutDay = trimmed.replace(/^[A-Za-z]+,?\s+/, "");
+
+  const monthMap: Record<string, number> = {
+    jan: 0,
+    januari: 0,
+    feb: 1,
+    februari: 1,
+    mar: 2,
+    maret: 2,
+    apr: 3,
+    april: 3,
+    mei: 4,
+    may: 4,
+    jun: 5,
+    juni: 5,
+    june: 5,
+    jul: 6,
+    juli: 6,
+    july: 6,
+    agu: 7,
+    ags: 7,
+    agustus: 7,
+    aug: 7,
+    august: 7,
+    sep: 8,
+    september: 8,
+    okt: 9,
+    oktober: 9,
+    oct: 9,
+    october: 9,
+    nov: 10,
+    november: 10,
+    des: 11,
+    desember: 11,
+    dec: 11,
+    december: 11,
+  };
+
+  const labelMatch = withoutDay.match(/^(\d{1,2})\s+([A-Za-z\.]+)\s+(\d{4})$/);
   if (labelMatch) {
-    const monthMap: Record<string, number> = {
-      jan: 0,
-      feb: 1,
-      mar: 2,
-      apr: 3,
-      mei: 4,
-      jun: 5,
-      jul: 6,
-      agu: 7,
-      ags: 7,
-      sep: 8,
-      okt: 9,
-      nov: 10,
-      des: 11,
-    };
     const monthKey = labelMatch[2].replace(".", "").toLowerCase();
     const monthIndex = monthMap[monthKey];
     if (monthIndex !== undefined) {

@@ -150,8 +150,8 @@ export function DatabaseMaintenanceBanner() {
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Banner otomatis tersembunyi jika timer habis ATAU jika Target Pemeliharaan sudah tercapai (100%)
-  const isHidden = timeLeft <= 0 || isTargetAchieved;
+  // Banner diminimalkan menjadi floating icon jika waktu habis atau ditutup manual
+  const isHidden = timeLeft <= 0;
 
   useEffect(() => {
     if (timeLeft <= 0) return;

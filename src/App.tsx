@@ -137,6 +137,14 @@ export function App() {
         }
         return normalizeValueKey(sRaw) === normalizeValueKey(tRaw);
       }
+      if (field.toLowerCase().includes("pengajar")) {
+        if (!sRaw || !tRaw) return true;
+        return (
+          normalizeValueKey(sRaw) === normalizeValueKey(tRaw) ||
+          normalizeValueKey(sRaw).startsWith(normalizeValueKey(tRaw)) ||
+          normalizeValueKey(tRaw).startsWith(normalizeValueKey(sRaw))
+        );
+      }
       return normalizeValueKey(sRaw) === normalizeValueKey(tRaw);
     });
 
@@ -999,15 +1007,15 @@ export function App() {
     if (!trimmed) {
       return "";
     }
+    const parsed = parseFlexibleDate(trimmed);
+    if (parsed) {
+      return formatLocalDate(parsed);
+    }
     const matchByLabel = monthScheduleDates.find(
       (slot) => slot.label.toLowerCase() === trimmed.toLowerCase()
     );
     if (matchByLabel) {
       return matchByLabel.date;
-    }
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      return formatLocalDate(parsed);
     }
     return trimmed;
   };
@@ -5751,9 +5759,11 @@ export function App() {
           newClassOrder,
           scheduleJenis
         );
-        return postToSheet({ action: "upsert", record: newRecord, oldRecord });
+        return postToSheet({ action: "upsert", record: newRecord, oldRecord, entryId: item.id });
       })
     );
+
+    await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
 
     pushToast("Detail kelas dan urutan berhasil diperbarui.", "success");
     return true;
@@ -5922,13 +5932,19 @@ export function App() {
             clearEditing();
           }
         }
+        const explicitIds = Object.values(group.entriesByDate || {})
+          .flat()
+          .map((item) => item.id)
+          .filter(Boolean);
         await postToSheet({
           action: "deleteClass",
           cabang: group.cabang,
           kelas: group.kelas,
           sekolah: group.sekolah || "",
           monthKey,
+          ids: explicitIds,
         });
+        await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
         pushToast(`Kelas dan seluruh jadwalnya${monthLabel} berhasil dihapus.`, "success");
       },
       { title: "Hapus Kelas", confirmLabel: "Hapus" }
@@ -6030,6 +6046,7 @@ export function App() {
         activeScheduleKey
       ),
     ]);
+    await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     pushToast("Urutan kelas berhasil diperbarui.", "success");
   };
 
@@ -6074,7 +6091,7 @@ export function App() {
       Mapel: mapel,
       Pengajar: kodePengajar,
       "Kode Pengajar": kodePengajar,
-      ...(resolvedNamaPengajar ? { "Nama Pengajar": resolvedNamaPengajar } : {}),
+      "Nama Pengajar": kodePengajar ? resolvedNamaPengajar : "",
       Waktu: waktu,
       "Jenis KBM": jenisKbm,
     };
@@ -6101,7 +6118,8 @@ export function App() {
       const action = String(payload.action || "");
       const record = (payload.record as Record<string, string> | undefined) ?? null;
       const oldRecord = (payload.oldRecord as Record<string, string> | undefined) ?? null;
-      const rows = await listRows(bucket);
+      const entryId = payload.entryId ? String(payload.entryId).trim() : "";
+      const rows = await listRows(bucket, true);
       const sessionFields = ["Cabang", "Kelas", "Sekolah", "Tanggal", "Mapel", "Pengajar", "Waktu"];
 
       if (action === "append" && record) {
@@ -6120,12 +6138,17 @@ export function App() {
       }
 
       if (action === "upsert" && record) {
-        const target = rows.find((row) => {
-          if (oldRecord) {
-            return matchByFields(row.data, oldRecord, sessionFields);
-          }
-          return matchByFields(row.data, record, ["Cabang", "Kelas", "Sekolah", "Tanggal"]);
-        });
+        let target: DbRow | null = null;
+        if (entryId) {
+          const cleanEntryId = decodeId(entryId, bucket).id;
+          target = rows.find((row) => row.id === entryId || decodeId(row.id, bucket).id === cleanEntryId) || null;
+        }
+        if (!target && oldRecord) {
+          target = rows.find((row) => matchByFields(row.data, oldRecord, sessionFields)) || null;
+        }
+        if (!target) {
+          target = rows.find((row) => matchByFields(row.data, record, ["Cabang", "Kelas", "Sekolah", "Tanggal"])) || null;
+        }
         if (target) {
           await updateRow(target.id, record);
         } else {
@@ -6134,11 +6157,30 @@ export function App() {
         return;
       }
 
-      if (action === "deleteSession" && record) {
-        const targetIds = rows
-          .filter((row) => matchByFields(row.data, record, sessionFields))
-          .map((row) => row.id);
-        await deleteRowsByIds(targetIds);
+      if (action === "deleteSession" && (record || entryId)) {
+        let targetIds: string[] = [];
+        if (entryId) {
+          const cleanEntryId = decodeId(entryId, bucket).id;
+          const match = rows.find((row) => row.id === entryId || decodeId(row.id, bucket).id === cleanEntryId);
+          if (match) {
+            targetIds = [match.id];
+          } else {
+            targetIds = [entryId];
+          }
+        }
+        if (targetIds.length === 0 && record) {
+          targetIds = rows
+            .filter((row) => matchByFields(row.data, record, sessionFields))
+            .map((row) => row.id);
+        }
+        if (targetIds.length === 0 && record) {
+          targetIds = rows
+            .filter((row) => matchByFields(row.data, record, ["Cabang", "Kelas", "Sekolah", "Tanggal"]))
+            .map((row) => row.id);
+        }
+        if (targetIds.length > 0) {
+          await deleteRowsByIds(targetIds);
+        }
         return;
       }
 
@@ -6147,23 +6189,27 @@ export function App() {
         const kelas = String(payload.kelas ?? "");
         const sekolah = String(payload.sekolah ?? "");
         const monthKey = String(payload.monthKey ?? "");
-        const targetIds = rows
-          .filter((row) => {
-            if (
-              normalizeValueKey(row.data.Cabang) !== normalizeValueKey(cabang) ||
-              normalizeValueKey(row.data.Kelas) !== normalizeValueKey(kelas) ||
-              normalizeValueKey(row.data.Sekolah || "") !== normalizeValueKey(sekolah)
-            ) {
-              return false;
-            }
-            if (!monthKey || scheduleKey === "jadwalTambahanPelayanan") {
-              return true;
-            }
-            const rawTanggal = String(row.data.Tanggal || row.data.tanggal || row.data.tanggalSheet || "");
-            const parsedTanggal = parseFlexibleDate(rawTanggal);
-            return parsedTanggal ? formatLocalDate(parsedTanggal).slice(0, 7) === monthKey : false;
-          })
-          .map((row) => row.id);
+        const explicitIds = Array.isArray(payload.ids) ? (payload.ids as string[]) : [];
+        let targetIds = explicitIds;
+        if (targetIds.length === 0) {
+          targetIds = rows
+            .filter((row) => {
+              if (
+                normalizeValueKey(row.data.Cabang) !== normalizeValueKey(cabang) ||
+                normalizeValueKey(row.data.Kelas) !== normalizeValueKey(kelas) ||
+                normalizeValueKey(row.data.Sekolah || "") !== normalizeValueKey(sekolah)
+              ) {
+                return false;
+              }
+              if (!monthKey || scheduleKey === "jadwalTambahanPelayanan") {
+                return true;
+              }
+              const rawTanggal = String(row.data.Tanggal || row.data.tanggal || row.data.tanggalSheet || "");
+              const parsedTanggal = parseFlexibleDate(rawTanggal);
+              return parsedTanggal ? formatLocalDate(parsedTanggal).slice(0, 7) === monthKey : false;
+            })
+            .map((row) => row.id);
+        }
         await deleteRowsByIds(targetIds);
         return;
       }
@@ -6459,7 +6505,14 @@ export function App() {
       }
 
       const otherEntries = latestEntries.filter((item) => {
-        if (item.id === entryId) return false;
+        const isSelf =
+          (entryId && item.id === entryId) ||
+          (entryId && decodeId(item.id).id === decodeId(entryId).id) ||
+          (normalizeText(item.cabang || "") === normalizeText(cabang || "") &&
+            normalizeText(item.kelas || "") === normalizeText(kelas || "") &&
+            normalizeText(item.sekolah || "") === normalizeText(sekolahValue || "") &&
+            resolveCanonicalDate(item.tanggal || "") === targetCanonicalDate);
+        if (isSelf) return false;
         if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
         if (resolvePengajarCode(item.pengajar || "") !== targetTeacherCode) return false;
 
@@ -6823,17 +6876,20 @@ export function App() {
     }
 
     if (entryId) {
-      await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord });
+      await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
       if (copiedSheetRecords.length > 0) {
         await postToSheet({ action: "appendMany", records: copiedSheetRecords });
       }
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
       return;
     }
     if (copiedSheetRecords.length > 0) {
       await postToSheet({ action: "appendMany", records: [sheetRecord, ...copiedSheetRecords] });
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
       return;
     }
     await postToSheet({ action: "append", record: sheetRecord });
+    await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
   };
 
   const handleDeleteSlot = async () => {
@@ -6849,7 +6905,8 @@ export function App() {
       return;
     }
     setSheetStatus((prev) => ({ ...prev, saving: true }));
-    const existingEntry = (records[activeScheduleKey] ?? []).find((item) => item.id === editingSlot.entryId);
+    const deletingId = editingSlot.entryId;
+    const existingEntry = (records[activeScheduleKey] ?? []).find((item) => item.id === deletingId);
     const sheetRecord = buildSheetRecord(
       editingSlot.cabang,
       editingSlot.kelas,
@@ -6864,10 +6921,11 @@ export function App() {
     );
     setRecords((prev) => ({
       ...prev,
-      [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== editingSlot.entryId),
+      [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== deletingId),
     }));
     clearEditing();
-    await postToSheet({ action: "deleteSession", record: sheetRecord });
+    await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
+    await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
   };
 
   const isBusy =
