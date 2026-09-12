@@ -157,11 +157,21 @@ export function ScheduleTableView({
     return { totalSessions: sessions, totalTeachers: teachers.size };
   }, [monthScheduleGroups]);
 
+  // Only reset scroll to top when changing schedule mode or changing target month period
+  const prevPeriodKeyRef = useRef<string>("");
   useEffect(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = 0;
+    const currentPeriodKey = isJadwalTambahanMenu
+      ? "jadwalTambahan"
+      : (activeScheduleDates[0]?.date ? activeScheduleDates[0].date.slice(0, 7) : "");
+
+    if (prevPeriodKeyRef.current && prevPeriodKeyRef.current !== currentPeriodKey) {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+        scrollContainerRef.current.scrollLeft = 0;
+      }
     }
-  }, [activeScheduleDates, monthScheduleGroups]);
+    prevPeriodKeyRef.current = currentPeriodKey;
+  }, [isJadwalTambahanMenu, activeScheduleDates]);
 
   return (
     <div className="schedule-table-module d-flex flex-column gap-3 mt-3">
