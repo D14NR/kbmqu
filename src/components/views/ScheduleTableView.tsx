@@ -664,6 +664,15 @@ export function ScheduleTableView({
                           hasConflictInCell ? "schedule-cell-conflict" : ""
                         } ${holidayCell ? "holiday-col" : ""} ${isToday ? "today-cell-col" : ""}`}
                       >
+                        {hasConflictInCell && (
+                          <div className="schedule-cell-alert-bar d-flex align-items-center justify-content-center gap-1 mb-1 py-0.5 px-1 rounded text-white bg-danger shadow-xs">
+                            <i className="bi bi-exclamation-octagon-fill text-xxs animate-pulse" />
+                            <span className="fw-bold" style={{ fontSize: "8px", letterSpacing: "0.3px" }}>
+                              BENTROK
+                            </span>
+                          </div>
+                        )}
+
                         {entries.length === 0 ? (
                           <div className="schedule-empty-slot d-flex align-items-center justify-content-center">
                             {!readOnly && !isToday ? (
@@ -724,7 +733,7 @@ export function ScheduleTableView({
                                     </span>
                                     {isConflict && (
                                       <span
-                                        className="badge bg-danger text-white border border-danger-subtle d-inline-flex align-items-center gap-0.5 px-1 py-0.5 rounded-pill shadow-xs"
+                                        className="badge bg-danger text-white border border-danger-subtle d-inline-flex align-items-center gap-0.5 px-1.5 py-0.5 rounded-pill shadow-xs animate-pulse"
                                         style={{ fontSize: "7.5px", letterSpacing: "0.2px" }}
                                         title="Pengajar bentrok pada jam ini! Klik untuk perbaiki."
                                       >
@@ -776,8 +785,8 @@ export function ScheduleTableView({
                                       <span>{item.waktu || "-"}</span>
                                     </div>
                                     {isConflict && !readOnly && slot.date !== todayStr && (
-                                      <span className="text-danger text-xxs opacity-75" title="Klik untuk perbaiki">
-                                        <i className="bi bi-pencil-fill" style={{ fontSize: "8px" }} />
+                                      <span className="badge bg-danger-subtle text-danger border border-danger-subtle text-xxs px-1 py-0" title="Klik untuk perbaiki">
+                                        Perbaiki
                                       </span>
                                     )}
                                   </div>

@@ -277,10 +277,16 @@ body {
 }
 
 .schedule-cell.schedule-cell-conflict {
-  background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%) !important;
-  border-color: #fca5a5 !important;
+  background: #fff5f5 !important;
+  border: 2px solid #ef4444 !important;
   position: relative;
-  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.4), 0 0 8px rgba(239, 68, 68, 0.15) !important;
+  z-index: 2;
+}
+
+.schedule-cell-alert-bar {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.35);
 }
 
 .schedule-cell.schedule-cell-conflict::before {
@@ -290,14 +296,15 @@ body {
   left: 0;
   right: 0;
   height: 3px;
-  background: #ef4444;
+  background: #dc2626;
   z-index: 2;
   border-radius: 2px 2px 0 0;
 }
 
 .schedule-cell.schedule-cell-conflict:hover {
-  background: #ffe4e6 !important;
-  box-shadow: inset 0 0 0 1.5px rgba(220, 38, 38, 0.6);
+  background: #fee2e2 !important;
+  border-color: #dc2626 !important;
+  box-shadow: inset 0 0 0 1.5px rgba(220, 38, 38, 0.8), 0 0 12px rgba(220, 38, 38, 0.25) !important;
 }
 
 .holiday-col {

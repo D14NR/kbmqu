@@ -1,10 +1,5 @@
 import type { RecordItem } from "../types/app";
 
-export const appsScriptUrl =
-  "https://script.google.com/macros/s/AKfycbzGxaIA4k29Nhn4hELrc-tNvAxxNUe9uJ7VzlbV1PX3Dl_XzvVi6Z61laFH1T-9I2Ic/exec";
-
-export const mainSpreadsheetId = "1Wa3AUT9JsQOf6gMaNqWvIDBoucqJQ0ZN3A4K4C7nQW8";
-
 export const mapelHeadersExpected = ["Mapel", "Kode_Mapel", "Kategori"];
 export const sesiHeaders = Array.from({ length: 10 }, (_, index) => `Sesi ${index + 1}`);
 
@@ -322,7 +317,7 @@ export const normalizeEntryList = (rows: Record<string, unknown>[]) => {
     }
 
     acc.push({
-      id: `appscript-${index}-${Date.now()}`,
+      id: `entry-${index}-${Date.now()}`,
       cabang,
       kelas,
       tanggal: tanggalRaw,

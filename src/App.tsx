@@ -1436,7 +1436,7 @@ export function App() {
     return value === undefined || value === null ? "" : String(value);
   };
 
-  const parseAppsScriptRecords = (payload: unknown) => {
+  const parseScheduleDbRecords = (payload: unknown) => {
     const normalizeObjectRows = (rows: Record<string, unknown>[]) => {
       return rows.reduce<RecordItem[]>((acc, row, index) => {
         const cabang = getEntryValue(row, ["Cabang"]);
@@ -1464,7 +1464,7 @@ export function App() {
         }
 
         acc.push({
-          id: `appscript-${index}-${Date.now()}`,
+          id: `schedule-${index}-${Date.now()}`,
           cabang,
           kelas,
           jenjang,
@@ -1523,7 +1523,7 @@ export function App() {
           }
           const tanggal = normalizeDateValue(label);
           entries.push({
-            id: `appscript-matrix-${rowIndex}-${columnIndex}-${Date.now()}`,
+            id: `schedule-matrix-${rowIndex}-${columnIndex}-${Date.now()}`,
             cabang,
             kelas,
             sekolah: "",
@@ -2869,7 +2869,7 @@ export function App() {
         }
       }
       const parsedRecords = rows.map((row, index) => {
-        const item = parseAppsScriptRecords([toRecord(row)])[0];
+        const item = parseScheduleDbRecords([toRecord(row)])[0];
         return {
           ...(item || {
             id: `${bucket}-${index}-${Date.now()}`,
@@ -4331,6 +4331,82 @@ export function App() {
   const handleRefreshAllData = async () => {
     await refreshAllData(true, true);
   };
+
+  // Silent Background Sync setiap 5 menit dengan fitur pengaman anti-lag:
+  // 1. Skip jika user belum login / sesi tidak aktif
+  // 2. Skip jika tab browser sedang di-minimize/hidden
+  // 3. Skip jika user sedang membuka modal form (tambah/edit jadwal, pengajar, mapel, izin, penempatan, donasi, dsb)
+  // 4. Skip jika user sedang aktif mengetik di input / textarea
+  // 5. Menggunakan mode true-silent tanpa blocking spinner
+  useEffect(() => {
+    if (!authSession) return;
+
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+
+    const intervalId = window.setInterval(() => {
+      // Guard 1: Tab browser sedang tidak aktif
+      if (document.hidden) {
+        return;
+      }
+
+      // Guard 2: Dialog modal form sedang terbuka
+      const isAnyModalOpen = Boolean(
+        editingSlot ||
+        isClassModalOpen ||
+        isMapelModalOpen ||
+        isPengajarModalOpen ||
+        isPenempatanModalOpen ||
+        isIzinModalOpen ||
+        isPermintaanModalOpen ||
+        isAccountsCabangModalOpen ||
+        isDonasiModalOpen ||
+        isTransaksiDonasiModalOpen ||
+        isExportClassModalOpen ||
+        confirmDialog.open ||
+        isPendingNotificationModalOpen ||
+        isMenuTransitioning
+      );
+
+      if (isAnyModalOpen) {
+        return;
+      }
+
+      // Guard 3: User sedang mengetik di input form
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.tagName === "SELECT" ||
+          (activeEl as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+
+      // Jalankan sinkronisasi hening (silent) di latar belakang
+      void refreshAllData(false, true, true);
+    }, FIVE_MINUTES_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [
+    authSession,
+    editingSlot,
+    isClassModalOpen,
+    isMapelModalOpen,
+    isPengajarModalOpen,
+    isPenempatanModalOpen,
+    isIzinModalOpen,
+    isPermintaanModalOpen,
+    isAccountsCabangModalOpen,
+    isDonasiModalOpen,
+    isTransaksiDonasiModalOpen,
+    isExportClassModalOpen,
+    confirmDialog.open,
+    isPendingNotificationModalOpen,
+    isMenuTransitioning,
+  ]);
 
   type ImportMode =
     | "schedule"
