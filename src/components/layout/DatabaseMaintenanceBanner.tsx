@@ -3,7 +3,7 @@ import { apiFetch } from "../../lib/api";
 import type { DonasiTransaksiRecord } from "../../types/donasi";
 
 // Durasi tampil otomatis sebelum di-hidden: 2.5 menit (150 detik)
-const AUTO_HIDE_SECONDS = 150;
+const AUTO_HIDE_SECONDS = 30;
 
 type DonationAccount = {
   id: string;
