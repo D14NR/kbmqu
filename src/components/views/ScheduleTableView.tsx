@@ -51,16 +51,26 @@ export function ScheduleTableView({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   }, []);
 
+  const mapelLookupMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!mapelRecords) return map;
+    mapelRecords.forEach((r) => {
+      const kode = String(r["Kode_Mapel"] || r["Singkatan"] || "").trim();
+      const nama = String(r["Mapel"] || r["Mata Pelajaran"] || "").trim();
+      if (kode) {
+        map.set(kode.toLowerCase(), kode);
+      }
+      if (nama && kode) {
+        map.set(nama.toLowerCase(), kode);
+      }
+    });
+    return map;
+  }, [mapelRecords]);
+
   const getMapelKode = (rawValue: string) => {
     const raw = String(rawValue || "").trim();
     if (!raw) return "";
-    if (!mapelRecords || mapelRecords.length === 0) return raw;
-    const norm = raw.toLowerCase();
-    const byKode = mapelRecords.find((r) => (((r["Kode_Mapel"] || r["Singkatan"] || "") + "").trim().toLowerCase() === norm));
-    if (byKode) return ((byKode["Kode_Mapel"] || byKode["Singkatan"] || "") + "").trim();
-    const byName = mapelRecords.find((r) => (((r["Mapel"] || r["Mata Pelajaran"] || "") + "").trim().toLowerCase() === norm));
-    if (byName) return ((byName["Kode_Mapel"] || byName["Singkatan"] || "") + "").trim();
-    return raw;
+    return mapelLookupMap.get(raw.toLowerCase()) || raw;
   };
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);

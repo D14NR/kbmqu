@@ -1002,7 +1002,21 @@ export function App() {
     [selectedMonth]
   );
 
-  const normalizeDateValue = (value: string) => {
+  const monthDateLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    monthScheduleDates.forEach((slot) => map.set(slot.date, slot.label));
+    return map;
+  }, [monthScheduleDates]);
+
+  const monthLabelDateMap = useMemo(() => {
+    const map = new Map<string, string>();
+    monthScheduleDates.forEach((slot) => {
+      map.set(slot.label.toLowerCase(), slot.date);
+    });
+    return map;
+  }, [monthScheduleDates]);
+
+  const normalizeDateValue = useCallback((value: string) => {
     const trimmed = value.trim();
     if (!trimmed) {
       return "";
@@ -1011,14 +1025,12 @@ export function App() {
     if (parsed) {
       return formatLocalDate(parsed);
     }
-    const matchByLabel = monthScheduleDates.find(
-      (slot) => slot.label.toLowerCase() === trimmed.toLowerCase()
-    );
+    const matchByLabel = monthLabelDateMap.get(trimmed.toLowerCase());
     if (matchByLabel) {
-      return matchByLabel.date;
+      return matchByLabel;
     }
     return trimmed;
-  };
+  }, [monthLabelDateMap]);
 
   const resolveCanonicalDate = useCallback(
     (value: string) => {
@@ -1026,7 +1038,7 @@ export function App() {
       if (norm) return norm;
       return String(value || "").trim().slice(0, 10);
     },
-    [monthScheduleDates]
+    [normalizeDateValue]
   );
 
   const filteredPengajarOptions = useMemo(() => {
@@ -1373,7 +1385,7 @@ export function App() {
   // normalizeDateValue is initialized above
 
   const getSlotLabelByDate = (date: string) => {
-    return monthScheduleDates.find((slot) => slot.date === date)?.label ?? date;
+    return monthDateLabelMap.get(date) ?? date;
   };
 
   const formatSheetTanggal = (value: string) => {
@@ -1381,11 +1393,9 @@ export function App() {
     if (!trimmed) {
       return "";
     }
-    const labelMatch = monthScheduleDates.find(
-      (slot) => slot.label.toLowerCase() === trimmed.toLowerCase()
-    );
+    const labelMatch = monthLabelDateMap.get(trimmed.toLowerCase());
     if (labelMatch) {
-      return labelMatch.label;
+      return monthDateLabelMap.get(labelMatch) || trimmed;
     }
     const parsed = new Date(trimmed);
     if (!Number.isNaN(parsed.getTime())) {
@@ -1798,10 +1808,21 @@ export function App() {
   // allScheduleEntries and resolveCanonicalDate are initialized above
 
   const conflictingScheduleEntryIds = useMemo(() => {
-    const groupedByPengajarTanggal = new Map<string, RecordItem[]>();
+    type ParsedScheduleEntry = {
+      id: string;
+      start: number;
+      end: number;
+      cabangNorm: string;
+      mapelNorm: string;
+      waktuNorm: string;
+      isGabung: boolean;
+      gabungWithNorm: string;
+    };
+
+    const groupedByPengajarTanggal = new Map<string, ParsedScheduleEntry[]>();
 
     allScheduleEntries.forEach((entry) => {
-      if (!hasScheduleContent(entry)) {
+      if (!hasScheduleContent(entry) || !entry.waktu) {
         return;
       }
       const pengajarKey = resolvePengajarCode(entry.pengajar || "");
@@ -1809,86 +1830,85 @@ export function App() {
       if (!pengajarKey || !tanggalKey) {
         return;
       }
+
+      const range = parseRangeFromString(entry.waktu);
+      if (!range || range.start >= range.end) {
+        return;
+      }
+
+      const parsed: ParsedScheduleEntry = {
+        id: entry.id,
+        start: range.start,
+        end: range.end,
+        cabangNorm: normalizeText(entry.cabang || ""),
+        mapelNorm: normalizeText(entry.mapel || ""),
+        waktuNorm: normalizeText(entry.waktu || ""),
+        isGabung: Boolean(entry.isGabung),
+        gabungWithNorm: normalizeText(entry.gabungWith || ""),
+      };
+
       const groupKey = `${pengajarKey}||${tanggalKey}`;
-      const existing = groupedByPengajarTanggal.get(groupKey) ?? [];
-      groupedByPengajarTanggal.set(groupKey, [...existing, entry]);
+      const group = groupedByPengajarTanggal.get(groupKey);
+      if (group) {
+        group.push(parsed);
+      } else {
+        groupedByPengajarTanggal.set(groupKey, [parsed]);
+      }
     });
 
     const conflictIds = new Set<string>();
 
-    // Helper to check if two entries belong to a combined class (Kelas Gabungan)
-    const isCombinedClassPair = (a: RecordItem, b: RecordItem) => {
-      if (a.id === b.id) return true;
-
-      // Check if both or either has isGabung flag
-      if (a.isGabung || b.isGabung) {
-        return true;
-      }
-
-      // Check if gabungWith string is present
-      const aGabung = String(a.gabungWith || "").trim();
-      const bGabung = String(b.gabungWith || "").trim();
-      if (aGabung || bGabung) {
-        return true;
-      }
-
-      // In the same branch with same subject and same time -> merged session
-      const aCabang = normalizeText(a.cabang || "");
-      const bCabang = normalizeText(b.cabang || "");
-      const aWaktu = normalizeText(a.waktu || "");
-      const bWaktu = normalizeText(b.waktu || "");
-      const aMapel = normalizeText(a.mapel || "");
-      const bMapel = normalizeText(b.mapel || "");
-      if (aCabang && aCabang === bCabang && aWaktu && aWaktu === bWaktu && aMapel && aMapel === bMapel) {
-        return true;
-      }
-
-      return false;
-    };
-
     groupedByPengajarTanggal.forEach((entries) => {
-      if (entries.length < 2) {
+      const len = entries.length;
+      if (len < 2) {
         return;
       }
-      for (let i = 0; i < entries.length; i += 1) {
+
+      // Sort intervals by start time for sweep-line check
+      entries.sort((a, b) => a.start - b.start);
+
+      for (let i = 0; i < len; i += 1) {
         const current = entries[i];
-        const currentRange = parseRangeFromString(current.waktu || "");
-        if (!currentRange) {
-          continue;
-        }
-        for (let j = i + 1; j < entries.length; j += 1) {
+
+        for (let j = i + 1; j < len; j += 1) {
           const target = entries[j];
-          if (current.id === target.id) {
+
+          // If combined class (Kelas Gabungan), they are not in conflict
+          const isCombined =
+            current.id === target.id ||
+            current.isGabung ||
+            target.isGabung ||
+            Boolean(current.gabungWithNorm) ||
+            Boolean(target.gabungWithNorm) ||
+            (current.cabangNorm &&
+              current.cabangNorm === target.cabangNorm &&
+              current.waktuNorm === target.waktuNorm &&
+              current.mapelNorm === target.mapelNorm);
+
+          if (isCombined) {
             continue;
           }
 
-          // If these two entries are a combined class (Kelas Gabungan), they are not in conflict!
-          if (isCombinedClassPair(current, target)) {
-            continue;
+          // Sweep optimization: since target.start >= current.start:
+          // If target.start is at least current.end + 30, no further items can conflict with current!
+          if (target.start >= current.end + INTER_BRANCH_MIN_GAP_MINUTES) {
+            break;
           }
 
-          const targetRange = parseRangeFromString(target.waktu || "");
-          if (!targetRange) {
-            continue;
-          }
-
-          const currentCabang = normalizeText(current.cabang || "");
-          const targetCabang = normalizeText(target.cabang || "");
-
-          const isOverlap = currentRange.start < targetRange.end && targetRange.start < currentRange.end;
+          // Check direct time overlap
+          const isOverlap = current.start < target.end && target.start < current.end;
 
           if (isOverlap) {
             conflictIds.add(current.id);
             conflictIds.add(target.id);
-          } else if (currentCabang && targetCabang && currentCabang !== targetCabang) {
-            // Check inter-branch minimum gap if different branches
-            const hasGap =
-              currentRange.start >= targetRange.end + INTER_BRANCH_MIN_GAP_MINUTES ||
-              targetRange.start >= currentRange.end + INTER_BRANCH_MIN_GAP_MINUTES;
-            if (!hasGap) {
-              conflictIds.add(current.id);
-              conflictIds.add(target.id);
-            }
+          } else if (
+            current.cabangNorm &&
+            target.cabangNorm &&
+            current.cabangNorm !== target.cabangNorm
+          ) {
+            // Target starts before current.end + 30 in a different branch -> conflict gap
+            conflictIds.add(current.id);
+            conflictIds.add(target.id);
           }
         }
       }
