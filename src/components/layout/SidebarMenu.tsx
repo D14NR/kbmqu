@@ -3,6 +3,7 @@ import type { CategoryConfig } from "../../types/app";
 type SidebarMenuProps = {
   categories: CategoryConfig[];
   activeKey: string;
+  navigatingKey?: string;
   sidebarCollapsed: boolean;
   isMobile?: boolean;
   authSession?: { username: string; cabang?: string } | null;
@@ -16,6 +17,7 @@ type SidebarMenuProps = {
 export function SidebarMenu({
   categories,
   activeKey,
+  navigatingKey,
   sidebarCollapsed,
   isMobile = false,
   authSession,
@@ -132,11 +134,16 @@ export function SidebarMenu({
                   )}
                 </span>
                 <span className="sidebar-label">{category.name}</span>
-                {!sidebarCollapsed && badgeCount > 0 && (
+                {navigatingKey === category.key ? (
+                  <span
+                    className="spinner-border spinner-border-sm text-primary ms-auto"
+                    style={{ width: "12px", height: "12px", borderWidth: "1.5px" }}
+                  />
+                ) : !sidebarCollapsed && badgeCount > 0 ? (
                   <span className="badge rounded-pill bg-danger ms-auto text-xxs px-1.5 py-0.5">
                     {badgeCount}
                   </span>
-                )}
+                ) : null}
                 {isActive && !sidebarCollapsed && (
                   <span className="sidebar-active-indicator" />
                 )}

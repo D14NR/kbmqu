@@ -51,6 +51,8 @@ import { SettingsView } from "./components/views/SettingsView";
 import { LoadingOverlay } from "./components/feedback/LoadingOverlay";
 import { ConfirmDialog } from "./components/feedback/ConfirmDialog";
 import { ToastStack } from "./components/feedback/ToastStack";
+import { RouteProgressBar } from "./components/feedback/RouteProgressBar";
+import { MenuTransitionLoader } from "./components/feedback/MenuTransitionLoader";
 import { authStorageKey, loginAccounts } from "./config/auth";
 import type {
   AppToast,
@@ -298,6 +300,10 @@ export function App() {
     classOrder: "",
   });
   const [isClassEditing, setIsClassEditing] = useState(false);
+  const [isMenuTransitioning, setIsMenuTransitioning] = useState(false);
+  const [navigatingMenuKey, setNavigatingMenuKey] = useState<string | undefined>(undefined);
+  const [navigatingMenuName, setNavigatingMenuName] = useState<string>("");
+  const menuTransitionTimeoutRef = useRef<number | null>(null);
   const [editingClassGroup, setEditingClassGroup] = useState<
     { cabang: string; kelas: string; sekolah?: string } | null
   >(null);
@@ -2795,12 +2801,34 @@ export function App() {
   };
 
   const handleMenuSelect = (key: string) => {
-    setActiveKey(key);
+    if (key === activeKey) {
+      return;
+    }
+    const targetCategory = categories.find((c) => c.key === key);
+    const targetName = targetCategory?.name || "Halaman";
+
+    if (menuTransitionTimeoutRef.current) {
+      window.clearTimeout(menuTransitionTimeoutRef.current);
+    }
+
+    setNavigatingMenuKey(key);
+    setNavigatingMenuName(targetName);
+    setIsMenuTransitioning(true);
+
     clearEditing();
     setIsClassModalOpen(false);
     setIsPenempatanModalOpen(false);
     setIsIzinModalOpen(false);
     setIsPermintaanModalOpen(false);
+
+    menuTransitionTimeoutRef.current = window.setTimeout(() => {
+      setActiveKey(key);
+      menuTransitionTimeoutRef.current = window.setTimeout(() => {
+        setIsMenuTransitioning(false);
+        setNavigatingMenuKey(undefined);
+        menuTransitionTimeoutRef.current = null;
+      }, 160);
+    }, 110);
   };
 
   const handleLoadFromSheet = async (
@@ -7083,6 +7111,7 @@ export function App() {
               <SidebarMenu
                 categories={visibleCategories}
                 activeKey={activeKey}
+                navigatingKey={navigatingMenuKey}
                 sidebarCollapsed={sidebarCollapsed}
                 authSession={authSession}
                 badges={menuBadges}
@@ -7290,13 +7319,16 @@ export function App() {
                 )}
 
                 <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeKey}
-                    initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                    exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
-                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  >
+                  {isMenuTransitioning ? (
+                    <MenuTransitionLoader key="menu-loader" menuName={navigatingMenuName} />
+                  ) : (
+                    <motion.div
+                      key={activeKey}
+                      initial={{ opacity: 0, y: 8, filter: "blur(3px)" }}
+                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, y: -6, filter: "blur(3px)" }}
+                      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    >
                     {activeKey === "dashboard" ? (
                       <DashboardView
                         loading={sheetStatus.loading || permintaanStatus.loading || izinStatus.loading}
@@ -7474,7 +7506,8 @@ export function App() {
                         onDelete={handleDeleteScheduleByMonth}
                       />
                     ) : null}
-                  </motion.div>
+                    </motion.div>
+                  )}
                 </AnimatePresence>
               </div>
             </div>
@@ -7690,6 +7723,7 @@ export function App() {
         }}
       />
 
+      <RouteProgressBar isNavigating={isMenuTransitioning} />
       <LoadingOverlay show={isBusy} message={busyMessage} />
       <ToastStack toasts={toasts} onClose={dismissToast} />
 
@@ -7702,6 +7736,7 @@ export function App() {
         <SidebarMenu
           categories={visibleCategories}
           activeKey={activeKey}
+          navigatingKey={navigatingMenuKey}
           sidebarCollapsed={false}
           isMobile
           authSession={authSession}
