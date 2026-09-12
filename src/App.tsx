@@ -2472,12 +2472,8 @@ export function App() {
       }
     };
 
-    // Run immediately when loaded or data updates
+    // Run once when session is active or notification count is loaded
     checkAndPrompt();
-
-    // Check periodically every 30 seconds while user is working on the app
-    const intervalId = window.setInterval(checkAndPrompt, 30000);
-    return () => window.clearInterval(intervalId);
   }, [
     authSession,
     izinStatus.loading,
@@ -5523,40 +5519,6 @@ export function App() {
       setActiveKey(visibleCategories[0].key);
     }
   }, [activeKey, visibleCategories]);
-
-  useEffect(() => {
-    if (!authSession) {
-      return;
-    }
-    const AUTO_REFRESH_INTERVAL_MS = 1 * 60 * 1000; // Auto-refresh data & cache silently every 1 minute
-    let lastRefreshTime = Date.now();
-
-    const triggerPeriodicSync = (forceBypass = false) => {
-      const elapsed = Date.now() - lastRefreshTime;
-      // Only refresh if at least 30 seconds have passed since last refresh
-      if (forceBypass || elapsed >= 30 * 1000) {
-        lastRefreshTime = Date.now();
-        void refreshAllData(false, forceBypass, true); // silent = true: no modal popup, no UI interruption
-      }
-    };
-
-    const refreshInterval = window.setInterval(() => triggerPeriodicSync(true), AUTO_REFRESH_INTERVAL_MS);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        triggerPeriodicSync(false);
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", () => triggerPeriodicSync(false));
-
-    return () => {
-      window.clearInterval(refreshInterval);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", () => triggerPeriodicSync(false));
-    };
-  }, [authSession, restrictedCabang]);
 
   useEffect(() => {
     if (!sidebarMobileOpen) {
