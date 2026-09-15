@@ -636,14 +636,26 @@ export function App() {
   const activeScheduleKey: ScheduleMenuKey = isScheduleMenuKey(activeKey)
     ? activeKey
     : "bulanIni";
-  const isAdmin = normalizeText(authSession?.roll || "") === "admin";
-  const restrictedCabang = !isAdmin ? (authSession?.cabang || "") : "";
+  const isAdmin =
+    [
+      "admin",
+      "pusat",
+      "admin pusat",
+      "admin_pusat",
+      "superadmin",
+      "super admin",
+    ].includes(normalizeText(authSession?.roll || "")) ||
+    normalizeText(authSession?.cabang || "") === "pusat" ||
+    normalizeText(authSession?.cabang || "") === "kantor pusat";
+  const restrictedCabang = !isAdmin ? authSession?.cabang || "" : "";
   const selectedScheduleCabang = scheduleCabangView[activeScheduleKey] || restrictedCabang || "";
-  const isScheduleReadOnly = Boolean(
-    restrictedCabang &&
-      selectedScheduleCabang &&
-      normalizeText(selectedScheduleCabang) !== normalizeText(restrictedCabang)
-  );
+  const isScheduleReadOnly =
+    !isAdmin &&
+    Boolean(
+      restrictedCabang &&
+        selectedScheduleCabang &&
+        normalizeText(selectedScheduleCabang) !== normalizeText(restrictedCabang)
+    );
 
   const scheduleTopToolbarMessage = useMemo(() => {
     if (!isScheduleMenuKey(activeKey)) {
@@ -7386,6 +7398,7 @@ export function App() {
                       <ScheduleTableView
                         isJadwalTambahanMenu={isJadwalTambahanMenu}
                         readOnly={isScheduleReadOnly}
+                        isAdmin={isAdmin}
                         activeScheduleDates={activeScheduleDates}
                         activeDayGroups={activeDayGroups}
                         activeDayStartIndexes={activeDayStartIndexes}
@@ -7571,6 +7584,7 @@ export function App() {
         isEditing={isClassEditing}
         classDraft={classDraft}
         fixedCabang={restrictedCabang || undefined}
+        cabangOptions={cabangOptions}
         showSekolahField={activeScheduleKey === "jadwalTambahanPelayanan"}
         classError={classError}
         loading={sheetStatus.saving}

@@ -7,6 +7,7 @@ import type { EditingSlot, RecordItem, ScheduleDayGroup, ScheduleGroup, Schedule
 type ScheduleTableViewProps = {
   isJadwalTambahanMenu: boolean;
   readOnly: boolean;
+  isAdmin?: boolean;
   activeScheduleDates: ScheduleSlotDate[];
   activeDayGroups: ScheduleDayGroup[];
   activeDayStartIndexes: Set<number>;
@@ -26,6 +27,7 @@ type ScheduleTableViewProps = {
 export function ScheduleTableView({
   isJadwalTambahanMenu,
   readOnly,
+  isAdmin = false,
   activeScheduleDates,
   activeDayGroups,
   activeDayStartIndexes,
@@ -543,9 +545,9 @@ export function ScheduleTableView({
                           className="btn btn-sm p-0 rounded-2 border border-danger-subtle bg-danger-subtle text-danger shadow-xs"
                           style={{ width: "26px", height: "24px" }}
                           aria-label="Hapus kelas"
-                          disabled={saving || (group.entriesByDate?.[todayStr] ?? []).length > 0}
+                          disabled={saving || (!isAdmin && (group.entriesByDate?.[todayStr] ?? []).length > 0)}
                           title={
-                            saving || (group.entriesByDate?.[todayStr] ?? []).length > 0
+                            saving || (!isAdmin && (group.entriesByDate?.[todayStr] ?? []).length > 0)
                               ? "Tidak dapat menghapus kelas yang memiliki jadwal hari ini"
                               : "Hapus kelas ini"
                           }
@@ -642,7 +644,7 @@ export function ScheduleTableView({
                         key={slot.date}
                         onClick={() => {
                           if (!readOnly) {
-                            if (slot.date === todayStr) {
+                            if (!isAdmin && slot.date === todayStr) {
                               window.alert("Tidak diperbolehkan menambah atau mengubah jadwal pada hari ini.");
                             } else {
                               onSelectSlot(group, slot);
@@ -650,7 +652,7 @@ export function ScheduleTableView({
                           }
                         }}
                         title={
-                          slot.date === todayStr
+                          !isAdmin && slot.date === todayStr
                             ? "Terkunci: Tidak dapat menambah/mengubah jadwal hari ini"
                             : hasConflictInCell
                             ? "⚠️ Terdapat jadwal bentrok di sel ini! Klik untuk mengelola/memperbaiki sesi."
@@ -675,7 +677,7 @@ export function ScheduleTableView({
 
                         {entries.length === 0 ? (
                           <div className="schedule-empty-slot d-flex align-items-center justify-content-center">
-                            {!readOnly && !isToday ? (
+                            {!readOnly && (isAdmin || !isToday) ? (
                               <span className="empty-add-icon text-muted opacity-25">
                                 <i className="bi bi-plus-lg" />
                               </span>
@@ -702,16 +704,16 @@ export function ScheduleTableView({
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     if (!readOnly) {
-                                      if (slot.date === todayStr) {
+                                      if (!isAdmin && slot.date === todayStr) {
                                         window.alert("Tidak diperbolehkan menambah atau mengubah jadwal pada hari ini.");
                                       } else {
                                         onSelectSlot(group, slot, item);
                                       }
                                     }
                                   }}
-                                  disabled={readOnly || slot.date === todayStr}
+                                  disabled={readOnly || (!isAdmin && slot.date === todayStr)}
                                   title={
-                                    slot.date === todayStr
+                                    !isAdmin && slot.date === todayStr
                                       ? "Terkunci: Tidak dapat mengubah/hapus jadwal hari ini"
                                       : isConflict
                                       ? `⚠️ BENTROK: Pengajar ${item.pengajar || ""} terjadwal di cabang lain pada jam ${item.waktu || ""}. Klik untuk memperbaiki jadwal!`
@@ -741,7 +743,7 @@ export function ScheduleTableView({
                                         <span>BENTROK</span>
                                       </span>
                                     )}
-                                    {isToday && !isConflict && (
+                                    {isToday && !isAdmin && !isConflict && (
                                       <i className="bi bi-lock-fill text-muted text-xxs" title="Terkunci hari ini" />
                                     )}
                                   </div>

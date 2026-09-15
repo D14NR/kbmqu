@@ -12,6 +12,7 @@ type ClassModalProps = {
   isEditing?: boolean;
   classDraft: { cabang: string; kelas: string; sekolah: string; jenjang?: string; classOrder?: string | number };
   fixedCabang?: string;
+  cabangOptions?: string[];
   showSekolahField?: boolean;
   classError: string;
   loading?: boolean;
@@ -25,6 +26,7 @@ export function ClassModal({
   isEditing,
   classDraft,
   fixedCabang,
+  cabangOptions = [],
   showSekolahField,
   classError,
   loading,
@@ -174,9 +176,17 @@ export function ClassModal({
                   <input
                     value={classDraft.cabang}
                     onChange={(event) => onDraftChange("cabang", event.target.value)}
-                    placeholder="Contoh: Semarang 1"
+                    placeholder="Pilih atau ketik nama cabang (Contoh: Semarang 1)"
+                    list="cabang-modal-options"
                     className="form-control border-start-0"
                   />
+                  {cabangOptions.length > 0 && (
+                    <datalist id="cabang-modal-options">
+                      {cabangOptions.map((opt) => (
+                        <option key={opt} value={opt} />
+                      ))}
+                    </datalist>
+                  )}
                 </div>
               )}
             </div>
