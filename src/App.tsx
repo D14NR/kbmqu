@@ -7611,6 +7611,7 @@ export function App() {
         pengajarAvailableDateLabels={pengajarAvailabilityInfo.availableDateLabels}
         conflictError={conflictError}
         saving={sheetStatus.saving}
+        isAdmin={isAdmin}
         onClose={() => {
           clearEditing();
           setGabungEnabled(false);

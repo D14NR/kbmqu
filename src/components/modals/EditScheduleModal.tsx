@@ -20,6 +20,7 @@ type EditScheduleModalProps = {
   pengajarAvailableDateLabels: string[];
   conflictError: string;
   saving: boolean;
+  isAdmin?: boolean;
   onClose: () => void;
   onDraftChange: (field: "mapel" | "pengajar" | "waktuMulai" | "waktuSelesai", value: string) => void;
   onCopyDatesChange: (values: string[]) => void;
@@ -96,6 +97,7 @@ export function EditScheduleModal({
   pengajarAvailableDateLabels,
   conflictError,
   saving,
+  isAdmin = false,
   onClose,
   onDraftChange,
   onCopyDatesChange,
@@ -116,7 +118,8 @@ export function EditScheduleModal({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   }, []);
 
-  const isToday = editingSlot.tanggal === todayStr;
+  const isTodayDate = editingSlot.tanggal === todayStr;
+  const isToday = !isAdmin && isTodayDate;
 
   // Calculate session duration
   const durationText = useMemo(() => {
@@ -226,6 +229,12 @@ export function EditScheduleModal({
                   <i className="bi bi-calendar3 me-1" />
                   {dateLabel}
                 </span>
+                {isAdmin && isTodayDate && (
+                  <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5">
+                    <i className="bi bi-shield-check me-1" />
+                    Akses Admin (Hari Ini)
+                  </span>
+                )}
               </div>
             </div>
           </div>
