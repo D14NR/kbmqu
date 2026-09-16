@@ -5350,6 +5350,7 @@ export function App() {
       username: matched.username,
       roll: (matched as any).roll || (matched as any).role || "cabang",
       cabang: matched.cabang,
+      passwordSig: String(matched.password ?? "").trim(),
     };
 
     localStorage.setItem(authStorageKey, JSON.stringify(nextSession));
@@ -5559,20 +5560,51 @@ export function App() {
       const validAccounts = accounts.filter((a) => a.username && a.password);
       setDatabaseAccounts(validAccounts);
 
-      // If user is currently logged in, sync with database account details if matching
+      // Also get pengajar accounts to validate pengajar login passwords
+      let pengajarAccounts: LoginAccount[] = [];
+      try {
+        const pRows = await listRows(dataBucket["Data Pengajar"]);
+        pengajarAccounts = pRows
+          .filter((r) => (r.data.Username || r.data.username) && (r.data.Password || r.data.password || r.data.password_hash))
+          .map((r) => ({
+            username: r.data.Username || r.data.username,
+            password: r.data.Password || r.data.password || r.data.password_hash,
+            roll: "pengajar",
+            cabang: r.data.Domisili || r.data.domisili || "",
+          }));
+      } catch (_e) {}
+
+      const allMergedAccounts = [...validAccounts, ...pengajarAccounts, ...loginAccounts];
+
+      // If user is currently logged in, check if their session is still valid
       try {
         const storedSession = localStorage.getItem(authStorageKey);
         if (storedSession) {
           const parsed = JSON.parse(storedSession) as AuthSession;
           if (parsed?.username) {
-            const matched = validAccounts.find(
+            const matched = allMergedAccounts.find(
               (acc) => normalizeLoginValue(acc.username) === normalizeLoginValue(parsed.username)
             );
             if (matched) {
+              const currentDbPass = String(matched.password ?? "").trim();
+
+              // If the stored session has a passwordSig and it no longer matches the database,
+              // then the password has been changed elsewhere -> auto-logout!
+              if (parsed.passwordSig && parsed.passwordSig !== currentDbPass) {
+                localStorage.removeItem(authStorageKey);
+                setAuthSession(null);
+                pushToast(
+                  "⚠️ Sesi berakhir: Password akun Anda telah diubah di perangkat lain. Silakan login kembali dengan password baru.",
+                  "warning"
+                );
+                return;
+              }
+
               const synced: AuthSession = {
                 username: matched.username,
-                roll: (matched as any).roll || (matched as any).role || "cabang",
-                cabang: matched.cabang,
+                roll: (matched as any).roll || (matched as any).role || parsed.roll || "cabang",
+                cabang: matched.cabang || parsed.cabang || "",
+                passwordSig: currentDbPass,
               };
               localStorage.setItem(authStorageKey, JSON.stringify(synced));
               setAuthSession(synced);
@@ -5619,6 +5651,12 @@ export function App() {
           password: newPassTrimmed,
           updated_at: new Date().toISOString(),
         });
+        const updatedSession: AuthSession = {
+          ...authSession,
+          passwordSig: newPassTrimmed,
+        };
+        localStorage.setItem(authStorageKey, JSON.stringify(updatedSession));
+        setAuthSession(updatedSession);
         await handleLoadAccountsCabang({ silent: true });
         await loadAccountsFromDb();
         pushToast("Password akun berhasil diubah.", "success");
@@ -5648,6 +5686,12 @@ export function App() {
           password_hash: newPassTrimmed,
           updated_at: new Date().toISOString(),
         });
+        const updatedSession: AuthSession = {
+          ...authSession,
+          passwordSig: newPassTrimmed,
+        };
+        localStorage.setItem(authStorageKey, JSON.stringify(updatedSession));
+        setAuthSession(updatedSession);
         await handleLoadPengajar({ silent: true });
         await loadAccountsFromDb();
         pushToast("Password akun pengajar berhasil diubah.", "success");
@@ -5671,6 +5715,12 @@ export function App() {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
+        const updatedSession: AuthSession = {
+          ...authSession,
+          passwordSig: newPassTrimmed,
+        };
+        localStorage.setItem(authStorageKey, JSON.stringify(updatedSession));
+        setAuthSession(updatedSession);
         await handleLoadAccountsCabang({ silent: true });
         await loadAccountsFromDb();
         pushToast("Password akun berhasil diubah.", "success");
@@ -5688,6 +5738,15 @@ export function App() {
   useEffect(() => {
     void loadAccountsFromDb();
   }, [loadAccountsFromDb]);
+
+  // Periodic heartbeat to auto-logout any active session whose password was changed on another device
+  useEffect(() => {
+    if (!authSession?.username) return;
+    const interval = window.setInterval(() => {
+      void loadAccountsFromDb();
+    }, 10000);
+    return () => window.clearInterval(interval);
+  }, [authSession?.username, loadAccountsFromDb]);
 
   useEffect(() => {
     if (!authSession) {

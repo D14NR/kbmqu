@@ -42,6 +42,7 @@ export type AuthSession = {
   username: string;
   roll: string;
   cabang: string;
+  passwordSig?: string;
 };
 
 export type StatusState = {
