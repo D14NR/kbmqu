@@ -7932,6 +7932,7 @@ export function App() {
         loading={isChangingPassword}
         onClose={() => setIsChangePasswordModalOpen(false)}
         onChangePassword={handleChangePassword}
+        onSubmit={handleChangePassword}
       />
 
       <ConfirmDialog

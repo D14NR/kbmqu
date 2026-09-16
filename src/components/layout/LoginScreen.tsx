@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { motion } from "motion/react";
 
 type LoginScreenProps = {
@@ -17,6 +18,8 @@ export function LoginScreen({
   onPasswordChange,
   onSubmit,
 }: LoginScreenProps) {
+  const [showPassword, setShowPassword] = useState(false);
+
   return (
     <div className="min-vh-100 d-flex align-items-center justify-content-center px-3 login-screen-wrap">
       <motion.div
@@ -69,19 +72,31 @@ export function LoginScreen({
             className="mb-3"
           >
             <label className="form-label">Password</label>
-            <input
-              type="password"
-              className="form-control"
-              value={password}
-              onChange={(event) => onPasswordChange(event.target.value)}
-              placeholder="Masukkan password"
-              autoComplete="current-password"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  onSubmit();
-                }
-              }}
-            />
+            <div className="input-group">
+              <input
+                type={showPassword ? "text" : "password"}
+                className="form-control"
+                value={password}
+                onChange={(event) => onPasswordChange(event.target.value)}
+                placeholder="Masukkan password"
+                autoComplete="current-password"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    onSubmit();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn btn-outline-secondary d-flex align-items-center justify-content-center"
+                style={{ zIndex: 3 }}
+                onClick={() => setShowPassword((prev) => !prev)}
+                title={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                tabIndex={-1}
+              >
+                <i className={`bi ${showPassword ? "bi-eye-slash" : "bi-eye"}`} />
+              </button>
+            </div>
           </motion.div>
 
           {error && (

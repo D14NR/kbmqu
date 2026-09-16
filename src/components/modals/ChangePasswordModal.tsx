@@ -5,9 +5,11 @@ type ChangePasswordModalProps = {
   username: string;
   cabang?: string;
   role?: string;
+  roll?: string;
   loading: boolean;
   onClose: () => void;
-  onSubmit: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
+  onSubmit?: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
+  onChangePassword?: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
 };
 
 export function ChangePasswordModal({
@@ -15,13 +17,18 @@ export function ChangePasswordModal({
   username,
   cabang,
   role,
+  roll,
   loading,
   onClose,
   onSubmit,
+  onChangePassword,
 }: ChangePasswordModalProps) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  const effectiveRole = role || roll || "";
+  const submitHandler = onChangePassword || onSubmit;
 
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -88,7 +95,10 @@ export function ChangePasswordModal({
 
     setIsSubmitting(true);
     try {
-      const res = await onSubmit(currentPassword.trim(), newPassword.trim());
+      if (typeof submitHandler !== "function") {
+        throw new Error("Handler pengubahan password tidak tersedia.");
+      }
+      const res = await submitHandler(currentPassword.trim(), newPassword.trim());
       if (res.success) {
         handleResetAndClose();
       } else {
@@ -147,7 +157,7 @@ export function ChangePasswordModal({
             <div className="min-w-0">
               <div className="fw-semibold text-dark text-xs text-truncate">{username}</div>
               <div className="text-muted text-xxs text-truncate">
-                {cabang ? `Cabang ${cabang}` : role ? `Role: ${role}` : "Akun Aktif"}
+                {cabang ? `Cabang ${cabang}` : effectiveRole ? `Role: ${effectiveRole}` : "Akun Aktif"}
               </div>
             </div>
           </div>
