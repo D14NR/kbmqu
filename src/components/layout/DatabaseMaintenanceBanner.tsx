@@ -404,36 +404,33 @@ export function DatabaseMaintenanceBanner() {
     <>
       {/* Jika Di-Hidden (otomatis setelah hitung mundur atau klik tombol Tutup/Hidden) */}
       {isHidden ? (
-        /* Jika Target Donasi SUDAH terpenuhi, JANGAN tampilkan icon Love lagi */
-        isTargetAchieved ? null : (
-          /* Jika Target BELUM terpenuhi, tampilkan floating icon Love */
-          <div
-            id="database-maintenance-love-icon"
-            className="position-fixed"
+        /* Tampilkan floating icon Love di pojok kanan bawah */
+        <div
+          id="database-maintenance-love-icon"
+          className="position-fixed"
+          style={{
+            bottom: "24px",
+            right: "24px",
+            zIndex: 1040,
+          }}
+        >
+          <button
+            type="button"
+            className="btn btn-warning rounded-circle shadow-lg p-0 d-flex align-items-center justify-content-center border border-2 border-white"
             style={{
-              bottom: "24px",
-              right: "24px",
-              zIndex: 1040,
+              width: "50px",
+              height: "50px",
+              boxShadow: "0 8px 20px rgba(245, 158, 11, 0.45)",
+              cursor: "pointer",
+              transition: "transform 0.2s ease, box-shadow 0.2s ease",
             }}
+            onClick={() => setIsModalOpen(true)}
+            title="Donasi Pemeliharaan Database (Klik untuk rincian)"
+            aria-label="Donasi Pemeliharaan Database"
           >
-            <button
-              type="button"
-              className="btn btn-warning rounded-circle shadow-lg p-0 d-flex align-items-center justify-content-center border border-2 border-white"
-              style={{
-                width: "50px",
-                height: "50px",
-                boxShadow: "0 8px 20px rgba(245, 158, 11, 0.45)",
-                cursor: "pointer",
-                transition: "transform 0.2s ease, box-shadow 0.2s ease",
-              }}
-              onClick={() => setIsModalOpen(true)}
-              title="Donasi Pemeliharaan Database (Klik untuk rincian)"
-              aria-label="Donasi Pemeliharaan Database"
-            >
-              <i className="bi bi-heart-fill text-danger fs-5" />
-            </button>
-          </div>
-        )
+            <i className="bi bi-heart-fill text-danger fs-5" />
+          </button>
+        </div>
       ) : isTargetAchieved ? (
         /* Top Banner Container - JIKA TARGET DONASI SUDAH TERPENUHI */
         <div
@@ -726,12 +723,12 @@ export function DatabaseMaintenanceBanner() {
                     <i className="bi bi-shield-check me-1 text-success" />
                     Terima kasih atas kepedulian dan kerja sama yang Anda berikan.
                   </span>
-                  {isHidden && !isTargetAchieved && (
+                  {isHidden && (
                     <button
                       type="button"
                       className="btn btn-link btn-xs text-decoration-none text-primary p-0 ms-1 fw-semibold d-inline-flex align-items-center"
                       onClick={handleRestore}
-                      title="Tampilkan kembali banner di atas selama 2.5 menit"
+                      title="Tampilkan kembali banner di atas"
                     >
                       <i className="bi bi-eye me-1" />
                       Tampilkan Kembali Banner
