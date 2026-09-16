@@ -26,6 +26,7 @@ import {
   type PermintaanDraft,
 } from "./components/modals/PermintaanPengajarModal";
 import { PendingNotificationModal } from "./components/modals/PendingNotificationModal";
+import { ChangePasswordModal } from "./components/modals/ChangePasswordModal";
 import { TopToolbar } from "./components/views/TopToolbar";
 import { DashboardView } from "./components/views/DashboardView";
 import { ScheduleTableView } from "./components/views/ScheduleTableView";
@@ -366,6 +367,8 @@ export function App() {
   });
   const [permintaanError, setPermintaanError] = useState("");
   const [isPendingNotificationModalOpen, setIsPendingNotificationModalOpen] = useState(false);
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const lastRefreshAllTimestampRef = useRef<number>(0);
 
   const [sidebarWidth, setSidebarWidth] = useState(240);
@@ -5543,52 +5546,148 @@ export function App() {
     };
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-    const loadAccountsFromDb = async () => {
-      try {
-        const rows = await listRows("accounts_cabang");
-        if (!mounted) return;
-        const accounts: LoginAccount[] = rows.map((r) => ({
-          id: r.id,
-          username: r.data.Username || r.data.username || "",
-          password: r.data.Password || r.data.password || "",
-          roll: r.data.Roll || r.data.roll || "cabang",
-          cabang: r.data.Cabang || r.data.cabang || "",
-        }));
-        const validAccounts = accounts.filter((a) => a.username && a.password);
-        setDatabaseAccounts(validAccounts);
+  const loadAccountsFromDb = useCallback(async () => {
+    try {
+      const rows = await listRows("accounts_cabang");
+      const accounts: LoginAccount[] = rows.map((r) => ({
+        id: r.id,
+        username: r.data.Username || r.data.username || "",
+        password: r.data.Password || r.data.password || "",
+        roll: r.data.Roll || r.data.roll || "cabang",
+        cabang: r.data.Cabang || r.data.cabang || "",
+      }));
+      const validAccounts = accounts.filter((a) => a.username && a.password);
+      setDatabaseAccounts(validAccounts);
 
-        // If user is currently logged in, sync with database account details if matching
-        try {
-          const storedSession = localStorage.getItem(authStorageKey);
-          if (storedSession) {
-            const parsed = JSON.parse(storedSession) as AuthSession;
-            if (parsed?.username) {
-              const matched = validAccounts.find(
-                (acc) => normalizeLoginValue(acc.username) === normalizeLoginValue(parsed.username)
-              );
-              if (matched) {
-                const synced: AuthSession = {
-                  username: matched.username,
-                  roll: (matched as any).roll || (matched as any).role || "cabang",
-                  cabang: matched.cabang,
-                };
-                localStorage.setItem(authStorageKey, JSON.stringify(synced));
-                setAuthSession(synced);
-              }
+      // If user is currently logged in, sync with database account details if matching
+      try {
+        const storedSession = localStorage.getItem(authStorageKey);
+        if (storedSession) {
+          const parsed = JSON.parse(storedSession) as AuthSession;
+          if (parsed?.username) {
+            const matched = validAccounts.find(
+              (acc) => normalizeLoginValue(acc.username) === normalizeLoginValue(parsed.username)
+            );
+            if (matched) {
+              const synced: AuthSession = {
+                username: matched.username,
+                roll: (matched as any).roll || (matched as any).role || "cabang",
+                cabang: matched.cabang,
+              };
+              localStorage.setItem(authStorageKey, JSON.stringify(synced));
+              setAuthSession(synced);
             }
           }
-        } catch (_e) {}
-      } catch (_e) {
-        // Fallback to local loginAccounts if DB fails
-      }
-    };
-    void loadAccountsFromDb();
-    return () => {
-      mounted = false;
-    };
+        }
+      } catch (_e) {}
+    } catch (_e) {
+      // Fallback to local loginAccounts if DB fails
+    }
   }, []);
+
+  const handleChangePassword = async (
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!authSession?.username) {
+      return { success: false, message: "Sesi login tidak ditemukan. Silakan login kembali." };
+    }
+    const usernameNorm = normalizeLoginValue(authSession.username);
+    const currentPassTrimmed = String(currentPassword ?? "").trim();
+    const newPassTrimmed = String(newPassword ?? "").trim();
+
+    if (!newPassTrimmed || newPassTrimmed.length < 3) {
+      return { success: false, message: "Password baru minimal 3 karakter." };
+    }
+
+    setIsChangingPassword(true);
+    try {
+      // 1. Search in accounts_cabang table
+      const cabangRows = await listRows(dataBucket["accounts_cabang"]);
+      const matchedCabangRow = cabangRows.find(
+        (row) => normalizeLoginValue(row.data.Username || row.data.username) === usernameNorm
+      );
+
+      if (matchedCabangRow) {
+        const storedPass = String(matchedCabangRow.data.Password || matchedCabangRow.data.password || "").trim();
+        if (storedPass !== currentPassTrimmed) {
+          return { success: false, message: "Password saat ini tidak sesuai." };
+        }
+        await updateRow(matchedCabangRow.id, {
+          ...matchedCabangRow.data,
+          Password: newPassTrimmed,
+          password: newPassTrimmed,
+          updated_at: new Date().toISOString(),
+        });
+        await handleLoadAccountsCabang({ silent: true });
+        await loadAccountsFromDb();
+        pushToast("Password akun berhasil diubah.", "success");
+        return { success: true, message: "Password berhasil diubah." };
+      }
+
+      // 2. Search in Data Pengajar table
+      const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
+      const matchedPengajarRow = pengajarRows.find(
+        (row) => normalizeLoginValue(row.data.Username || row.data.username) === usernameNorm
+      );
+
+      if (matchedPengajarRow) {
+        const storedPass = String(
+          matchedPengajarRow.data.Password ||
+          matchedPengajarRow.data.password ||
+          matchedPengajarRow.data.password_hash ||
+          ""
+        ).trim();
+        if (storedPass !== currentPassTrimmed) {
+          return { success: false, message: "Password saat ini tidak sesuai." };
+        }
+        await updateRow(matchedPengajarRow.id, {
+          ...matchedPengajarRow.data,
+          Password: newPassTrimmed,
+          password: newPassTrimmed,
+          password_hash: newPassTrimmed,
+          updated_at: new Date().toISOString(),
+        });
+        await handleLoadPengajar({ silent: true });
+        await loadAccountsFromDb();
+        pushToast("Password akun pengajar berhasil diubah.", "success");
+        return { success: true, message: "Password berhasil diubah." };
+      }
+
+      // 3. Check fallback loginAccounts config
+      const matchedFallback = loginAccounts.find(
+        (acc) => normalizeLoginValue(acc.username) === usernameNorm
+      );
+      if (matchedFallback) {
+        const storedPass = String(matchedFallback.password || "").trim();
+        if (storedPass !== currentPassTrimmed) {
+          return { success: false, message: "Password saat ini tidak sesuai." };
+        }
+        await insertRow(dataBucket["accounts_cabang"], {
+          Username: authSession.username,
+          Password: newPassTrimmed,
+          Roll: authSession.roll || matchedFallback.roll || "cabang",
+          Cabang: authSession.cabang || matchedFallback.cabang || "",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        await handleLoadAccountsCabang({ silent: true });
+        await loadAccountsFromDb();
+        pushToast("Password akun berhasil diubah.", "success");
+        return { success: true, message: "Password berhasil diubah." };
+      }
+
+      return { success: false, message: "Akun login tidak ditemukan di database." };
+    } catch (err: any) {
+      return { success: false, message: err?.message || "Gagal memperbarui password akun." };
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadAccountsFromDb();
+  }, [loadAccountsFromDb]);
 
   useEffect(() => {
     if (!authSession) {
@@ -7165,6 +7264,7 @@ export function App() {
                 sidebarCollapsed={sidebarCollapsed}
                 authSession={authSession}
                 badges={menuBadges}
+                onChangePassword={() => setIsChangePasswordModalOpen(true)}
                 onToggle={() => setSidebarWidth(sidebarCollapsed ? 240 : 80)}
                 onResize={(width) => setSidebarWidth(Math.max(80, Math.min(320, width)))}
                 onSelect={(key) => {
@@ -7274,6 +7374,15 @@ export function App() {
                       ) : (
                         <i className="bi bi-arrow-clockwise" />
                       )}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1"
+                      title="Ganti Password Akun"
+                      onClick={() => setIsChangePasswordModalOpen(true)}
+                    >
+                      <i className="bi bi-key-fill text-warning" />
+                      <span className="d-none d-sm-inline">Ganti Password</span>
                     </button>
                     <button type="button" className="btn btn-outline-danger btn-sm" onClick={handleLogout}>
                       Logout
@@ -7521,9 +7630,11 @@ export function App() {
                       />
                     ) : activeKey === "settings" ? (
                       <SettingsView
+                        authSession={authSession}
                         lastCacheCleanedAt={lastCacheCleanedAt}
                         onClearCache={handleClearCacheNow}
                         onCheckUpdates={handleCheckUpdates}
+                        onChangePassword={() => setIsChangePasswordModalOpen(true)}
                         isClearingCache={isClearingCache}
                         isCheckingUpdates={isCheckingUpdates}
                       />
@@ -7754,6 +7865,16 @@ export function App() {
         }}
       />
 
+      <ChangePasswordModal
+        isOpen={isChangePasswordModalOpen}
+        username={authSession?.username || ""}
+        cabang={authSession?.cabang || ""}
+        roll={authSession?.roll || ""}
+        loading={isChangingPassword}
+        onClose={() => setIsChangePasswordModalOpen(false)}
+        onChangePassword={handleChangePassword}
+      />
+
       <ConfirmDialog
         isOpen={confirmDialog.open}
         title={confirmDialog.title}
@@ -7794,6 +7915,7 @@ export function App() {
           isMobile
           authSession={authSession}
           badges={menuBadges}
+          onChangePassword={() => setIsChangePasswordModalOpen(true)}
           onCloseMobile={() => setSidebarMobileOpen(false)}
           onToggle={() => {
             // Desktop collapse is not used in mobile drawer.

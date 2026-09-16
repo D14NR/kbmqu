@@ -12,6 +12,7 @@ type SidebarMenuProps = {
   onResize?: (width: number) => void;
   onCloseMobile?: () => void;
   onSelect: (key: string) => void;
+  onChangePassword?: () => void;
 };
 
 export function SidebarMenu({
@@ -26,6 +27,7 @@ export function SidebarMenu({
   onResize,
   onCloseMobile,
   onSelect,
+  onChangePassword,
 }: SidebarMenuProps) {
   return (
     <aside className={`sidebar-kaiadmin ${sidebarCollapsed ? "is-collapsed" : ""}`}>
@@ -56,20 +58,39 @@ export function SidebarMenu({
 
           {/* User Account Info Card */}
           {!sidebarCollapsed && authSession?.username && (
-            <div className="sidebar-user-card">
-              <div className="sidebar-user-avatar">
-                <span>{authSession.username.slice(0, 2).toUpperCase()}</span>
-                <span className="sidebar-user-status" />
-              </div>
-              <div className="sidebar-user-info min-w-0">
-                <div className="sidebar-user-name" title={authSession.username}>
-                  {authSession.username}
+            <div className="sidebar-user-card d-flex align-items-center justify-content-between">
+              <div className="d-flex align-items-center gap-2 min-w-0">
+                <div className="sidebar-user-avatar">
+                  <span>{authSession.username.slice(0, 2).toUpperCase()}</span>
+                  <span className="sidebar-user-status" />
                 </div>
-                <div className="sidebar-user-role" title={authSession.cabang ? `Cabang: ${authSession.cabang}` : "Akun Aktif"}>
-                  <i className="bi bi-geo-alt me-1 text-primary" />
-                  {authSession.cabang || "Pusat"}
+                <div className="sidebar-user-info min-w-0">
+                  <div className="sidebar-user-name" title={authSession.username}>
+                    {authSession.username}
+                  </div>
+                  <div className="sidebar-user-role" title={authSession.cabang ? `Cabang: ${authSession.cabang}` : "Akun Aktif"}>
+                    <i className="bi bi-geo-alt me-1 text-primary" />
+                    {authSession.cabang || "Pusat"}
+                  </div>
                 </div>
               </div>
+              {onChangePassword && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-primary border-0 p-1.5 rounded-circle ms-1 d-flex align-items-center justify-content-center flex-shrink-0"
+                  title="Ganti Password Akun"
+                  aria-label="Ganti Password Akun"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onChangePassword();
+                    if (isMobile && onCloseMobile) {
+                      onCloseMobile();
+                    }
+                  }}
+                >
+                  <i className="bi bi-key-fill text-primary" style={{ fontSize: "0.9rem" }} />
+                </button>
+              )}
             </div>
           )}
         </div>

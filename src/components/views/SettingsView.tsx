@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 
 type SettingsViewProps = {
+  authSession?: { username: string; roll?: string; cabang?: string } | null;
   lastCacheCleanedAt?: string;
   onClearCache: () => Promise<void>;
   onCheckUpdates: () => Promise<void>;
+  onChangePassword?: () => void;
   isCheckingUpdates: boolean;
   isClearingCache: boolean;
 };
@@ -22,9 +24,11 @@ const formatDateTime = (value: string | undefined) => {
 };
 
 export function SettingsView({
+  authSession,
   lastCacheCleanedAt,
   onClearCache,
   onCheckUpdates,
+  onChangePassword,
   isCheckingUpdates,
   isClearingCache,
 }: SettingsViewProps) {
@@ -75,8 +79,58 @@ export function SettingsView({
       </div>
 
       <div className="row g-4">
-        {/* Left Column: Personalization & Preferences */}
+        {/* Left Column: Personalization & Preferences & Security */}
         <div className="col-12 col-lg-7 d-flex flex-column gap-4">
+          
+          {/* Keamanan & Password Akun */}
+          {authSession && (
+            <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
+              <div className="card-header bg-white border-bottom p-3 px-4">
+                <h6 className="mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                  <i className="bi bi-shield-lock-fill text-primary" />
+                  Keamanan Akun & Kata Sandi
+                </h6>
+              </div>
+              <div className="card-body p-4">
+                <div className="d-flex align-items-center justify-content-between mb-3 p-3 bg-light rounded-3 border">
+                  <div className="d-flex align-items-center gap-2.5 min-w-0">
+                    <div
+                      className="rounded-circle bg-primary text-white fw-bold d-flex align-items-center justify-content-center text-xs flex-shrink-0"
+                      style={{ width: 36, height: 36 }}
+                    >
+                      {authSession.username.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="fw-semibold text-dark text-sm text-truncate">{authSession.username}</div>
+                      <div className="text-muted text-xs text-truncate">
+                        {authSession.cabang ? `Cabang ${authSession.cabang}` : authSession.roll ? `Role: ${authSession.roll}` : "Akun Aktif"}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill text-xs px-2.5 py-1">
+                    Aktif
+                  </span>
+                </div>
+
+                <div className="d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-3">
+                  <div>
+                    <div className="fw-semibold text-dark text-sm">Ganti Password</div>
+                    <div className="text-muted text-xs">Perbarui kata sandi akun Anda secara berkala untuk menjaga keamanan.</div>
+                  </div>
+                  {onChangePassword && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm px-3 rounded-3 d-flex align-items-center gap-2 flex-shrink-0 fw-medium shadow-xs"
+                      onClick={onChangePassword}
+                    >
+                      <i className="bi bi-key-fill" />
+                      Ubah Password
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Akun & Tampilan */}
           <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
