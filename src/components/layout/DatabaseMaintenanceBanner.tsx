@@ -284,6 +284,12 @@ export function DatabaseMaintenanceBanner() {
 
   useEffect(() => {
     void fetchTransaksiList();
+  }, []);
+
+  useEffect(() => {
+    if (isDetailTransaksiOpen || isModalOpen) {
+      void fetchTransaksiList();
+    }
   }, [isDetailTransaksiOpen, isModalOpen]);
 
   const donationAccounts = dynamicAccounts.length > 0 ? dynamicAccounts : DEFAULT_ACCOUNTS;
@@ -396,36 +402,102 @@ export function DatabaseMaintenanceBanner() {
 
   return (
     <>
-      {/* Jika Di-Hidden (otomatis setelah 2-3 menit atau klik tombol Hidden), HANYA TAMPILKAN ICON LOVE SAJA */}
+      {/* Jika Di-Hidden (otomatis setelah hitung mundur atau klik tombol Tutup/Hidden) */}
       {isHidden ? (
+        /* Jika Target Donasi SUDAH terpenuhi, JANGAN tampilkan icon Love lagi */
+        isTargetAchieved ? null : (
+          /* Jika Target BELUM terpenuhi, tampilkan floating icon Love */
+          <div
+            id="database-maintenance-love-icon"
+            className="position-fixed"
+            style={{
+              bottom: "24px",
+              right: "24px",
+              zIndex: 1040,
+            }}
+          >
+            <button
+              type="button"
+              className="btn btn-warning rounded-circle shadow-lg p-0 d-flex align-items-center justify-content-center border border-2 border-white"
+              style={{
+                width: "50px",
+                height: "50px",
+                boxShadow: "0 8px 20px rgba(245, 158, 11, 0.45)",
+                cursor: "pointer",
+                transition: "transform 0.2s ease, box-shadow 0.2s ease",
+              }}
+              onClick={() => setIsModalOpen(true)}
+              title="Donasi Pemeliharaan Database (Klik untuk rincian)"
+              aria-label="Donasi Pemeliharaan Database"
+            >
+              <i className="bi bi-heart-fill text-danger fs-5" />
+            </button>
+          </div>
+        )
+      ) : isTargetAchieved ? (
+        /* Top Banner Container - JIKA TARGET DONASI SUDAH TERPENUHI */
         <div
-          id="database-maintenance-love-icon"
-          className="position-fixed"
+          id="database-maintenance-banner"
+          className="w-100 position-relative border-bottom shadow-sm"
           style={{
-            bottom: "24px",
-            right: "24px",
-            zIndex: 1040,
+            background: "linear-gradient(90deg, #f0fdf4 0%, #dcfce7 50%, #f0fdf4 100%)",
+            borderColor: "#86efac",
+            zIndex: 1020,
           }}
         >
-          <button
-            type="button"
-            className="btn btn-warning rounded-circle shadow-lg p-0 d-flex align-items-center justify-content-center border border-2 border-white"
-            style={{
-              width: "50px",
-              height: "50px",
-              boxShadow: "0 8px 20px rgba(245, 158, 11, 0.45)",
-              cursor: "pointer",
-              transition: "transform 0.2s ease, box-shadow 0.2s ease",
-            }}
-            onClick={() => setIsModalOpen(true)}
-            title="Donasi Pemeliharaan Database (Klik untuk rincian)"
-            aria-label="Donasi Pemeliharaan Database"
-          >
-            <i className="bi bi-heart-fill text-danger fs-5" />
-          </button>
+          <div className="container-fluid px-3 px-md-4 py-2">
+            <div className="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2.5">
+              <div className="d-flex align-items-center gap-2.5">
+                <div
+                  className="rounded-circle bg-success text-white d-flex align-items-center justify-content-center shadow-sm flex-shrink-0"
+                  style={{ width: 36, height: 36 }}
+                >
+                  <i className="bi bi-check-circle-fill fs-5" />
+                </div>
+                <div>
+                  <div className="d-flex align-items-center gap-2 flex-wrap">
+                    <span className="badge bg-success text-white border-0 fw-bold rounded-pill px-2.5 py-0.5 text-xxs">
+                      TARGET TERPENUHI
+                    </span>
+                    <h6 className="mb-0 fw-bold text-dark text-sm">
+                      Target Donasi sudah Terpenuhi,, Terima kasih Teman Teman Kerja sama nya
+                    </h6>
+                  </div>
+                  <p className="mb-0 text-secondary text-xs mt-0.5">
+                    Donasi pemeliharaan database Cloudflare prabayar bulan ini telah tercapai ({formatUSD(effectiveSaldo)} / {formatUSD(TARGET_MONTHLY_IDR)}). Terima kasih atas partisipasi dan kebaikan seluruh rekan!
+                  </p>
+                </div>
+              </div>
+
+              <div className="d-flex align-items-center gap-2 ms-md-auto flex-shrink-0">
+                <button
+                  type="button"
+                  className="btn btn-outline-success btn-sm fw-bold px-3 py-1 rounded-3 shadow-sm d-flex align-items-center gap-1.5"
+                  onClick={() => {
+                    setIsDetailTransaksiOpen(true);
+                    void fetchTransaksiList();
+                  }}
+                  title="Lihat Rincian Transaksi Donasi"
+                >
+                  <i className="bi bi-receipt-cutoff" />
+                  <span>Detail Transaksi</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm rounded-pill px-2.5 py-1 d-flex align-items-center gap-1"
+                  onClick={handleHide}
+                  title="Tutup pemberitahuan"
+                  aria-label="Tutup pemberitahuan"
+                >
+                  <i className="bi bi-x-lg" />
+                  <span>Tutup</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
-        /* Top Banner Container (Tampil otomatis selama 2-3 menit) */
+        /* Top Banner Container - JIKA TARGET DONASI BELUM TERPENUHI */
         <div
           id="database-maintenance-banner"
           className="w-100 position-relative border-bottom shadow-sm"
@@ -503,20 +575,20 @@ export function DatabaseMaintenanceBanner() {
           <div className="modal-dialog modal-dialog-centered modal-lg" role="document">
             <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
               {/* Header */}
-              <div className="modal-header bg-warning-subtle text-dark border-bottom border-warning-subtle py-3 px-4">
+              <div className={`modal-header ${isTargetAchieved ? "bg-success-subtle text-dark border-bottom border-success-subtle" : "bg-warning-subtle text-dark border-bottom border-warning-subtle"} py-3 px-4`}>
                 <div className="d-flex align-items-center gap-2.5">
                   <div
-                    className="d-flex align-items-center justify-content-center bg-warning text-dark rounded-circle shadow-sm"
+                    className={`d-flex align-items-center justify-content-center ${isTargetAchieved ? "bg-success text-white" : "bg-warning text-dark"} rounded-circle shadow-sm`}
                     style={{ width: 42, height: 42 }}
                   >
-                    <i className="bi bi-heart-fill text-danger fs-5" />
+                    <i className={`bi ${isTargetAchieved ? "bi-check-circle-fill fs-5" : "bi-heart-fill text-danger fs-5"}`} />
                   </div>
                   <div>
                     <h5 className="modal-title fw-bold mb-0 text-dark">
                       Donasi Pemeliharaan Database
                     </h5>
                     <div className="text-muted text-xs">
-                      Dukungan Operasional Cloudflare Prabayar
+                      {isTargetAchieved ? "Target Pemeliharaan Cloudflare Telah Terpenuhi" : "Dukungan Operasional Cloudflare Prabayar"}
                     </div>
                   </div>
                 </div>
@@ -532,20 +604,31 @@ export function DatabaseMaintenanceBanner() {
               <div className="modal-body p-4" style={{ maxHeight: "calc(85vh - 120px)", overflowY: "auto" }}>
                 <div className="d-flex flex-column gap-3">
                   {/* Alert Message */}
-                  <div className="alert alert-warning border border-warning-subtle d-flex align-items-start gap-2.5 p-3 rounded-3 mb-0">
-                    <i className="bi bi-info-circle-fill text-warning-emphasis fs-5 flex-shrink-0 mt-0.5" />
-                    <div className="text-xs text-dark">
-                      <strong>Mohon Bantuannya untuk Pemeliharaan Database prabayar.</strong>
-                      <br />
-                      Database Cloudflare yang digunakan aplikasi beroperasi dengan sistem kuota prabayar untuk pembacaan, penyimpanan, dan sinkronisasi data antar cabang secara real-time. Donasi sukarela Anda sangat membantu menjaga kelangsungan operasional sistem.
+                  {isTargetAchieved ? (
+                    <div className="alert alert-success border border-success-subtle d-flex align-items-start gap-2.5 p-3 rounded-3 mb-0">
+                      <i className="bi bi-check-circle-fill text-success fs-5 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs text-dark">
+                        <strong>Target Donasi sudah Terpenuhi,, Terima kasih Teman Teman Kerja sama nya.</strong>
+                        <br />
+                        Kebutuhan dana pemeliharaan database Cloudflare untuk periode berjalan sudah tercukupi. Terima kasih yang sebesar-besarnya atas kontribusi dan kepedulian seluruh rekan kerja.
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="alert alert-warning border border-warning-subtle d-flex align-items-start gap-2.5 p-3 rounded-3 mb-0">
+                      <i className="bi bi-info-circle-fill text-warning-emphasis fs-5 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs text-dark">
+                        <strong>Mohon Bantuannya untuk Pemeliharaan Database prabayar.</strong>
+                        <br />
+                        Database Cloudflare yang digunakan aplikasi beroperasi dengan sistem kuota prabayar untuk pembacaan, penyimpanan, dan sinkronisasi data antar cabang secara real-time. Donasi sukarela Anda sangat membantu menjaga kelangsungan operasional sistem.
+                      </div>
+                    </div>
+                  )}
 
                   {/* Target Progress Section */}
                   <div className="bg-white border rounded-3 p-3 shadow-sm">
                     <div className="d-flex align-items-center justify-content-between mb-2">
                       <div className="fw-bold text-dark text-sm d-flex align-items-center gap-1.5">
-                        <i className="bi bi-bullseye text-primary" />
+                        <i className={`bi ${isTargetAchieved ? "bi-patch-check-fill text-success" : "bi-bullseye text-primary"}`} />
                         Target Pemeliharaan ($15)
                       </div>
                       <div className="text-xs fw-bold text-success">
@@ -559,8 +642,8 @@ export function DatabaseMaintenanceBanner() {
                       ></div>
                     </div>
                     <div className="d-flex align-items-center justify-content-between mt-1">
-                      <div className="text-xxs fw-semibold text-danger">
-                        {sisaTarget > 0 ? `Kekurangan: ${formatUSD(sisaTarget)}` : "Target Terpenuhi!"}
+                      <div className={`text-xxs fw-semibold ${isTargetAchieved ? "text-success" : "text-danger"}`}>
+                        {sisaTarget > 0 ? `Kekurangan: ${formatUSD(sisaTarget)}` : "Target Terpenuhi (100%)"}
                       </div>
                       <div className="text-xxs text-muted fw-semibold">
                         Terkumpul: {progressPercent}%
@@ -568,56 +651,58 @@ export function DatabaseMaintenanceBanner() {
                     </div>
                   </div>
 
-                  {/* Rekening & Saluran Donasi */}
-                  <div>
-                    <h6 className="fw-bold text-dark text-sm mb-2.5 d-flex align-items-center gap-2">
-                      <i className="bi bi-wallet2 text-warning-emphasis" />
-                      Pilihan Saluran Donasi
-                    </h6>
+                  {/* Rekening & Saluran Donasi (Hanya ditampilkan jika belum target atau sebagai arsip saluran) */}
+                  {!isTargetAchieved ? (
+                    <div>
+                      <h6 className="fw-bold text-dark text-sm mb-2.5 d-flex align-items-center gap-2">
+                        <i className="bi bi-wallet2 text-warning-emphasis" />
+                        Pilihan Saluran Donasi
+                      </h6>
 
-                    <div className="row g-2.5">
-                      {donationAccounts.map((item) => {
-                        const isCopied = copiedKey === item.id;
-                        return (
-                          <div key={item.id} className="col-12 col-md-4">
-                            <div className="card h-100 border rounded-3 p-3 shadow-none bg-white d-flex flex-column justify-content-between">
-                              <div>
-                                <div className="d-flex align-items-center justify-content-between mb-2">
-                                  <span className={`badge ${item.badgeColor} rounded-pill px-2.5 py-1 text-xxs fw-semibold d-inline-flex align-items-center gap-1`}>
-                                    <i className={`bi ${item.icon}`} />
-                                    {item.name}
-                                  </span>
-                                  <span className="text-muted text-xxs">{item.type}</span>
-                                </div>
-
-                                <div className="bg-light p-2 rounded-2 border text-center my-2">
-                                  <div className="fw-bold text-dark text-sm font-monospace select-all text-break">
-                                    {item.account}
+                      <div className="row g-2.5">
+                        {donationAccounts.map((item) => {
+                          const isCopied = copiedKey === item.id;
+                          return (
+                            <div key={item.id} className="col-12 col-md-4">
+                              <div className="card h-100 border rounded-3 p-3 shadow-none bg-white d-flex flex-column justify-content-between">
+                                <div>
+                                  <div className="d-flex align-items-center justify-content-between mb-2">
+                                    <span className={`badge ${item.badgeColor} rounded-pill px-2.5 py-1 text-xxs fw-semibold d-inline-flex align-items-center gap-1`}>
+                                      <i className={`bi ${item.icon}`} />
+                                      {item.name}
+                                    </span>
+                                    <span className="text-muted text-xxs">{item.type}</span>
                                   </div>
-                                  {item.recipient && (
-                                    <div className="text-muted text-xxs mt-0.5 text-truncate">
-                                      a.n. {item.recipient}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
 
-                              <button
-                                type="button"
-                                className={`btn btn-sm w-100 fw-semibold mt-2 d-flex align-items-center justify-content-center gap-1.5 transition-all ${
-                                  isCopied ? "btn-success text-white" : "btn-outline-dark"
-                                }`}
-                                onClick={() => copyToClipboard(item.account, item.id)}
-                              >
-                                <i className={`bi ${isCopied ? "bi-check2" : "bi-clipboard"}`} />
-                                <span>{isCopied ? "Tersalin!" : "Salin"}</span>
-                              </button>
+                                  <div className="bg-light p-2 rounded-2 border text-center my-2">
+                                    <div className="fw-bold text-dark text-sm font-monospace select-all text-break">
+                                      {item.account}
+                                    </div>
+                                    {item.recipient && (
+                                      <div className="text-muted text-xxs mt-0.5 text-truncate">
+                                        a.n. {item.recipient}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  className={`btn btn-sm w-100 fw-semibold mt-2 d-flex align-items-center justify-content-center gap-1.5 transition-all ${
+                                    isCopied ? "btn-success text-white" : "btn-outline-dark"
+                                  }`}
+                                  onClick={() => copyToClipboard(item.account, item.id)}
+                                >
+                                  <i className={`bi ${isCopied ? "bi-check2" : "bi-clipboard"}`} />
+                                  <span>{isCopied ? "Tersalin!" : "Salin"}</span>
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   {/* Informasi Pemeliharaan */}
                   <div className="card bg-light border rounded-3 p-3">
@@ -639,9 +724,9 @@ export function DatabaseMaintenanceBanner() {
                 <div className="d-flex align-items-center gap-2 flex-wrap">
                   <span className="text-muted text-xs d-flex align-items-center">
                     <i className="bi bi-shield-check me-1 text-success" />
-                    Terima kasih atas kepedulian dan donasi yang Anda berikan.
+                    Terima kasih atas kepedulian dan kerja sama yang Anda berikan.
                   </span>
-                  {isHidden && (
+                  {isHidden && !isTargetAchieved && (
                     <button
                       type="button"
                       className="btn btn-link btn-xs text-decoration-none text-primary p-0 ms-1 fw-semibold d-inline-flex align-items-center"
