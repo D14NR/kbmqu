@@ -5606,8 +5606,16 @@ export function App() {
                 cabang: matched.cabang || parsed.cabang || "",
                 passwordSig: currentDbPass,
               };
-              localStorage.setItem(authStorageKey, JSON.stringify(synced));
-              setAuthSession(synced);
+              const isUnchanged =
+                parsed.username === synced.username &&
+                parsed.roll === synced.roll &&
+                parsed.cabang === synced.cabang &&
+                parsed.passwordSig === synced.passwordSig;
+
+              if (!isUnchanged) {
+                localStorage.setItem(authStorageKey, JSON.stringify(synced));
+                setAuthSession(synced);
+              }
             }
           }
         }
@@ -5749,15 +5757,15 @@ export function App() {
   }, [authSession?.username, loadAccountsFromDb]);
 
   useEffect(() => {
-    if (!authSession) {
+    if (!authSession?.username) {
       return;
     }
     setScheduleCabangView({
       bulanIni: restrictedCabang || "",
       jadwalTambahanPelayanan: restrictedCabang || "",
     });
-    void refreshAllData();
-  }, [authSession, restrictedCabang]);
+    void refreshAllData(false, false, true);
+  }, [authSession?.username, authSession?.roll, restrictedCabang]);
 
   useEffect(() => {
     const hasActive = visibleCategories.some((category) => category.key === activeKey);
@@ -7242,20 +7250,11 @@ export function App() {
     await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
   };
 
-  const isBusy =
-    isImporting ||
-    sheetStatus.loading ||
-    sheetStatus.saving ||
-    mapelStatus.loading ||
-    pengajarStatus.loading ||
-    suratTugasStatus.loading ||
-    penempatanStatus.loading ||
-    izinStatus.loading ||
-    permintaanStatus.loading;
+  const isBusy = isImporting || sheetStatus.saving;
 
   const busyMessage = sheetStatus.saving
     ? "Menyimpan perubahan ke database..."
-    : "Memuat data terbaru...";
+    : "Memproses import data Excel...";
 
   if (isAppInitializing) {
     return (
