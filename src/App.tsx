@@ -3141,7 +3141,7 @@ export function App() {
     }
 
     if (field === "Nama") {
-      const nama = value;
+      const nama = value.toUpperCase();
       const autoKode = generateUniqueKodePengajar(nama, editingPengajarOldKode);
       setPengajarDraft((prev) => ({
         ...prev,
@@ -3229,7 +3229,7 @@ export function App() {
     const normalizedRecord: PengajarDraft = {
       ...pengajarDraft,
       "Kode Pengajar": pengajarDraft["Kode Pengajar"].trim().toLowerCase(),
-      Nama: pengajarDraft.Nama.trim(),
+      Nama: pengajarDraft.Nama.trim().toUpperCase(),
       "Bidang Studi": pengajarDraft["Bidang Studi"].trim(),
       Email: pengajarDraft.Email.trim(),
       "No.WhatsApp": cleanWhatsapp,

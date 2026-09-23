@@ -283,11 +283,15 @@ export function PengajarModal({
                   <input
                     type="text"
                     value={draft.Nama}
-                    onChange={(event) => onChange("Nama", event.target.value)}
-                    placeholder="Contoh: Budi Santoso, M.Pd"
-                    className="form-control border-start-0 fw-semibold"
+                    onChange={(event) => onChange("Nama", event.target.value.toUpperCase())}
+                    placeholder="CONTOH: BUDI SANTOSO, M.PD"
+                    className="form-control border-start-0 fw-semibold text-uppercase"
+                    style={{ textTransform: "uppercase" }}
                     autoFocus
                   />
+                </div>
+                <div className="text-muted text-xxs mt-1">
+                  Harus menggunakan huruf kapital (contoh: BUDI SANTOSO, M.PD).
                 </div>
               </div>
 
