@@ -261,34 +261,6 @@ export function ClassModal({
               </select>
             </div>
 
-            {/* Field: Urutan Kelas (Class Order) */}
-            <div>
-              <div className="d-flex align-items-center justify-content-between mb-1.5">
-                <label className="form-label small fw-bold text-dark mb-0 d-flex align-items-center gap-1.5">
-                  <i className="bi bi-sort-numeric-down text-primary" />
-                  Urutan Kelas (Class Order)
-                </label>
-                <span className="text-muted text-xxs">Posisi baris di tabel</span>
-              </div>
-              <div className="input-group input-group-sm">
-                <span className="input-group-text bg-white border-end-0">
-                  <i className="bi bi-hash text-muted" />
-                </span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={classDraft.classOrder !== undefined && classDraft.classOrder !== null ? classDraft.classOrder : ""}
-                  onChange={(event) => onDraftChange("classOrder", event.target.value)}
-                  placeholder="Contoh: 1, 2, 10, 11..."
-                  className="form-control border-start-0 fw-semibold"
-                />
-              </div>
-              <div className="text-muted text-xxs mt-1">
-                Gunakan angka unik untuk mengatur urutan tampilan baris kelas pada tabel jadwal (misal: 1, 2, 3...).
-              </div>
-            </div>
-
             {/* Field: Sekolah (Jadwal Tambahan) */}
             {showSekolahField && (
               <div>
