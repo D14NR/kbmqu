@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import Select from "react-select";
 import type { SelectOption } from "../../types/app";
+import { sanitizeWhatsappDigits } from "../../utils/phone";
 
 type PengajarDraft = {
   "Kode Pengajar": string;
@@ -401,7 +402,7 @@ export function PengajarModal({
               <div className="col-12 col-md-6">
                 <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
                   <i className="bi bi-whatsapp text-success" />
-                  No. WhatsApp <span className="text-danger">*</span>
+                  No. WhatsApp / Telepon <span className="text-danger">*</span>
                 </label>
                 <div className="input-group">
                   <span className="input-group-text bg-light text-muted border-end-0">
@@ -411,11 +412,19 @@ export function PengajarModal({
                     type="text"
                     value={draft["No.WhatsApp"]}
                     onChange={(event) => onChange("No.WhatsApp", event.target.value)}
-                    placeholder="Contoh: 08123456789"
+                    onBlur={(event) => {
+                      const clean = sanitizeWhatsappDigits(event.target.value);
+                      if (clean !== draft["No.WhatsApp"]) {
+                        onChange("No.WhatsApp", clean);
+                      }
+                    }}
+                    placeholder="Contoh: 85641272104"
                     className="form-control border-start-0 fw-semibold font-monospace"
                   />
                 </div>
-                <div className="text-muted text-xxs mt-1">Nomor ini otomatis digunakan sebagai Username login.</div>
+                <div className="text-muted text-xxs mt-1">
+                  Format tersimpan: <span className="font-monospace text-dark fw-bold">8xxxxxxxxxx</span> (tanpa +62 / 0). Otomatis menjadi Username login.
+                </div>
               </div>
 
               {/* Field: Email */}
@@ -565,18 +574,19 @@ export function PengajarModal({
               className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-2 rounded-3"
               onClick={onSave}
               disabled={loading || !isFormValid}
+              style={loading ? { opacity: 0.75, cursor: "wait" } : undefined}
             >
               {loading ? (
-                <>
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                  <span>Menyimpan...</span>
-                </>
+                <span
+                  className="spinner-border spinner-border-sm text-white"
+                  role="status"
+                  aria-hidden="true"
+                  style={{ width: "0.95rem", height: "0.95rem", borderWidth: "2px" }}
+                />
               ) : (
-                <>
-                  <i className="bi bi-check2-circle fs-6" />
-                  <span>{isEditing ? "Perbarui Pengajar" : "Simpan Pengajar"}</span>
-                </>
+                <i className="bi bi-check2-circle fs-6" />
               )}
+              <span>{isEditing ? "Perbarui Pengajar" : "Simpan Pengajar"}</span>
             </button>
           </div>
         </div>

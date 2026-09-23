@@ -75,6 +75,7 @@ import {
   parseRangeFromString,
   parseTimeValue,
 } from "./utils/schedule";
+import { sanitizeWhatsappDigits } from "./utils/phone";
 // copySchedule feature removed
 import { setNationalHolidays as setLocalNationalHolidays } from "./config/holidays";
 import {
@@ -1192,17 +1193,6 @@ export function App() {
       })
       .filter((option) => option.value);
   }, [pengajarRecords, restrictedCabang]);
-
-  const sanitizeWhatsappDigits = (value: string) => {
-    let digits = value.replace(/\D/g, "");
-    while (digits.startsWith("62")) {
-      digits = digits.slice(2);
-    }
-    while (digits.startsWith("0")) {
-      digits = digits.slice(1);
-    }
-    return digits;
-  };
 
   const sanitizePasswordInput = (value: string) =>
     value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
@@ -3073,8 +3063,14 @@ export function App() {
           if (!normalized["No.WhatsApp"] && record.no_whatsapp) {
             normalized["No.WhatsApp"] = String(record.no_whatsapp);
           }
+          if (normalized["No.WhatsApp"]) {
+            normalized["No.WhatsApp"] = sanitizeWhatsappDigits(normalized["No.WhatsApp"]);
+          }
           if (!normalized["Username"] && record.username) {
             normalized["Username"] = String(record.username);
+          }
+          if (normalized["Username"]) {
+            normalized["Username"] = sanitizeWhatsappDigits(normalized["Username"]);
           }
           if (!normalized["Password"] && record.password) {
             normalized["Password"] = String(record.password);
@@ -3104,8 +3100,8 @@ export function App() {
     if (record) {
       const existingNama = record["Nama"] || "";
       const existingKode = (record["Kode Pengajar"] || "").trim();
-      const existingWhatsapp = record["No.WhatsApp"] || "";
-      const computedUsername = sanitizeWhatsappDigits(existingWhatsapp);
+      const existingWhatsapp = sanitizeWhatsappDigits(record["No.WhatsApp"] || "");
+      const computedUsername = existingWhatsapp;
       setPengajarDraft({
         "Kode Pengajar": existingKode || generateUniqueKodePengajar(existingNama),
         "Nama": existingNama,
@@ -3156,11 +3152,11 @@ export function App() {
     }
 
     if (field === "No.WhatsApp") {
-      const sanitizedUsername = sanitizeWhatsappDigits(value);
+      const sanitizedPhone = sanitizeWhatsappDigits(value);
       setPengajarDraft((prev) => ({
         ...prev,
-        "No.WhatsApp": value,
-        Username: sanitizedUsername,
+        "No.WhatsApp": sanitizedPhone,
+        Username: sanitizedPhone,
       }));
       return;
     }
@@ -3229,15 +3225,16 @@ export function App() {
       setPengajarError("Password wajib diisi dengan kombinasi huruf/angka maksimal 6 karakter.");
       return;
     }
+    const cleanWhatsapp = sanitizeWhatsappDigits(pengajarDraft["No.WhatsApp"]);
     const normalizedRecord: PengajarDraft = {
       ...pengajarDraft,
       "Kode Pengajar": pengajarDraft["Kode Pengajar"].trim().toLowerCase(),
       Nama: pengajarDraft.Nama.trim(),
       "Bidang Studi": pengajarDraft["Bidang Studi"].trim(),
       Email: pengajarDraft.Email.trim(),
-      "No.WhatsApp": pengajarDraft["No.WhatsApp"].trim(),
+      "No.WhatsApp": cleanWhatsapp,
       Domisili: (restrictedCabang || authSession?.cabang || pengajarDraft.Domisili).trim(),
-      Username: sanitizeWhatsappDigits(pengajarDraft["No.WhatsApp"] || pengajarDraft.Username),
+      Username: cleanWhatsapp,
       Password: sanitizePasswordInput(pengajarDraft.Password),
     };
 
@@ -4628,16 +4625,21 @@ export function App() {
 
     if (mode === "pengajar") {
       return rows
-        .map((row) => ({
-          "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
-          Nama: getEntryValue(row, ["Nama"]).trim(),
-          "Bidang Studi": getEntryValue(row, ["Bidang Studi"]).trim(),
-          Email: getEntryValue(row, ["Email"]).trim(),
-          "No.WhatsApp": getEntryValue(row, ["No.WhatsApp", "No WhatsApp", "No WA"]).trim(),
-          Domisili: getEntryValue(row, ["Domisili", "Cabang"]).trim(),
-          Username: getEntryValue(row, ["Username"]).trim(),
-          Password: getEntryValue(row, ["Password"]).trim(),
-        }))
+        .map((row) => {
+          const rawWa = getEntryValue(row, ["No.WhatsApp", "No WhatsApp", "No WA", "No. Telepon", "Telepon", "No HP", "HP"]).trim();
+          const cleanWa = sanitizeWhatsappDigits(rawWa);
+          const rawUsername = getEntryValue(row, ["Username"]).trim();
+          return {
+            "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
+            Nama: getEntryValue(row, ["Nama"]).trim(),
+            "Bidang Studi": getEntryValue(row, ["Bidang Studi"]).trim(),
+            Email: getEntryValue(row, ["Email"]).trim(),
+            "No.WhatsApp": cleanWa,
+            Domisili: getEntryValue(row, ["Domisili", "Cabang"]).trim(),
+            Username: rawUsername ? sanitizeWhatsappDigits(rawUsername) : cleanWa,
+            Password: getEntryValue(row, ["Password"]).trim(),
+          };
+        })
         .filter((row) => row["Kode Pengajar"] || row.Nama);
     }
 
@@ -5334,11 +5336,14 @@ export function App() {
 
   const handleLogin = () => {
     const username = normalizeLoginValue(loginUsername);
+    const sanitizedWa = sanitizeWhatsappDigits(loginUsername);
     const password = String(loginPassword ?? "").trim();
     const accountsToUse = [...databaseAccounts, ...loginAccounts];
-    const matched = accountsToUse.find(
-      (account) => normalizeLoginValue(account.username) === username && String(account.password ?? "").trim() === password
-    );
+    const matched = accountsToUse.find((account) => {
+      const accUser = normalizeLoginValue(account.username);
+      const userMatch = accUser === username || (Boolean(sanitizedWa) && accUser === sanitizedWa);
+      return userMatch && String(account.password ?? "").trim() === password;
+    });
 
     if (!matched) {
       setLoginError("Username atau password tidak sesuai.");
@@ -5565,13 +5570,17 @@ export function App() {
       try {
         const pRows = await listRows(dataBucket["Data Pengajar"]);
         pengajarAccounts = pRows
-          .filter((r) => (r.data.Username || r.data.username) && (r.data.Password || r.data.password || r.data.password_hash))
-          .map((r) => ({
-            username: r.data.Username || r.data.username,
-            password: r.data.Password || r.data.password || r.data.password_hash,
-            roll: "pengajar",
-            cabang: r.data.Domisili || r.data.domisili || "",
-          }));
+          .filter((r) => (r.data.Username || r.data.username || r.data["No.WhatsApp"] || r.data.no_whatsapp) && (r.data.Password || r.data.password || r.data.password_hash))
+          .map((r) => {
+            const rawUser = String(r.data.Username || r.data.username || r.data["No.WhatsApp"] || r.data.no_whatsapp || "");
+            const sanitizedUser = sanitizeWhatsappDigits(rawUser) || rawUser;
+            return {
+              username: sanitizedUser,
+              password: r.data.Password || r.data.password || r.data.password_hash,
+              roll: "pengajar",
+              cabang: r.data.Domisili || r.data.domisili || "",
+            };
+          });
       } catch (_e) {}
 
       const allMergedAccounts = [...validAccounts, ...pengajarAccounts, ...loginAccounts];
@@ -6384,7 +6393,6 @@ export function App() {
       const record = (payload.record as Record<string, string> | undefined) ?? null;
       const oldRecord = (payload.oldRecord as Record<string, string> | undefined) ?? null;
       const entryId = payload.entryId ? String(payload.entryId).trim() : "";
-      const rows = await listRows(bucket, true);
       const sessionFields = ["Cabang", "Kelas", "Sekolah", "Tanggal", "Mapel", "Pengajar", "Waktu"];
 
       if (action === "append" && record) {
@@ -6401,6 +6409,38 @@ export function App() {
         }
         return;
       }
+
+      const isEphemeralId = (id: string) => {
+        if (!id) return true;
+        const decoded = decodeId(id, bucket).id;
+        return (
+          decoded.startsWith("bulanIni-") ||
+          decoded.startsWith("jadwalTambahanPelayanan-") ||
+          decoded.startsWith("schedule-") ||
+          decoded.startsWith("kelas-") ||
+          decoded.startsWith("appscript-")
+        );
+      };
+
+      if (action === "upsert" && record && entryId && !isEphemeralId(entryId)) {
+        try {
+          await updateRow(entryId, record);
+          return;
+        } catch (_e) {
+          // Fallback to searching rows below
+        }
+      }
+
+      if (action === "deleteSession" && entryId && !isEphemeralId(entryId)) {
+        try {
+          await deleteRowsByIds([entryId]);
+          return;
+        } catch (_e) {
+          // Fallback to searching rows below
+        }
+      }
+
+      const rows = await listRows(bucket, true);
 
       if (action === "upsert" && record) {
         let target: DbRow | null = null;
@@ -6721,6 +6761,9 @@ export function App() {
       return;
     }
 
+    setSheetStatus((prev) => ({ ...prev, saving: true }));
+    setConflictError("");
+
     const { cabang, kelas, sekolah, tanggal, tanggalSheet, entryId } = editingSlot;
     const sekolahValue = sekolah || "";
     const waktuMulai = draft.waktuMulai.trim();
@@ -6732,8 +6775,6 @@ export function App() {
       waktu: waktuValue,
     };
 
-    setConflictError("");
-      
     if (nextValues.pengajar && pengajarAvailabilityInfo.warning) {
       setConflictError(pengajarAvailabilityInfo.warning);
       setSheetStatus((prev) => ({ ...prev, saving: false }));
@@ -6776,41 +6817,8 @@ export function App() {
         return;
       }
 
-      // Real-time multi-branch verification: fetch latest schedule entries directly from DB before conflict check
-      let latestEntries = allScheduleEntries;
-      try {
-        const currentBucketName = dataBucket[scheduleSheetByKey[activeScheduleKey]];
-        const freshRows = await listRows(currentBucketName);
-        const parsedFresh = freshRows
-          .filter((row) => isMatchingScheduleJenis(row, activeScheduleKey))
-          .map((row, index) => {
-            const item = parseAppsScriptRecords([toRecord(row)])[0];
-            return {
-              ...(item || {
-                id: `${currentBucketName}-${index}-${Date.now()}`,
-                cabang: "",
-                kelas: "",
-                sekolah: "",
-                tanggal: "",
-                mapel: "",
-                pengajar: "",
-                waktu: "",
-              }),
-              _id: row.id,
-              id: row.id,
-            };
-          });
-
-        const otherKey = activeScheduleKey === "bulanIni" ? "jadwalTambahanPelayanan" : "bulanIni";
-        const otherRecords = records[otherKey] ?? [];
-        latestEntries = activeScheduleKey === "bulanIni"
-          ? [...parsedFresh, ...otherRecords]
-          : [...otherRecords, ...parsedFresh];
-      } catch (err) {
-        console.warn("[realtime] Failed pre-save fresh schedule fetch, fallback to local records", err);
-      }
-
-      const otherEntries = latestEntries.filter((item) => {
+      // Check conflict directly against in-memory allScheduleEntries (instantaneous, 0ms)
+      const otherEntries = allScheduleEntries.filter((item) => {
         const isSelf =
           (entryId && item.id === entryId) ||
           (entryId && decodeId(item.id).id === decodeId(entryId).id) ||
@@ -6869,6 +6877,7 @@ export function App() {
 
         return true;
       });
+
       for (const entry of otherEntries) {
         if (!entry.waktu) {
           continue;
@@ -7188,8 +7197,6 @@ export function App() {
         ],
       };
     });
-    clearEditing();
-
     if (skippedCopyLabels.length > 0) {
       pushToast(
         `Sebagian tanggal salinan dilewati: ${skippedCopyLabels.join(", ")}.`,
@@ -7197,21 +7204,27 @@ export function App() {
       );
     }
 
-    if (entryId) {
-      await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
-      if (copiedSheetRecords.length > 0) {
-        await postToSheet({ action: "appendMany", records: copiedSheetRecords });
+    try {
+      if (entryId) {
+        await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
+        if (copiedSheetRecords.length > 0) {
+          await postToSheet({ action: "appendMany", records: copiedSheetRecords });
+        }
+      } else if (copiedSheetRecords.length > 0) {
+        await postToSheet({ action: "appendMany", records: [sheetRecord, ...copiedSheetRecords] });
+      } else {
+        await postToSheet({ action: "append", record: sheetRecord });
       }
+      clearEditing();
+      pushToast("Jadwal berhasil disimpan.", "success");
       await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
-      return;
-    }
-    if (copiedSheetRecords.length > 0) {
-      await postToSheet({ action: "appendMany", records: [sheetRecord, ...copiedSheetRecords] });
+    } catch (err: any) {
+      console.error("Gagal menyimpan jadwal ke database:", err);
+      pushToast("Gagal menyimpan perubahan ke database.", "error");
       await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
-      return;
+    } finally {
+      setSheetStatus((prev) => ({ ...prev, saving: false }));
     }
-    await postToSheet({ action: "append", record: sheetRecord });
-    await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
   };
 
   const handleDeleteSlot = async () => {
@@ -7245,9 +7258,18 @@ export function App() {
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== deletingId),
     }));
-    clearEditing();
-    await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
-    await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+    try {
+      await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
+      clearEditing();
+      pushToast("Sesi jadwal berhasil dihapus.", "success");
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+    } catch (err: any) {
+      console.error("Gagal menghapus jadwal dari database:", err);
+      pushToast("Gagal menghapus sesi jadwal dari database.", "error");
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+    } finally {
+      setSheetStatus((prev) => ({ ...prev, saving: false }));
+    }
   };
 
   const isBusy = isImporting || sheetStatus.saving;

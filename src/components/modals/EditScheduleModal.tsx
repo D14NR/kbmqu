@@ -109,17 +109,51 @@ export function EditScheduleModal({
   onToggleGabung,
   onGabungChange,
 }: EditScheduleModalProps) {
-  if (!editingSlot) {
-    return null;
-  }
+  const [isLocalSaving, setIsLocalSaving] = useState(false);
+  const [isLocalDeleting, setIsLocalDeleting] = useState(false);
+
+  useEffect(() => {
+    setIsLocalSaving(false);
+    setIsLocalDeleting(false);
+  }, [editingSlot?.entryId, editingSlot?.tanggal]);
 
   const todayStr = useMemo(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   }, []);
 
-  const isTodayDate = editingSlot.tanggal === todayStr;
+  const isTodayDate = editingSlot?.tanggal === todayStr;
   const isToday = !isAdmin && isTodayDate;
+
+  const isSavingActive = saving || isLocalSaving;
+  const isDeleting = isLocalDeleting;
+  const isBusy = isSavingActive || isDeleting;
+
+  const handleSaveClick = async () => {
+    if (isBusy || isToday || !draft.mapel || Boolean(pengajarAvailabilityWarning)) {
+      return;
+    }
+    setIsLocalSaving(true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    try {
+      await onSave();
+    } finally {
+      setIsLocalSaving(false);
+    }
+  };
+
+  const handleDeleteClick = async () => {
+    if (isBusy || isToday) {
+      return;
+    }
+    setIsLocalDeleting(true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    try {
+      await onDelete();
+    } finally {
+      setIsLocalDeleting(false);
+    }
+  };
 
   // Calculate session duration
   const durationText = useMemo(() => {
@@ -156,6 +190,10 @@ export function EditScheduleModal({
     const formattedEnd = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
     onDraftChange("waktuSelesai", formattedEnd);
   };
+
+  if (!editingSlot) {
+    return null;
+  }
 
   return (
     <div
@@ -514,22 +552,23 @@ export function EditScheduleModal({
           {editingSlot.entryId ? (
             <button
               type="button"
-              className="btn btn-outline-danger btn-sm px-3 d-flex align-items-center gap-1.5 rounded-2"
-              onClick={onDelete}
-              disabled={isToday || saving}
+              className="btn btn-outline-danger btn-sm px-3 d-flex align-items-center gap-2 rounded-2"
+              onClick={handleDeleteClick}
+              disabled={isToday || isBusy}
+              style={isDeleting ? { opacity: 0.75, cursor: "wait" } : undefined}
               title={isToday ? "Menghapus jadwal hari ini tidak diperbolehkan" : "Hapus sesi jadwal ini"}
             >
-              {saving ? (
-                <>
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                  <span>Menghapus...</span>
-                </>
+              {isDeleting ? (
+                <span
+                  className="spinner-border spinner-border-sm text-danger"
+                  role="status"
+                  aria-hidden="true"
+                  style={{ width: "0.95rem", height: "0.95rem", borderWidth: "2px" }}
+                />
               ) : (
-                <>
-                  <i className="bi bi-trash3" />
-                  <span>Hapus Sesi</span>
-                </>
+                <i className="bi bi-trash3" />
               )}
+              <span>Hapus Sesi</span>
             </button>
           ) : (
             <div />
@@ -540,16 +579,17 @@ export function EditScheduleModal({
               type="button"
               className="btn btn-outline-secondary btn-sm px-3 rounded-2"
               onClick={onClose}
-              disabled={saving}
+              disabled={isBusy}
             >
               Batal
             </button>
 
             <button
               type="button"
-              className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-1.5 rounded-2"
-              onClick={onSave}
-              disabled={saving || isToday || !draft.mapel || Boolean(pengajarAvailabilityWarning)}
+              className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-2 rounded-2"
+              onClick={handleSaveClick}
+              disabled={isBusy || isToday || !draft.mapel || Boolean(pengajarAvailabilityWarning)}
+              style={isSavingActive ? { opacity: 0.75, cursor: "wait" } : undefined}
               title={
                 isToday
                   ? "Mengubah jadwal hari ini tidak diperbolehkan"
@@ -560,17 +600,17 @@ export function EditScheduleModal({
                   : "Simpan Sesi"
               }
             >
-              {saving ? (
-                <>
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                  <span>Menyimpan...</span>
-                </>
+              {isSavingActive ? (
+                <span
+                  className="spinner-border spinner-border-sm text-white"
+                  role="status"
+                  aria-hidden="true"
+                  style={{ width: "0.95rem", height: "0.95rem", borderWidth: "2px" }}
+                />
               ) : (
-                <>
-                  <i className="bi bi-check2-circle" />
-                  <span>{editingSlot.entryId ? "Simpan Perubahan" : "Simpan Sesi"}</span>
-                </>
+                <i className="bi bi-check2-circle" />
               )}
+              <span>{editingSlot.entryId ? "Simpan Perubahan" : "Simpan Sesi"}</span>
             </button>
           </div>
         </div>

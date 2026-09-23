@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { formatWhatsAppUrl } from "../../utils/phone";
 
 type PengajarTableViewProps = {
   headers: string[];
@@ -34,16 +35,6 @@ function getInitials(name: string): string {
   if (!parts[0]) return "P";
   if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
   return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-function formatWhatsAppUrl(phone: string): string {
-  let cleaned = phone.replace(/\D/g, "");
-  if (cleaned.startsWith("0")) {
-    cleaned = "62" + cleaned.substring(1);
-  } else if (!cleaned.startsWith("62")) {
-    cleaned = "62" + cleaned;
-  }
-  return `https://wa.me/${cleaned}`;
 }
 
 export function PengajarTableView({

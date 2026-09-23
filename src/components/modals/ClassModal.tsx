@@ -38,6 +38,23 @@ export function ClassModal({
   const [showSekolahPicker, setShowSekolahPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const [sekolahFilter, setSekolahFilter] = useState("");
+  const [isLocalSaving, setIsLocalSaving] = useState(false);
+
+  useEffect(() => {
+    setIsLocalSaving(false);
+  }, [isOpen]);
+
+  const isSavingActive = loading || isLocalSaving;
+
+  const handleSaveClick = async () => {
+    if (!classDraft.kelas.trim() || isSavingActive) return;
+    setIsLocalSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setIsLocalSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !showSekolahField) return;
@@ -402,27 +419,28 @@ export function ClassModal({
             type="button"
             className="btn btn-outline-secondary btn-sm px-3 rounded-2"
             onClick={onClose}
-            disabled={loading}
+            disabled={isSavingActive}
           >
             Batal
           </button>
           <button
             type="button"
-            className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-1.5 rounded-2"
-            onClick={onSave}
-            disabled={!classDraft.kelas.trim() || loading}
+            className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-2 rounded-2"
+            onClick={handleSaveClick}
+            disabled={!classDraft.kelas.trim() || isSavingActive}
+            style={isSavingActive ? { opacity: 0.75, cursor: "wait" } : undefined}
           >
-            {loading ? (
-              <>
-                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                <span>Menyimpan...</span>
-              </>
+            {isSavingActive ? (
+              <span
+                className="spinner-border spinner-border-sm text-white"
+                role="status"
+                aria-hidden="true"
+                style={{ width: "0.95rem", height: "0.95rem", borderWidth: "2px" }}
+              />
             ) : (
-              <>
-                <i className="bi bi-check2-circle" />
-                <span>{isEditing ? "Simpan Perubahan" : "Simpan Kelas"}</span>
-              </>
+              <i className="bi bi-check2-circle" />
             )}
+            <span>{isEditing ? "Simpan Perubahan" : "Simpan Kelas"}</span>
           </button>
         </div>
       </div>

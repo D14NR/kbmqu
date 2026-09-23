@@ -391,18 +391,19 @@ export function MapelModal({
               className="btn btn-primary btn-sm px-4 fw-semibold shadow-sm d-flex align-items-center gap-2 rounded-3"
               onClick={onSave}
               disabled={loading || !isValid}
+              style={loading ? { opacity: 0.75, cursor: "wait" } : undefined}
             >
               {loading ? (
-                <>
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                  <span>Menyimpan...</span>
-                </>
+                <span
+                  className="spinner-border spinner-border-sm text-white"
+                  role="status"
+                  aria-hidden="true"
+                  style={{ width: "0.95rem", height: "0.95rem", borderWidth: "2px" }}
+                />
               ) : (
-                <>
-                  <i className="bi bi-check2-circle fs-6" />
-                  <span>{isEditing ? "Perbarui Mapel" : "Simpan Mapel"}</span>
-                </>
+                <i className="bi bi-check2-circle fs-6" />
               )}
+              <span>{isEditing ? "Perbarui Mapel" : "Simpan Mapel"}</span>
             </button>
           </div>
         </div>
