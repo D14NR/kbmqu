@@ -243,7 +243,7 @@ export function ClassModal({
                   <option value="3 SMA">3 SMA / 12 SMA</option>
                   <option value="2 SMA">2 SMA / 11 SMA</option>
                   <option value="1 SMA">1 SMA / 10 SMA</option>
-                  <option value="Alumni">Alumni / Gap Year</option>
+                  <option value="UMUM">UMUM</option>
                 </optgroup>
                 <optgroup label="Tingkat SMP / Sederajat">
                   <option value="3 SMP">3 SMP / 9 SMP</option>
