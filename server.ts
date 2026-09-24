@@ -4,8 +4,14 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import crypto from "crypto";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const getDirname = () => {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return process.cwd();
+  }
+};
+const __dirname = getDirname();
 
 const app = express();
 const PORT = 3000;
