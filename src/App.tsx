@@ -323,6 +323,7 @@ export function App() {
   const [isPengajarModalOpen, setIsPengajarModalOpen] = useState(false);
   const [pengajarDraft, setPengajarDraft] = useState<PengajarDraft>({
     "Kode Pengajar": "",
+    "NIP": "",
     "Nama": "",
     "Bidang Studi": "",
     "Email": "",
@@ -3030,7 +3031,7 @@ export function App() {
     }
     try {
       const rows = await listRows(dataBucket["Data Pengajar"]);
-      const expectedHeaders = ["Kode Pengajar", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
+      const expectedHeaders = ["Kode Pengajar", "NIP", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
 
       const records = rows
         .map((row) => toRecord(row))
@@ -3047,6 +3048,9 @@ export function App() {
 
           if (!normalized["Kode Pengajar"] && record.kode_pengajar) {
             normalized["Kode Pengajar"] = String(record.kode_pengajar);
+          }
+          if (!normalized["NIP"] && (record.nip || record.NIP)) {
+            normalized["NIP"] = String(record.nip || record.NIP);
           }
           if (!normalized["Nama"] && record.nama) {
             normalized["Nama"] = String(record.nama);
@@ -3104,6 +3108,7 @@ export function App() {
       const computedUsername = existingWhatsapp;
       setPengajarDraft({
         "Kode Pengajar": existingKode || generateUniqueKodePengajar(existingNama),
+        "NIP": record["NIP"] || record["nip"] || "",
         "Nama": existingNama,
         "Bidang Studi": record["Bidang Studi"] || "",
         "Email": record["Email"] || "",
@@ -3117,6 +3122,7 @@ export function App() {
       const defaultCabang = restrictedCabang || authSession?.cabang || "";
       setPengajarDraft({
         "Kode Pengajar": "",
+        "NIP": "",
         "Nama": "",
         "Bidang Studi": "",
         "Email": "",
@@ -3229,6 +3235,7 @@ export function App() {
     const normalizedRecord: PengajarDraft = {
       ...pengajarDraft,
       "Kode Pengajar": pengajarDraft["Kode Pengajar"].trim().toLowerCase(),
+      "NIP": pengajarDraft.NIP?.trim() || "",
       Nama: pengajarDraft.Nama.trim().toUpperCase(),
       "Bidang Studi": pengajarDraft["Bidang Studi"].trim(),
       Email: pengajarDraft.Email.trim(),
@@ -4501,7 +4508,7 @@ export function App() {
   } as const;
 
   const templateHeadersByMenu = {
-    bulanIni: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
+    bulanIni: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
     jadwalTambahanPelayanan: [
       "Cabang",
       "Kelas",
@@ -4510,17 +4517,19 @@ export function App() {
       "Tanggal",
       "Mapel",
       "Pengajar",
+      "NIP",
       "Waktu",
       "Urutan Kelas",
       "Jenis KBM",
       "IsGabung",
       "Gabung",
     ],
-    monitoringKelas: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
-    printJadwal: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
+    monitoringKelas: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
+    printJadwal: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
     mataPelajaran: ["Mapel", "Kode_Mapel", "Kategori"],
     pengajar: [
       "Kode Pengajar",
+      "NIP",
       "Nama",
       "Bidang Studi",
       "Email",
@@ -4591,6 +4600,7 @@ export function App() {
           const isGabungRaw = getEntryValue(row, ["IsGabung", "is_gabung", "isGabung"]).trim();
           const gabungRaw = getEntryValue(row, ["Gabung", "gabung_with", "gabungWith"]).trim();
           const jenisKbmRaw = getEntryValue(row, ["Jenis KBM", "jenis_kbm", "JenisKbm", "Type"]).trim();
+          const nipRaw = getEntryValue(row, ["NIP", "nip", "Nomor Induk Pegawai"]).trim();
           return {
             Cabang: getEntryValue(row, ["Cabang"]).trim(),
             Kelas: getEntryValue(row, ["Kelas"]).trim(),
@@ -4599,6 +4609,8 @@ export function App() {
             Tanggal: parsedTanggal ? formatScheduleLabel(parsedTanggal) : tanggalRaw.trim(),
             Mapel: getEntryValue(row, ["Mapel", "Mata Pelajaran"]).trim(),
             Pengajar: getEntryValue(row, ["Pengajar", "Guru"]).trim(),
+            NIP: nipRaw,
+            nip: nipRaw,
             Waktu: getEntryValue(row, ["Waktu", "Jam"]).trim(),
             "Urutan Kelas": getEntryValue(row, ["Urutan Kelas", "Urutan", "Class Order"]).trim(),
             "Jenis KBM": jenisKbmRaw || "Reguler",
@@ -4792,10 +4804,24 @@ export function App() {
     pushToast(`Template ${target.label} berhasil diunduh.`, "success");
   };
 
-  const handleConfirmExportClass = (selectedKey: string, selectedMonth: string = "all") => {
+  const handleConfirmExportClass = (selectedKey: string, selectedMonth: string = "all", includeAdditional: boolean = false) => {
     setIsExportClassModalOpen(false);
 
-    let scheduleRows = records[activeKey as "bulanIni" | "jadwalTambahanPelayanan"] ?? [];
+    let scheduleRows: Record<string, any>[] = [];
+    if (includeAdditional) {
+      const reguler = records.bulanIni ?? [];
+      const tambahan = records.jadwalTambahanPelayanan ?? [];
+      scheduleRows = [...reguler, ...tambahan];
+    } else {
+      scheduleRows = records[activeKey as "bulanIni" | "jadwalTambahanPelayanan"] ?? [];
+    }
+
+    if (!isAdmin && restrictedCabang) {
+      scheduleRows = scheduleRows.filter((row) => 
+        normalizeText(row.cabang || "") === normalizeText(restrictedCabang)
+      );
+    }
+
     if (selectedKey !== "all") {
       const [cCabang, cKelas, cSekolah] = selectedKey.split("||");
       scheduleRows = scheduleRows.filter((row) => 
@@ -4803,9 +4829,6 @@ export function App() {
         normalizeText(row.kelas || "") === normalizeText(cKelas) &&
         normalizeText(row.sekolah || "") === normalizeText(cSekolah)
       );
-    } else if (!isAdmin) {
-       pushToast("Anda hanya dapat mengexport per kelas.", "error");
-       return;
     }
 
     if (selectedMonth !== "all") {
@@ -4834,6 +4857,17 @@ export function App() {
         }
         return rawPengajar;
       })(),
+      NIP: (() => {
+        const directNip = (row as any).nip ?? (row as any).NIP ?? "";
+        if (directNip) return directNip;
+        const rawPengajar = (row as any).pengajar ?? (row as any).Pengajar ?? "";
+        const kode = normalizeText(rawPengajar);
+        const pengajarRecord = pengajarByKode[kode];
+        if (pengajarRecord) {
+          return pengajarRecord["NIP"] || pengajarRecord["nip"] || "";
+        }
+        return "";
+      })(),
       Waktu: (row as any).waktu ?? (row as any).Waktu ?? "",
       "Urutan Kelas": (row as any)["Urutan Kelas"] ?? (row as any).classOrder ?? (row as any).class_order ?? "",
       "Jenis KBM": (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
@@ -4841,7 +4875,7 @@ export function App() {
       Gabung: (row as any).gabungWith ?? (row as any).gabung ?? "",
     }));
 
-    const headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
+    const headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
     const filename = `${activeKey}${selectedKey !== "all" ? `-${selectedKey.replace(/\|\|/g, "-")}` : ""}${selectedMonth !== "all" ? `-${selectedMonth}` : ""}-data.xlsx`;
 
     const workbook = XLSX.utils.book_new();
@@ -4881,13 +4915,24 @@ export function App() {
           Tanggal: (row as any).tanggal ?? (row as any).Tanggal ?? "",
           Mapel: (row as any).mapel ?? (row as any).Mapel ?? "",
           Pengajar: (row as any).pengajar ?? (row as any).Pengajar ?? "",
+          NIP: (() => {
+            const directNip = (row as any).nip ?? (row as any).NIP ?? "";
+            if (directNip) return directNip;
+            const rawPengajar = (row as any).pengajar ?? (row as any).Pengajar ?? "";
+            const kode = normalizeText(rawPengajar);
+            const pengajarRecord = pengajarByKode[kode];
+            if (pengajarRecord) {
+              return pengajarRecord["NIP"] || pengajarRecord["nip"] || "";
+            }
+            return "";
+          })(),
           Waktu: (row as any).waktu ?? (row as any).Waktu ?? "",
           "Urutan Kelas": (row as any)["Urutan Kelas"] ?? (row as any).classOrder ?? (row as any).class_order ?? "",
           "Jenis KBM": (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
           IsGabung: (row as any).isGabung ?? (row as any).is_gabung ?? "false",
           Gabung: (row as any).gabungWith ?? (row as any).gabung ?? "",
         }));
-        headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
+        headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
         filename = `${activeKey}-data.xlsx`;
         break;
       }
@@ -4903,6 +4948,7 @@ export function App() {
       case "pengajar":
         rows = filteredPengajarRecords.map((row) => ({
           "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          "NIP": row["NIP"] ?? row["nip"] ?? "",
           Nama: row.Nama ?? row["Nama Pengajar"] ?? "",
           "Bidang Studi": row["Bidang Studi"] ?? "",
           Email: row.Email ?? "",
@@ -4911,7 +4957,7 @@ export function App() {
           Username: row.Username ?? "",
           Password: row.Password ?? "",
         }));
-        headers = ["Kode Pengajar", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
+        headers = ["Kode Pengajar", "NIP", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
         filename = "pengajar.xlsx";
         break;
       case "penempatanPengajar":
@@ -5100,8 +5146,13 @@ export function App() {
             )
           : normalizedRows.map((row) => {
               if (target.mode === "schedule") {
+                const kodePengajar = normalizeText(row.Pengajar || row["Pengajar"] || "");
+                const pengajarRecord = pengajarByKode[kodePengajar];
+                const resolvedNip = row.NIP || row.nip || (pengajarRecord ? (pengajarRecord["NIP"] || pengajarRecord["nip"] || "") : "");
                 return {
                   ...row,
+                  NIP: resolvedNip,
+                  nip: resolvedNip,
                   "Jenis KBM":
                     String(row["Jenis KBM"] || "").trim() ||
                     (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
@@ -6345,15 +6396,23 @@ export function App() {
       return formatSheetTanggal(tanggalSheet);
     })();
     const kodePengajar = pengajar.trim();
+    const matchedPengajarRecord = kodePengajar && pengajarByKode[normalizeText(kodePengajar)] ? pengajarByKode[normalizeText(kodePengajar)] : null;
     const resolvedNamaPengajar =
       namaPengajar.trim() ||
-      (kodePengajar && pengajarByKode[normalizeText(kodePengajar)]
+      (matchedPengajarRecord
         ?
-            pengajarByKode[normalizeText(kodePengajar)]["Nama"] ||
-            pengajarByKode[normalizeText(kodePengajar)]["Nama Pengajar"] ||
-            pengajarByKode[normalizeText(kodePengajar)]["nama_pengajar"] ||
+            matchedPengajarRecord["Nama"] ||
+            matchedPengajarRecord["Nama Pengajar"] ||
+            matchedPengajarRecord["nama_pengajar"] ||
             ""
         : "");
+    const resolvedNip =
+      matchedPengajarRecord
+        ?
+            matchedPengajarRecord["NIP"] ||
+            matchedPengajarRecord["nip"] ||
+            ""
+        : "";
     return {
       Cabang: cabang,
       Kelas: kelas,
@@ -6366,6 +6425,8 @@ export function App() {
       Pengajar: kodePengajar,
       "Kode Pengajar": kodePengajar,
       "Nama Pengajar": kodePengajar ? resolvedNamaPengajar : "",
+      "NIP": resolvedNip,
+      "nip": resolvedNip,
       Waktu: waktu,
       "Jenis KBM": jenisKbm,
     };
@@ -7760,7 +7821,9 @@ export function App() {
       <ExportClassModal
         isOpen={isExportClassModalOpen}
         onClose={() => setIsExportClassModalOpen(false)}
-        classes={monthScheduleGroupsAll.map((g) => ({
+        classes={monthScheduleGroupsAll
+          .filter((g) => !isAdmin && restrictedCabang ? normalizeText(g.cabang) === normalizeText(restrictedCabang) : true)
+          .map((g) => ({
           cabang: g.cabang,
           kelas: g.kelas,
           sekolah: g.sekolah,

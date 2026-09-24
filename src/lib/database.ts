@@ -159,6 +159,8 @@ const jadwalKbmSchema: BucketSchema = {
     Pengajar: asString((row as any).kode_pengajar || (row as any).nama_pengajar),
     "Kode Pengajar": asString((row as any).kode_pengajar),
     "Nama Pengajar": asString((row as any).nama_pengajar),
+    NIP: asString((row as any).nip || (row as any).NIP),
+    nip: asString((row as any).nip || (row as any).NIP),
     Waktu: asString(row.waktu),
     "Urutan Kelas": asString(row.class_order),
     Gabung: asString((row as any).gabung),
@@ -180,6 +182,7 @@ const jadwalKbmSchema: BucketSchema = {
     nama_pengajar: asString((data as any)["Kode Pengajar"] || data.Pengajar)
       ? asString((data as any)["Nama Pengajar"] || (data as any).Nama || "")
       : "",
+    nip: asString((data as any).NIP || (data as any).nip),
     waktu: asString(data.Waktu),
     class_order: asNumberOrNull(data["Urutan Kelas"]),
     gabung: asString((data as any).Gabung || (data as any).gabung),
@@ -211,6 +214,8 @@ const schemas: Record<BucketName, BucketSchema> = {
     table: bucketTableMap.pengajar,
     fromDb: (row) => ({
       "Kode Pengajar": asString(row.kode_pengajar),
+      NIP: asString(row.nip || (row as any).NIP),
+      nip: asString(row.nip || (row as any).NIP),
       Nama: asString(row.nama_pengajar || row.nama),
       "Nama Pengajar": asString(row.nama_pengajar || row.nama),
       "Bidang Studi": asString(row.bidang_studi_mata_pelajaran),
@@ -222,6 +227,7 @@ const schemas: Record<BucketName, BucketSchema> = {
     }),
     toDb: (data) => ({
       kode_pengajar: asString(data["Kode Pengajar"]),
+      nip: asString(data.NIP || data.nip),
       nama_pengajar: asString(data.Nama || data["Nama Pengajar"]),
       bidang_studi_mata_pelajaran: asString(data["Bidang Studi"]),
       email: asString(data.Email),

@@ -5,6 +5,7 @@ import { sanitizeWhatsappDigits } from "../../utils/phone";
 
 type PengajarDraft = {
   "Kode Pengajar": string;
+  NIP: string;
   Nama: string;
   "Bidang Studi": string;
   Email: string;
@@ -271,7 +272,7 @@ export function PengajarModal({
           {activeTab === "profile" ? (
             <div className="row g-3">
               {/* Field: Nama */}
-              <div className="col-12 col-md-8">
+              <div className="col-12 col-md-6">
                 <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
                   <i className="bi bi-person-circle text-primary" />
                   Nama Lengkap & Gelar <span className="text-danger">*</span>
@@ -295,8 +296,26 @@ export function PengajarModal({
                 </div>
               </div>
 
+              {/* Field: NIP */}
+              <div className="col-12 col-md-3">
+                <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
+                  <i className="bi bi-card-text text-primary" />
+                  NIP
+                </label>
+                <div className="input-group">
+                  <input
+                    type="text"
+                    value={draft.NIP || ""}
+                    onChange={(event) => onChange("NIP", event.target.value)}
+                    placeholder="Nomor Induk"
+                    className="form-control fw-semibold"
+                  />
+                </div>
+                <div className="text-muted text-xxs mt-1">Nomor Induk Pegawai</div>
+              </div>
+
               {/* Field: Kode Pengajar */}
-              <div className="col-12 col-md-4">
+              <div className="col-12 col-md-3">
                 <label className="form-label small fw-bold text-dark mb-1.5 d-flex align-items-center gap-1.5">
                   <i className="bi bi-upc text-muted" />
                   Kode Pengajar
@@ -320,7 +339,7 @@ export function PengajarModal({
                     </button>
                   )}
                 </div>
-                <div className="text-muted text-xxs mt-1">Otomatis dihasilkan dari nama pengajar</div>
+                <div className="text-muted text-xxs mt-1">Otomatis</div>
               </div>
 
               {/* Field: Cabang & Domisili */}

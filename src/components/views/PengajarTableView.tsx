@@ -433,6 +433,7 @@ export function PengajarTableView({
                   const idKey = `pengajar-${index}`;
                   const nama = record.Nama || record.nama || "-";
                   const kode = record["Kode Pengajar"] || record.kode_pengajar || "-";
+                  const nip = record.NIP || record.nip || "";
                   const domisili = record.Domisili || record.domisili || "-";
                   const phone = record["No.WhatsApp"] || record.no_whatsapp || "";
                   const email = record.Email || record.email || "";
@@ -466,11 +467,16 @@ export function PengajarTableView({
                             {getInitials(nama)}
                           </div>
                           <div>
-                            <div className="d-flex align-items-center gap-1.5 mb-0.5">
+                            <div className="d-flex align-items-center gap-1.5 mb-0.5 flex-wrap">
                               <span className="fw-bold text-dark text-sm">{nama}</span>
                               {kode && kode !== "-" && (
                                 <span className="badge bg-secondary-subtle text-secondary-emphasis font-monospace px-1.5 py-0.5 text-xxs rounded">
                                   {kode}
+                                </span>
+                              )}
+                              {nip && (
+                                <span className="badge bg-info-subtle text-info-emphasis font-monospace px-1.5 py-0.5 text-xxs rounded" title={`NIP: ${nip}`}>
+                                  NIP: {nip}
                                 </span>
                               )}
                             </div>
@@ -607,6 +613,7 @@ export function PengajarTableView({
             const idKey = `pengajar-grid-${index}`;
             const nama = record.Nama || record.nama || "-";
             const kode = record["Kode Pengajar"] || record.kode_pengajar || "-";
+            const nip = record.NIP || record.nip || "";
             const domisili = record.Domisili || record.domisili || "-";
             const phone = record["No.WhatsApp"] || record.no_whatsapp || "";
             const email = record.Email || record.email || "";
@@ -663,6 +670,11 @@ export function PengajarTableView({
                       {kode && kode !== "-" && (
                         <span className="badge bg-secondary-subtle text-secondary-emphasis font-monospace px-1.5 py-0.5 text-xxs rounded">
                           {kode}
+                        </span>
+                      )}
+                      {nip && (
+                        <span className="badge bg-info-subtle text-info-emphasis font-monospace px-1.5 py-0.5 text-xxs rounded" title={`NIP: ${nip}`}>
+                          NIP: {nip}
                         </span>
                       )}
                       <span className="badge bg-light text-dark border text-xxs rounded-pill d-inline-flex align-items-center gap-1">

@@ -11,7 +11,7 @@ type ExportClassModalProps = {
   onClose: () => void;
   classes: ClassGroup[];
   months: { value: string; label: string }[];
-  onExport: (selectedGroupKey: string | "all", selectedMonth: string | "all") => void;
+  onExport: (selectedGroupKey: string | "all", selectedMonth: string | "all", includeAdditional: boolean) => void;
   isAdmin: boolean;
 };
 
@@ -25,11 +25,12 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
 }) => {
   const [selectedKey, setSelectedKey] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [includeAdditional, setIncludeAdditional] = useState<boolean>(true);
 
   if (!isOpen) return null;
 
   const handleExport = () => {
-    onExport(selectedKey, selectedMonth);
+    onExport(selectedKey, selectedMonth, includeAdditional);
   };
 
   return (
@@ -51,8 +52,7 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
                 value={selectedKey}
                 onChange={(e) => setSelectedKey(e.target.value)}
               >
-                {isAdmin && <option value="all">-- Semua Kelas --</option>}
-                {!isAdmin && <option value="all" disabled>-- Pilih Kelas --</option>}
+                <option value="all">-- Semua Kelas --</option>
                 {classes.map((c) => {
                   const key = `${c.cabang}||${c.kelas}||${c.sekolah}`;
                   const label = `${c.kelas} ${c.sekolah ? `(${c.sekolah})` : ""} - ${c.cabang}`;
@@ -77,6 +77,19 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
                   </option>
                 ))}
               </select>
+
+              <div className="form-check mt-3 bg-light p-2.5 rounded-3 border">
+                <input
+                  className="form-check-input ms-0 me-2"
+                  type="checkbox"
+                  id="includeAdditionalCheck"
+                  checked={includeAdditional}
+                  onChange={(e) => setIncludeAdditional(e.target.checked)}
+                />
+                <label className="form-check-label text-dark small fw-medium cursor-pointer" htmlFor="includeAdditionalCheck">
+                  Gabungkan Jadwal Reguler & Jadwal Tambahan Pelayanan
+                </label>
+              </div>
             </div>
           </div>
           <div className="modal-footer border-0 pt-0">
@@ -87,7 +100,6 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
               type="button" 
               className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2" 
               onClick={handleExport}
-              disabled={!isAdmin && selectedKey === "all"}
             >
               <i className="bi bi-download" />
               Export
