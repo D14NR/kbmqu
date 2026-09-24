@@ -2221,6 +2221,8 @@ export function App() {
     return monthScheduleGroups.map((group) => {
       const mapelCounter = new Map<string, number>();
       const mapelCountByKode = new Map<string, number>();
+      const mapelNipsByKode = new Map<string, Set<string>>();
+      const mapelPengajarsByKode = new Map<string, Set<string>>();
       let totalSesi = 0;
 
       Object.entries(group.entriesByDate).forEach(([dateKey, entries]) => {
@@ -2235,23 +2237,62 @@ export function App() {
           totalSesi += 1;
           mapelCounter.set(mapel, (mapelCounter.get(mapel) || 0) + 1);
           mapelCountByKode.set(mapel, (mapelCountByKode.get(mapel) || 0) + 1);
+
+          const directNip = String((entry as any).nip || (entry as any).NIP || "").trim();
+          const rawPengajar = String(entry.pengajar || (entry as any).Pengajar || "").trim();
+          const pengajarRecord = rawPengajar ? pengajarByKode[normalizeText(rawPengajar)] : null;
+          const resolvedNip = directNip || (pengajarRecord ? String(pengajarRecord["NIP"] || pengajarRecord["nip"] || "").trim() : "");
+
+          if (!mapelNipsByKode.has(mapel)) {
+            mapelNipsByKode.set(mapel, new Set());
+          }
+          if (resolvedNip) {
+            mapelNipsByKode.get(mapel)!.add(resolvedNip);
+          }
+
+          if (!mapelPengajarsByKode.has(mapel)) {
+            mapelPengajarsByKode.set(mapel, new Set());
+          }
+          if (rawPengajar) {
+            mapelPengajarsByKode.get(mapel)!.add(rawPengajar);
+          }
         });
+      });
+
+      const mapelNipByKode: Record<string, string> = {};
+      const mapelDetailsByKode: Record<string, { count: number; nips: string[]; pengajars: string[] }> = {};
+
+      mapelCountByKode.forEach((count, mapel) => {
+        const nips = Array.from(mapelNipsByKode.get(mapel) || []);
+        const pengajars = Array.from(mapelPengajarsByKode.get(mapel) || []);
+        mapelNipByKode[mapel] = nips.join(", ");
+        mapelDetailsByKode[mapel] = {
+          count,
+          nips,
+          pengajars,
+        };
       });
 
       const mapelList = Array.from(mapelCounter.entries())
         .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([mapel, count]) => `${mapel} (${count}x)`);
+        .map(([mapel, count]) => {
+          const nips = mapelNipByKode[mapel];
+          return nips ? `${mapel} (${count}x) • NIP: ${nips}` : `${mapel} (${count}x)`;
+        });
 
       return {
         cabang: group.cabang,
         kelas: group.kelas,
+        sekolah: group.sekolah,
         mapelList,
         jumlahMapel: mapelCounter.size,
         totalSesi,
         mapelCountByKode: Object.fromEntries(mapelCountByKode),
+        mapelNipByKode,
+        mapelDetailsByKode,
       };
     });
-  }, [monthScheduleDates, monthScheduleGroups]);
+  }, [monthScheduleDates, monthScheduleGroups, pengajarByKode]);
 
   const filteredMapelRecords = useMemo(() => {
     if (!query.trim()) {
