@@ -1,5 +1,7 @@
 const normalizeApiBaseUrl = () => {
-  const raw = String(import.meta.env.VITE_API_URL || "").trim();
+  const raw = String(
+    import.meta.env.VITE_API_URL || "https://db-kbmqu.dianrizkisofiawan0431.workers.dev"
+  ).trim();
   if (!raw) {
     return "";
   }
