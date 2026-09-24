@@ -248,44 +248,6 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
     return 0;
   };
 
-  // Helper to extract NIP and teacher detail for a specific subject in a row
-  const getSubjectDetailInRow = (row: MonitoringRow, kode: string) => {
-    const normalizedKode = normalizeRawKode(kode);
-    if (row.mapelDetailsByKode && row.mapelDetailsByKode[normalizedKode]) {
-      return row.mapelDetailsByKode[normalizedKode];
-    }
-    if (row.mapelDetailsByKode) {
-      for (const [rawKey, detail] of Object.entries(row.mapelDetailsByKode)) {
-        if (getDisplayMapelKode(rawKey, mapelNameByKode) === normalizedKode) {
-          return detail;
-        }
-      }
-    }
-    const count = getSubjectCountInRow(row, kode);
-    const nip = row.mapelNipByKode?.[normalizedKode] || "";
-    return {
-      count,
-      nips: nip ? [nip] : [],
-      pengajars: [] as string[],
-    };
-  };
-
-  const getSubjectNipInRow = (row: MonitoringRow, kode: string) => {
-    const normalizedKode = normalizeRawKode(kode);
-    if (row.mapelNipByKode && row.mapelNipByKode[normalizedKode]) {
-      return row.mapelNipByKode[normalizedKode];
-    }
-    if (row.mapelNipByKode) {
-      for (const [rawKey, nip] of Object.entries(row.mapelNipByKode)) {
-        if (getDisplayMapelKode(rawKey, mapelNameByKode) === normalizedKode) {
-          return nip;
-        }
-      }
-    }
-    const detail = getSubjectDetailInRow(row, kode);
-    return detail.nips.join(", ");
-  };
-
   // Filter and sort rows
   const filteredRows = useMemo(() => {
     return rows
@@ -970,8 +932,8 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
                           key={`th-${group.label}-${kode}`}
                           className="text-center py-2 px-1 text-truncate"
                           style={{
-                            minWidth: 60,
-                            maxWidth: 76,
+                            minWidth: 46,
+                            maxWidth: 58,
                             fontSize: "0.72rem",
                             fontWeight: 700,
                             backgroundColor: group.bgSoft,
@@ -1052,9 +1014,6 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
                         {/* Subject Heatmap Cells */}
                         {orderedCodes.map((kode) => {
                           const count = getSubjectCountInRow(row, kode);
-                          const nipString = getSubjectNipInRow(row, kode);
-                          const detail = getSubjectDetailInRow(row, kode);
-                          const pengajarString = detail.pengajars.join(", ");
                           const isHighlighted = highlightCount !== null && (highlightCount === 4 ? count >= 4 : count === highlightCount);
 
                           // Style logic for cell
@@ -1090,44 +1049,24 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
                           return (
                             <td
                               key={`${row.cabang}-${row.kelas}-${kode}`}
-                              className="text-center p-1 monitoring-cell align-middle"
-                              style={{ backgroundColor: cellBg, minWidth: 60 }}
-                              title={`${row.kelas} • ${kode} (${subjectFullName})\n• Sesi: ${count > 0 ? `${count} Sesi Pertemuan` : "Belum terisi"}${pengajarString ? `\n• Pengajar: ${pengajarString}` : ""}${nipString ? `\n• NIP: ${nipString}` : ""}`}
+                              className="text-center p-1 monitoring-cell"
+                              style={{ backgroundColor: cellBg }}
+                              title={`${row.kelas} • ${kode} (${subjectFullName}): ${count > 0 ? `${count} Sesi Pertemuan` : "Belum terisi"}`}
                             >
                               {count > 0 ? (
-                                <div className="d-flex flex-column align-items-center justify-content-center py-0.5">
-                                  <div
-                                    className="d-inline-flex align-items-center justify-content-center rounded-2 fw-bold"
-                                    style={{
-                                      minWidth: 26,
-                                      height: 22,
-                                      padding: "0 4px",
-                                      fontSize: "0.76rem",
-                                      backgroundColor: badgeBg,
-                                      color: badgeColor,
-                                      border: `1px solid ${badgeBorder}`,
-                                      boxShadow: count >= 3 ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
-                                    }}
-                                  >
-                                    {count}
-                                  </div>
-                                  {nipString ? (
-                                    <span
-                                      className="badge font-monospace px-1 py-0 mt-0.5 text-truncate"
-                                      style={{
-                                        maxWidth: 56,
-                                        fontSize: "0.6rem",
-                                        backgroundColor: "#f1f5f9",
-                                        color: "#334155",
-                                        border: "1px solid #cbd5e1",
-                                        fontWeight: 600,
-                                        lineHeight: "1.2",
-                                      }}
-                                      title={`NIP: ${nipString}`}
-                                    >
-                                      {nipString}
-                                    </span>
-                                  ) : null}
+                                <div
+                                  className="d-inline-flex align-items-center justify-content-center rounded-2 fw-bold"
+                                  style={{
+                                    width: 28,
+                                    height: 24,
+                                    fontSize: "0.78rem",
+                                    backgroundColor: badgeBg,
+                                    color: badgeColor,
+                                    border: `1px solid ${badgeBorder}`,
+                                    boxShadow: count >= 3 ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+                                  }}
+                                >
+                                  {count}
                                 </div>
                               ) : (
                                 <span className="text-muted opacity-40 text-xxs">-</span>
@@ -1276,41 +1215,26 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
                         <div className="text-xxs fw-bold text-muted text-uppercase mb-1.5">
                           Alokasi Mata Pelajaran Terisi:
                         </div>
-                        <div className="d-flex flex-wrap gap-1.5" style={{ maxHeight: 120, overflowY: "auto" }}>
+                        <div className="d-flex flex-wrap gap-1" style={{ maxHeight: 110, overflowY: "auto" }}>
                           {row.mapelList.length > 0 ? (
                             row.mapelList.map((item, idx) => {
                               const [codeOnly] = item.split(" ");
                               const countMatch = item.match(/\((\d+)x\)/);
                               const countNum = countMatch ? Number(countMatch[1]) : 1;
                               const category = codeToCategoryMap.get(normalizeRawKode(codeOnly)) || "LAINNYA";
-                              const nipString = getSubjectNipInRow(row, codeOnly);
-                              const detail = getSubjectDetailInRow(row, codeOnly);
-                              const pengajarString = detail.pengajars.join(", ");
 
                               let chipBadgeClass = "bg-blue-subtle text-primary border-blue-subtle";
                               if (category === "SNBT-UTBK") chipBadgeClass = "bg-purple-subtle text-purple border-purple-subtle";
                               if (category === "TKA") chipBadgeClass = "bg-orange-subtle text-orange border-orange-subtle";
 
                               return (
-                                <div
+                                <span
                                   key={idx}
-                                  className={`d-inline-flex align-items-center gap-1 border rounded-2 px-2 py-0.5 text-xxs ${chipBadgeClass}`}
-                                  title={`${getFullSubjectName(codeOnly)} (${countNum}x Pertemuan)${pengajarString ? ` • Pengajar: ${pengajarString}` : ""}${nipString ? ` • NIP: ${nipString}` : ""}`}
+                                  className={`badge border rounded-pill px-2 py-1 text-xxs fw-semibold ${chipBadgeClass}`}
+                                  title={`${getFullSubjectName(codeOnly)} (${countNum}x Pertemuan)`}
                                 >
-                                  <span className="fw-bold">{codeOnly}</span>
-                                  <span className="badge bg-white text-dark border rounded-pill px-1.5 py-0 font-normal">
-                                    {countNum}x
-                                  </span>
-                                  {nipString && (
-                                    <span
-                                      className="badge bg-white text-dark border font-monospace px-1 py-0 text-truncate"
-                                      style={{ fontSize: "0.58rem", maxWidth: 64 }}
-                                      title={`NIP: ${nipString}`}
-                                    >
-                                      NIP: {nipString}
-                                    </span>
-                                  )}
-                                </div>
+                                  {codeOnly} <strong className="ms-1">({countNum}x)</strong>
+                                </span>
                               );
                             })
                           ) : (
@@ -1488,41 +1412,22 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
                       const countNum = countMatch ? Number(countMatch[1]) : 1;
                       const fullName = getFullSubjectName(codeOnly);
                       const category = codeToCategoryMap.get(normalizeRawKode(codeOnly)) || "LAINNYA";
-                      const nipString = getSubjectNipInRow(detailModalRow, codeOnly);
-                      const detail = getSubjectDetailInRow(detailModalRow, codeOnly);
-                      const pengajarString = detail.pengajars.join(", ");
 
                       return (
                         <div
                           key={idx}
-                          className="list-group-item d-flex align-items-center justify-content-between py-2.5 px-3 hover-bg-light"
+                          className="list-group-item d-flex align-items-center justify-content-between py-2 px-3 hover-bg-light"
                         >
-                          <div className="d-flex align-items-start gap-2">
-                            <span className="badge bg-light text-dark border font-monospace text-xs px-2 py-1 mt-0.5">
+                          <div className="d-flex align-items-center gap-2">
+                            <span className="badge bg-light text-dark border font-monospace text-xs px-2 py-1">
                               {codeOnly}
                             </span>
                             <div>
                               <div className="fw-semibold text-xs text-dark">{fullName}</div>
-                              <div className="d-flex align-items-center gap-1.5 flex-wrap mt-0.5">
-                                <span className="badge bg-secondary-subtle text-secondary rounded-pill px-1.5 py-0.2 text-xxs">
-                                  {category}
-                                </span>
-                                {pengajarString && (
-                                  <span className="badge bg-light text-dark border rounded-pill px-1.5 py-0.2 text-xxs">
-                                    <i className="bi bi-person me-1" />
-                                    {pengajarString}
-                                  </span>
-                                )}
-                                {nipString && (
-                                  <span className="badge bg-emerald-subtle text-success border border-emerald-subtle rounded-pill px-1.5 py-0.2 text-xxs font-monospace">
-                                    <i className="bi bi-credit-card-2-front me-1" />
-                                    NIP: {nipString}
-                                  </span>
-                                )}
-                              </div>
+                              <span className="text-xxs text-muted">{category}</span>
                             </div>
                           </div>
-                          <span className="badge bg-primary text-white rounded-pill px-2.5 py-1 text-xs fw-bold flex-shrink-0 ms-2">
+                          <span className="badge bg-primary text-white rounded-pill px-2.5 py-1 text-xs fw-bold">
                             {countNum} Pertemuan
                           </span>
                         </div>

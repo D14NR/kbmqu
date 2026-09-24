@@ -71,22 +71,13 @@ export type ScheduleGroup = {
   entriesByDate: Record<string, RecordItem[]>;
 };
 
-export type MapelMonitoringDetail = {
-  count: number;
-  nips: string[];
-  pengajars: string[];
-};
-
 export type MonitoringRow = {
   cabang: string;
   kelas: string;
-  sekolah?: string;
   mapelList: string[];
   jumlahMapel: number;
   totalSesi: number;
   mapelCountByKode: Record<string, number>;
-  mapelNipByKode?: Record<string, string>;
-  mapelDetailsByKode?: Record<string, MapelMonitoringDetail>;
 };
 
 export type ToastType = "success" | "error" | "info";
