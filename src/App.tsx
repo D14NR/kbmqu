@@ -2923,35 +2923,6 @@ export function App() {
       const targetSheet = scheduleSheetByKey[scheduleKey];
       const bucket = dataBucket[targetSheet];
       const rows = (await listRows(bucket)).filter((row) => isMatchingScheduleJenis(row, scheduleKey));
-      // If loading jadwal tambahan, cleanup any rows with dates in the past
-      if (scheduleKey === "jadwalTambahanPelayanan") {
-        const todayKey = formatLocalDate(new Date());
-        const expiredIds: string[] = [];
-        rows.forEach((row) => {
-          const raw = toRecord(row);
-          const tanggalStr = (raw.Tanggal as string) || (raw.tanggal as string) || "";
-          const parsed = parseFlexibleDate(tanggalStr);
-          if (parsed) {
-            const parsedKey = formatLocalDate(parsed);
-            if (parsedKey < todayKey) {
-              expiredIds.push(row.id);
-            }
-          }
-        });
-        if (expiredIds.length > 0) {
-          try {
-            await deleteRowsByIds(expiredIds);
-            // remove deleted rows from fetched list
-            for (const id of expiredIds) {
-              const idx = rows.findIndex((r) => r.id === id);
-              if (idx >= 0) rows.splice(idx, 1);
-            }
-            pushToast(`${expiredIds.length} jadwal Tambahan kedaluwarsa telah dihapus.`, "info");
-          } catch (err) {
-            console.error("Failed to cleanup expired tambahan rows:", err);
-          }
-        }
-      }
       const parsedRecords = rows.map((row, index) => {
         const item = parseScheduleDbRecords([toRecord(row)])[0];
         return {

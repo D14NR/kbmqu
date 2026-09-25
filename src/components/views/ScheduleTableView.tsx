@@ -48,11 +48,50 @@ export function ScheduleTableView({
   const [selectedJenjangFilter, setSelectedJenjangFilter] = useState<string>("all");
   const [onlyConflictFilter, setOnlyConflictFilter] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+  const [hidePastDates, setHidePastDates] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("schedule_hide_past_dates") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("schedule_hide_past_dates", String(hidePastDates));
+    } catch {
+      // ignore
+    }
+  }, [hidePastDates]);
 
   const todayStr = useMemo(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   }, []);
+
+  const pastDatesCount = useMemo(() => {
+    return activeScheduleDates.filter((slot) => slot.date < todayStr).length;
+  }, [activeScheduleDates, todayStr]);
+
+  const displayScheduleDates = useMemo(() => {
+    if (!hidePastDates) return activeScheduleDates;
+    return activeScheduleDates.filter((slot) => slot.date >= todayStr);
+  }, [activeScheduleDates, hidePastDates, todayStr]);
+
+  const displayDayStartIndexes = useMemo(() => {
+    if (!isJadwalTambahanMenu && !hidePastDates) {
+      return activeDayStartIndexes;
+    }
+    const set = new Set<number>();
+    let prevDay = "";
+    displayScheduleDates.forEach((slot, idx) => {
+      if (idx > 0 && slot.day !== prevDay) {
+        set.add(idx);
+      }
+      prevDay = slot.day;
+    });
+    return set;
+  }, [activeDayStartIndexes, displayScheduleDates, hidePastDates, isJadwalTambahanMenu]);
 
   const mapelLookupMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -80,20 +119,23 @@ export function ScheduleTableView({
 
   const { totalConflicts, hasVisibleConflict } = useMemo(() => {
     let count = 0;
+    const visibleDates = new Set(displayScheduleDates.map((s) => s.date));
     monthScheduleGroups.forEach((group) => {
-      Object.values(group.entriesByDate).forEach((entryList) => {
-        entryList.forEach((entry) => {
-          if (conflictEntryIds.has(entry.id)) {
-            count++;
-          }
-        });
+      Object.entries(group.entriesByDate).forEach(([dateStr, entryList]) => {
+        if (visibleDates.has(dateStr)) {
+          entryList.forEach((entry) => {
+            if (conflictEntryIds.has(entry.id)) {
+              count++;
+            }
+          });
+        }
       });
     });
     return {
       totalConflicts: count,
       hasVisibleConflict: count > 0,
     };
-  }, [monthScheduleGroups, conflictEntryIds]);
+  }, [monthScheduleGroups, conflictEntryIds, displayScheduleDates]);
 
   // Extract available jenjangs for filter
   const jenjangCounts = useMemo(() => {
@@ -112,11 +154,12 @@ export function ScheduleTableView({
 
   // Filter groups
   const filteredGroups = useMemo(() => {
+    const visibleDates = new Set(displayScheduleDates.map((s) => s.date));
     return monthScheduleGroups.filter((group) => {
       // Filter by Only Conflict
       if (onlyConflictFilter) {
-        const hasConflict = Object.values(group.entriesByDate).some((entries) =>
-          entries.some((e) => conflictEntryIds.has(e.id))
+        const hasConflict = Object.entries(group.entriesByDate).some(([dateStr, entries]) =>
+          visibleDates.has(dateStr) && entries.some((e) => conflictEntryIds.has(e.id))
         );
         if (!hasConflict) return false;
       }
@@ -135,7 +178,8 @@ export function ScheduleTableView({
         const matchJenjang = (group.jenjang || "").toLowerCase().includes(q);
 
         // Check if any schedule entry inside matches mapel or pengajar
-        const matchEntry = Object.values(group.entriesByDate).some((entries) =>
+        const matchEntry = Object.entries(group.entriesByDate).some(([dateStr, entries]) =>
+          visibleDates.has(dateStr) &&
           entries.some(
             (e) =>
               (e.mapel || "").toLowerCase().includes(q) ||
@@ -151,24 +195,27 @@ export function ScheduleTableView({
 
       return true;
     });
-  }, [monthScheduleGroups, onlyConflictFilter, selectedJenjangFilter, searchFilter, conflictEntryIds]);
+  }, [monthScheduleGroups, onlyConflictFilter, selectedJenjangFilter, searchFilter, conflictEntryIds, displayScheduleDates]);
 
   // Total sessions and teachers count
   const { totalSessions, totalTeachers } = useMemo(() => {
     let sessions = 0;
     const teachers = new Set<string>();
+    const visibleDates = new Set(displayScheduleDates.map((s) => s.date));
     monthScheduleGroups.forEach((g) => {
-      Object.values(g.entriesByDate).forEach((entries) => {
-        sessions += entries.length;
-        entries.forEach((e) => {
-          if (e.pengajar && e.pengajar.trim()) {
-            teachers.add(e.pengajar.trim());
-          }
-        });
+      Object.entries(g.entriesByDate).forEach(([dateStr, entries]) => {
+        if (visibleDates.has(dateStr)) {
+          sessions += entries.length;
+          entries.forEach((e) => {
+            if (e.pengajar && e.pengajar.trim()) {
+              teachers.add(e.pengajar.trim());
+            }
+          });
+        }
       });
     });
     return { totalSessions: sessions, totalTeachers: teachers.size };
-  }, [monthScheduleGroups]);
+  }, [monthScheduleGroups, displayScheduleDates]);
 
   // Only reset scroll to top when changing schedule mode or changing target month period
   const prevPeriodKeyRef = useRef<string>("");
@@ -286,7 +333,7 @@ export function ScheduleTableView({
               </div>
             </div>
 
-            {/* Right Controls: Search, Legend & Add Class Button */}
+            {/* Right Controls: Search, Hide Past Dates Filter, Legend & Add Class Button */}
             <div className="d-flex flex-wrap align-items-center gap-2">
               {/* Search Bar */}
               <div className="input-group input-group-sm" style={{ width: 220 }}>
@@ -310,6 +357,35 @@ export function ScheduleTableView({
                   </button>
                 )}
               </div>
+
+              {/* Filter Sembunyikan Jadwal Terlewat */}
+              <button
+                type="button"
+                className={`btn btn-sm d-flex align-items-center gap-1.5 fw-semibold transition-all ${
+                  hidePastDates
+                    ? "btn-primary text-white shadow-xs"
+                    : "btn-outline-secondary bg-white text-secondary"
+                }`}
+                onClick={() => setHidePastDates((prev) => !prev)}
+                title={
+                  hidePastDates
+                    ? "Sedang menyembunyikan jadwal sebelum hari ini. Klik untuk menampilkan semua tanggal."
+                    : "Klik untuk menyembunyikan tanggal jadwal yang sudah terlewat dari hari ini."
+                }
+              >
+                <i className={`bi ${hidePastDates ? "bi-calendar-minus-fill" : "bi-calendar-check"}`} />
+                <span>{hidePastDates ? "Jadwal Terlewat Disembunyikan" : "Sembunyikan Jadwal Terlewat"}</span>
+                {pastDatesCount > 0 && (
+                  <span
+                    className={`badge rounded-pill text-xxs ${
+                      hidePastDates ? "bg-white text-primary" : "bg-light text-muted border"
+                    }`}
+                    style={{ fontSize: "9px" }}
+                  >
+                    {hidePastDates ? `-${pastDatesCount} hari` : `${pastDatesCount} hari lewat`}
+                  </span>
+                )}
+              </button>
 
               {/* Toggle Legend */}
               <button
@@ -336,30 +412,50 @@ export function ScheduleTableView({
             </div>
           </div>
 
-          {/* Jenjang Filter Chips */}
-          {availableJenjangs.length > 2 && (
-            <div className="d-flex flex-wrap align-items-center gap-1.5 mt-2.5 pt-2 border-top">
-              <span className="text-muted text-xxs fw-semibold me-1">Filter Jenjang:</span>
-              {availableJenjangs.map((j) => {
-                const isSelected = selectedJenjangFilter === j;
-                const label = j === "all" ? "Semua Jenjang" : j;
-                const count = jenjangCounts[j] || 0;
+          {/* Filter Indicators / Chips */}
+          {(availableJenjangs.length > 2 || hidePastDates) && (
+            <div className="d-flex flex-wrap align-items-center gap-2 mt-2.5 pt-2 border-top">
+              {availableJenjangs.length > 2 && (
+                <div className="d-flex flex-wrap align-items-center gap-1.5">
+                  <span className="text-muted text-xxs fw-semibold me-1">Filter Jenjang:</span>
+                  {availableJenjangs.map((j) => {
+                    const isSelected = selectedJenjangFilter === j;
+                    const label = j === "all" ? "Semua Jenjang" : j;
+                    const count = jenjangCounts[j] || 0;
 
-                return (
-                  <button
-                    key={j}
-                    type="button"
-                    className={`btn btn-sm py-0.5 px-2 rounded-pill text-xxs fw-semibold ${
-                      isSelected
-                        ? "btn-primary shadow-xs"
-                        : "btn-light text-secondary border"
-                    }`}
-                    onClick={() => setSelectedJenjangFilter(j)}
-                  >
-                    {label} <span className="opacity-75">({count})</span>
-                  </button>
-                );
-              })}
+                    return (
+                      <button
+                        key={j}
+                        type="button"
+                        className={`btn btn-sm py-0.5 px-2 rounded-pill text-xxs fw-semibold ${
+                          isSelected
+                            ? "btn-primary shadow-xs"
+                            : "btn-light text-secondary border"
+                        }`}
+                        onClick={() => setSelectedJenjangFilter(j)}
+                      >
+                        {label} <span className="opacity-75">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {hidePastDates && (
+                <div className="d-flex align-items-center gap-1 ms-auto">
+                  <span className="badge bg-primary-subtle text-primary border border-primary-subtle d-inline-flex align-items-center gap-1 py-1 px-2 rounded-pill text-xxs">
+                    <i className="bi bi-funnel-fill" />
+                    <span>Menyembunyikan tanggal sebelum hari ini</span>
+                    <button
+                      type="button"
+                      className="btn-close btn-close-sm ms-1"
+                      style={{ fontSize: "8px" }}
+                      aria-label="Tutup filter"
+                      onClick={() => setHidePastDates(false)}
+                    />
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
@@ -423,7 +519,7 @@ export function ScheduleTableView({
               <th className="text-center col-kelas sticky-col-kelas">
                 <div className="py-1 text-uppercase text-xxs fw-bold text-muted">Kelas</div>
               </th>
-              {activeScheduleDates.map((slot, index) => {
+              {displayScheduleDates.map((slot, index) => {
                 const [year, month, day] = slot.date.split("-").map(Number);
                 const slotDate = new Date(year, month - 1, day);
                 const weekday = slotDate.toLocaleDateString("id-ID", { weekday: "long" });
@@ -436,7 +532,7 @@ export function ScheduleTableView({
                   <th
                     key={slot.date}
                     className={`text-center schedule-header-cell ${
-                      !isJadwalTambahanMenu && activeDayStartIndexes.has(index) && index !== 0 ? "day-divider" : ""
+                      !isJadwalTambahanMenu && displayDayStartIndexes.has(index) && index !== 0 ? "day-divider" : ""
                     } ${holiday ? "holiday-col" : ""} ${isToday ? "today-header-col" : ""}`}
                     title={holidayName ? `Libur Nasional: ${holidayName}` : isToday ? "Hari Ini" : undefined}
                   >
@@ -474,9 +570,9 @@ export function ScheduleTableView({
             </tr>
           </thead>
           <tbody>
-            {filteredGroups.length === 0 ? (
+            {filteredGroups.length === 0 || displayScheduleDates.length === 0 ? (
               <tr>
-                <td colSpan={activeScheduleDates.length + 2} className="text-center py-5">
+                <td colSpan={displayScheduleDates.length + 2} className="text-center py-5">
                   <div className="d-flex flex-column align-items-center justify-content-center p-4">
                     <div
                       className="d-flex align-items-center justify-content-center rounded-circle bg-light text-muted mb-3"
@@ -485,7 +581,9 @@ export function ScheduleTableView({
                       <i className="bi bi-calendar2-x fs-2" />
                     </div>
                     <h6 className="fw-bold text-dark mb-1">
-                      {onlyConflictFilter
+                      {displayScheduleDates.length === 0 && hidePastDates
+                        ? "Semua Jadwal pada Periode Ini Sudah Terlewat"
+                        : onlyConflictFilter
                         ? "Tidak Ada Jadwal Bentrok pada Filter Ini"
                         : searchFilter || selectedJenjangFilter !== "all"
                         ? "Tidak Ada Kelas yang Cocok dengan Filter"
@@ -494,13 +592,24 @@ export function ScheduleTableView({
                         : "Belum Ada Kelas & Jadwal Bulan Ini"}
                     </h6>
                     <p className="text-muted small mb-3" style={{ maxWidth: 420 }}>
-                      {onlyConflictFilter
+                      {displayScheduleDates.length === 0 && hidePastDates
+                        ? "Filter sembunyikan jadwal terlewat sedang aktif, dan seluruh tanggal pada periode ini berada sebelum hari ini."
+                        : onlyConflictFilter
                         ? "Semua jadwal pada tampilan ini aman dari bentrok antar cabang."
                         : searchFilter || selectedJenjangFilter !== "all"
                         ? "Coba sesuaikan kata kunci pencarian atau reset filter jenjang."
                         : "Klik tombol Tambah Kelas untuk mulai membuat daftar kelas dan mengatur jadwal belajar."}
                     </p>
-                    {onlyConflictFilter && (
+                    {displayScheduleDates.length === 0 && hidePastDates ? (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-primary px-3 shadow-sm"
+                        onClick={() => setHidePastDates(false)}
+                      >
+                        <i className="bi bi-eye me-1" />
+                        Tampilkan Semua Tanggal
+                      </button>
+                    ) : onlyConflictFilter ? (
                       <button
                         type="button"
                         className="btn btn-sm btn-outline-secondary px-3 shadow-sm"
@@ -509,8 +618,7 @@ export function ScheduleTableView({
                         <i className="bi bi-arrow-counterclockwise me-1" />
                         Tampilkan Semua Kelas
                       </button>
-                    )}
-                    {!readOnly && !onlyConflictFilter && (
+                    ) : !readOnly ? (
                       <button
                         type="button"
                         className="btn btn-sm btn-primary px-3 shadow-sm"
@@ -519,7 +627,7 @@ export function ScheduleTableView({
                         <i className="bi bi-plus-circle me-1" />
                         Tambah Kelas Baru
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </td>
               </tr>
@@ -528,7 +636,7 @@ export function ScheduleTableView({
                 {paddingTop > 0 && (
                   <tr>
                     <td
-                      colSpan={activeScheduleDates.length + 2}
+                      colSpan={displayScheduleDates.length + 2}
                       style={{ height: `${paddingTop}px`, padding: 0, border: 0 }}
                     />
                   </tr>
@@ -669,7 +777,7 @@ export function ScheduleTableView({
                       </td>
 
                       {/* Schedule Slot Cells */}
-                      {activeScheduleDates.map((slot, index) => {
+                      {displayScheduleDates.map((slot, index) => {
                         const entries = group.entriesByDate[slot.date] ?? [];
                         const hasConflictInCell = entries.some((item) => conflictEntryIds.has(item.id));
                         const isEditingCell =
@@ -702,7 +810,7 @@ export function ScheduleTableView({
                                 : undefined
                             }
                             className={`schedule-cell ${
-                              !isJadwalTambahanMenu && activeDayStartIndexes.has(index) && index !== 0 ? "day-divider" : ""
+                              !isJadwalTambahanMenu && displayDayStartIndexes.has(index) && index !== 0 ? "day-divider" : ""
                             } ${isEditingCell && !editingSlot?.entryId ? "is-editing" : ""} ${
                               hasConflictInCell ? "schedule-cell-conflict" : ""
                             } ${holidayCell ? "holiday-col" : ""} ${isToday ? "today-cell-col" : ""}`}
@@ -847,7 +955,7 @@ export function ScheduleTableView({
                 {paddingBottom > 0 && (
                   <tr>
                     <td
-                      colSpan={activeScheduleDates.length + 2}
+                      colSpan={displayScheduleDates.length + 2}
                       style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }}
                     />
                   </tr>
@@ -870,7 +978,7 @@ export function ScheduleTableView({
                     <span>Tambah Kelas</span>
                   </button>
                 </td>
-                <td colSpan={activeScheduleDates.length} className="text-muted small px-3">
+                <td colSpan={displayScheduleDates.length} className="text-muted small px-3">
                   <div className="d-flex align-items-center justify-content-between">
                     <span>
                       Total <strong>{filteredGroups.length}</strong> kelas terdaftar
