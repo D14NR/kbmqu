@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import Select from "react-select";
 import type { SelectOption } from "../../types/app";
-import { sanitizeWhatsappDigits } from "../../utils/phone";
+import { createPengajarOnboardingMessage, formatWhatsAppUrl, sanitizeWhatsappDigits } from "../../utils/phone";
 
 type PengajarDraft = {
   "Kode Pengajar": string;
@@ -146,13 +146,25 @@ export function PengajarModal({
     return matched || { value, label: value };
   });
 
+  const getOnboardingMessage = () => {
+    return createPengajarOnboardingMessage({
+      nama: draft.Nama,
+      kode: draft["Kode Pengajar"],
+      cabang: draft.Domisili || cabangLabel,
+      username: draft.Username || draft["No.WhatsApp"],
+      password: draft.Password,
+    });
+  };
+
   const handleCopyOnboarding = () => {
-    const appUrl = typeof window !== "undefined" ? window.location.origin : "https://app.kbm.id";
-    const text = `Halo Bapak/Ibu ${draft.Nama || "Pengajar"},\n\nBerikut adalah akun akses portal jadwal KBM Anda:\n• Kode Pengajar: ${draft["Kode Pengajar"] || "-"}\n• Cabang: ${draft.Domisili || cabangLabel || "-"}\n• Username: ${draft.Username || "-"}\n• Password: ${draft.Password || "-"}\n\nSilakan login melalui: ${appUrl}\n\nTerima kasih.`;
+    const text = getOnboardingMessage();
     navigator.clipboard.writeText(text);
     setCopiedMessage(true);
     setTimeout(() => setCopiedMessage(false), 2500);
   };
+
+  const waTargetNumber = draft["No.WhatsApp"] || draft.Username || "";
+  const waOnboardingUrl = formatWhatsAppUrl(waTargetNumber, getOnboardingMessage());
 
   const isFormValid =
     draft.Nama.trim().length > 0 &&
@@ -526,26 +538,56 @@ export function PengajarModal({
               {/* Onboarding Credentials Card */}
               <div className="col-12">
                 <div className="p-3 bg-light rounded-3 border">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
+                  <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                     <span className="text-muted text-xxs fw-bold text-uppercase d-flex align-items-center gap-1.5">
                       <i className="bi bi-send-check-fill text-success" />
                       Pratinjau Kredensial Onboarding
                     </span>
-                    <button
-                      type="button"
-                      onClick={handleCopyOnboarding}
-                      disabled={!draft.Username || !draft.Password}
-                      className="btn btn-outline-success btn-xs d-flex align-items-center gap-1"
-                    >
-                      <i className={`bi ${copiedMessage ? "bi-check-lg" : "bi-whatsapp"}`} />
-                      {copiedMessage ? "Tersalin!" : "Salin Pesan WA"}
-                    </button>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-2 border text-xs font-monospace text-secondary">
-                    <div>Halo <strong>{draft.Nama || "[Nama Pengajar]"}</strong>,</div>
-                    <div className="mt-1">
-                      Akun KBM: User <strong>{draft.Username || "[No.WA]"}</strong> | Pass <strong>{draft.Password || "******"}</strong>
+                    <div className="d-flex align-items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleCopyOnboarding}
+                        disabled={!draft.Username || !draft.Password}
+                        className="btn btn-outline-success btn-xs d-flex align-items-center gap-1"
+                        title="Salin teks kredensial ke clipboard"
+                      >
+                        <i className={`bi ${copiedMessage ? "bi-check-lg" : "bi-clipboard"}`} />
+                        {copiedMessage ? "Tersalin!" : "Salin Pesan WA"}
+                      </button>
+                      {waOnboardingUrl && draft.Username && draft.Password ? (
+                        <a
+                          href={waOnboardingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-success btn-xs d-flex align-items-center gap-1 text-white text-decoration-none shadow-xs"
+                          title="Buka WhatsApp untuk langsung kirim pesan kredensial ini"
+                        >
+                          <i className="bi bi-whatsapp" />
+                          Kirim WA
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="btn btn-success btn-xs d-flex align-items-center gap-1 opacity-50"
+                          title="Isi kontak dan password terlebih dahulu untuk mengirim pesan"
+                        >
+                          <i className="bi bi-whatsapp" />
+                          Kirim WA
+                        </button>
+                      )}
                     </div>
+                  </div>
+                  <div
+                    className="p-2.5 rounded-2 border text-xs font-monospace overflow-auto"
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      maxHeight: "135px",
+                      lineHeight: "1.45",
+                      backgroundColor: "var(--bs-tertiary-bg, rgba(0,0,0,0.03))",
+                    }}
+                  >
+                    {getOnboardingMessage()}
                   </div>
                 </div>
               </div>

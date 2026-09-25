@@ -19,7 +19,44 @@ export function sanitizeWhatsappDigits(value: string): string {
   return digits;
 }
 
-export function formatWhatsAppUrl(phone: string): string {
+export function formatWhatsAppUrl(phone: string, text?: string): string {
   const clean = sanitizeWhatsappDigits(phone);
-  return clean ? `https://wa.me/62${clean}` : "";
+  if (!clean) return "";
+  const query = text ? `?text=${encodeURIComponent(text)}` : "";
+  return `https://wa.me/62${clean}${query}`;
+}
+
+export function createPengajarOnboardingMessage(params: {
+  nama?: string;
+  kode?: string;
+  cabang?: string;
+  username?: string;
+  password?: string;
+  appUrl?: string;
+}): string {
+  const nama = params.nama ? params.nama.trim() : "Pengajar";
+  const kode = params.kode || "-";
+  const cabang = params.cabang || "-";
+  const username = params.username || "-";
+  const password = params.password || "-";
+
+  let portalUrl = params.appUrl;
+  if (!portalUrl) {
+    portalUrl =
+      typeof window !== "undefined" && window.location.hostname.endsWith(".pages.dev")
+        ? window.location.origin
+        : "https://tugaskita.pages.dev";
+  }
+
+  return `Halo Bapak/Ibu ${nama},
+
+Berikut adalah akun akses portal jadwal KBM Anda:
+* Kode Pengajar: ${kode}
+* Cabang: ${cabang}
+* Username: ${username}
+* Password: ${password}
+
+Silakan login melalui: ${portalUrl}
+
+Terima kasih.`;
 }

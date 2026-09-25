@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { formatWhatsAppUrl } from "../../utils/phone";
+import { createPengajarOnboardingMessage, formatWhatsAppUrl } from "../../utils/phone";
 
 type PengajarTableViewProps = {
   headers: string[];
@@ -152,10 +152,13 @@ export function PengajarTableView({
   }, [records, searchTerm, selectedDomisili, selectedBidang, sortBy]);
 
   const handleCopyCredentials = (record: Record<string, string>, idKey: string) => {
-    const nama = record.Nama || record.nama || "Pengajar";
-    const user = record.Username || record.username || record["No.WhatsApp"] || "-";
-    const pass = record.Password || record.password || "-";
-    const text = `Akun KBM Pengajar:\nNama: ${nama}\nUsername: ${user}\nPassword: ${pass}`;
+    const text = createPengajarOnboardingMessage({
+      nama: record.Nama || record.nama,
+      kode: record["Kode Pengajar"] || record.kode_pengajar,
+      cabang: record.Domisili || record.domisili,
+      username: record.Username || record.username || record["No.WhatsApp"],
+      password: record.Password || record.password,
+    });
     navigator.clipboard.writeText(text);
     setCopiedId(idKey);
     setTimeout(() => setCopiedId(null), 2000);
@@ -562,7 +565,7 @@ export function PengajarTableView({
                               type="button"
                               onClick={() => handleCopyCredentials(record, idKey)}
                               className="btn btn-link btn-xs p-0 text-muted hover:text-primary ms-1"
-                              title="Salin Akun Login"
+                              title="Salin Akun Login & Teks Onboarding"
                             >
                               <i
                                 className={`bi ${
@@ -570,6 +573,26 @@ export function PengajarTableView({
                                 }`}
                               />
                             </button>
+                            {phone && password && (
+                              <a
+                                href={formatWhatsAppUrl(
+                                  phone,
+                                  createPengajarOnboardingMessage({
+                                    nama: record.Nama || record.nama,
+                                    kode: record["Kode Pengajar"] || record.kode_pengajar,
+                                    cabang: record.Domisili || record.domisili,
+                                    username: username,
+                                    password: password,
+                                  })
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-link btn-xs p-0 text-success ms-1 hover:text-success-emphasis"
+                                title="Kirim Akun Login & Format Onboarding via WhatsApp"
+                              >
+                                <i className="bi bi-whatsapp" />
+                              </a>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -730,18 +753,42 @@ export function PengajarTableView({
                   <div className="pt-2.5 border-top bg-light p-2 rounded-3">
                     <div className="d-flex justify-content-between align-items-center text-xxs mb-1">
                       <span className="text-muted fw-semibold">Akun Login:</span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyCredentials(record, idKey)}
-                        className="btn btn-link btn-xs p-0 text-decoration-none text-primary d-flex align-items-center gap-1"
-                      >
-                        <i
-                          className={`bi ${
-                            copiedId === idKey ? "bi-check2 text-success fw-bold" : "bi-clipboard"
-                          }`}
-                        />
-                        {copiedId === idKey ? "Tersalin" : "Salin"}
-                      </button>
+                      <div className="d-flex align-items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCredentials(record, idKey)}
+                          className="btn btn-link btn-xs p-0 text-decoration-none text-primary d-flex align-items-center gap-1"
+                          title="Salin Pesan Kredensial Onboarding"
+                        >
+                          <i
+                            className={`bi ${
+                              copiedId === idKey ? "bi-check2 text-success fw-bold" : "bi-clipboard"
+                            }`}
+                          />
+                          {copiedId === idKey ? "Tersalin" : "Salin"}
+                        </button>
+                        {phone && password && (
+                          <a
+                            href={formatWhatsAppUrl(
+                              phone,
+                              createPengajarOnboardingMessage({
+                                nama: record.Nama || record.nama,
+                                kode: record["Kode Pengajar"] || record.kode_pengajar,
+                                cabang: record.Domisili || record.domisili,
+                                username: username,
+                                password: password,
+                              })
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-link btn-xs p-0 text-decoration-none text-success d-flex align-items-center gap-1 hover:text-success-emphasis"
+                            title="Kirim Pesan Kredensial ke WhatsApp"
+                          >
+                            <i className="bi bi-whatsapp" />
+                            Kirim WA
+                          </a>
+                        )}
+                      </div>
                     </div>
                     <div className="d-flex justify-content-between text-xxs font-monospace">
                       <span className="text-dark truncate">U: {username}</span>
