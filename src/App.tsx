@@ -333,6 +333,7 @@ export function App() {
     "Password": ""
   });
   const [editingPengajarOldKode, setEditingPengajarOldKode] = useState<string | null>(null);
+  const [editingPengajarOldNama, setEditingPengajarOldNama] = useState<string | null>(null);
   const [pengajarError, setPengajarError] = useState("");
   const [isPenempatanModalOpen, setIsPenempatanModalOpen] = useState(false);
   const [penempatanDraft, setPenempatanDraft] = useState<PenempatanDraft>({
@@ -3166,7 +3167,8 @@ export function App() {
         "Username": computedUsername || record["Username"] || "",
         "Password": sanitizePasswordInput(record["Password"] || ""),
       });
-      setEditingPengajarOldKode(record["Kode Pengajar"]);
+      setEditingPengajarOldKode(record["Kode Pengajar"] || "");
+      setEditingPengajarOldNama(record["Nama"] || record["Nama Pengajar"] || "");
     } else {
       const defaultCabang = restrictedCabang || authSession?.cabang || "";
       setPengajarDraft({
@@ -3181,6 +3183,7 @@ export function App() {
         "Password": generatePassword(),
       });
       setEditingPengajarOldKode(null);
+      setEditingPengajarOldNama(null);
     }
     setPengajarError("");
     setIsPengajarModalOpen(true);
@@ -3303,20 +3306,244 @@ export function App() {
     try {
       const bucket = dataBucket["Data Pengajar"];
       const rows = await listRows(bucket);
+      const oldKodeToMatch = (editingPengajarOldKode || "").trim().toLowerCase();
       const existing = rows.find(
         (row) =>
           normalizeValueKey(row.data["Kode Pengajar"]) ===
-          normalizeValueKey(editingPengajarOldKode || normalizedRecord["Kode Pengajar"])
+          normalizeValueKey(oldKodeToMatch || normalizedRecord["Kode Pengajar"])
       );
+
+      const oldKode = oldKodeToMatch || (existing ? (existing.data["Kode Pengajar"] || "").trim().toLowerCase() : "");
+      const oldNama = (editingPengajarOldNama || (existing ? (existing.data["Nama"] || existing.data["Nama Pengajar"] || "").trim() : "")).trim();
+      const newKode = normalizedRecord["Kode Pengajar"].trim().toLowerCase();
+      const newNama = normalizedRecord.Nama.trim();
+      const newNip = normalizedRecord.NIP?.trim() || "";
+      const newDomisili = normalizedRecord.Domisili.trim();
+
       if (existing) {
         await updateRow(existing.id, normalizedRecord);
       } else {
         await insertRow(bucket, normalizedRecord);
       }
 
+      // Cascade update to all other tables referencing this pengajar
+      if (oldKode || oldNama) {
+        const isKodeChanged = Boolean(oldKode && oldKode !== newKode);
+        const isNamaChanged = Boolean(oldNama && oldNama !== newNama);
+        const shouldCascade = isKodeChanged || isNamaChanged || Boolean(newNip) || Boolean(newDomisili);
+
+        if (shouldCascade) {
+          const cascadePromises: Promise<unknown>[] = [];
+
+          // 1. Jadwal KBM (Reguler & Khusus)
+          const updateJadwalRows = async () => {
+            try {
+              const scheduleRows = await listRows(dataBucket["Jadwal Bulan ini"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of scheduleRows) {
+                const rowKode = (row.data.kode_pengajar || row.data["Kode Pengajar"] || row.data.Pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data.nama_pengajar || row.data["Nama Pengajar"] || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase() || rowKode === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    Pengajar: newKode,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  if (newNip) {
+                    updatedData["NIP"] = newNip;
+                    updatedData["nip"] = newNip;
+                  }
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on schedule rows:", err);
+            }
+          };
+          cascadePromises.push(updateJadwalRows());
+
+          // 2. Penempatan Pengajar (penempatan_pengajar_dicabang)
+          const updatePenempatanRows = async () => {
+            try {
+              const penempatanRows = await listRows(dataBucket["Penempatan Pengajar"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of penempatanRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  if (newDomisili) {
+                    updatedData["Domisili"] = newDomisili;
+                    updatedData["domisili"] = newDomisili;
+                  }
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on penempatan rows:", err);
+            }
+          };
+          cascadePromises.push(updatePenempatanRows());
+
+          // 3. Izin Pengajar (izin_pengajar)
+          const updateIzinRows = async () => {
+            try {
+              const izinRows = await listRows(dataBucket["Izin Pengajar"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of izinRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on izin rows:", err);
+            }
+          };
+          cascadePromises.push(updateIzinRows());
+
+          // 4. Permintaan Pengajar Antar Cabang (permintaan_pengajar)
+          const updatePermintaanRows = async () => {
+            try {
+              const permintaanRows = await listRows(dataBucket["Permintaan Pengajar Antar Cabang"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of permintaanRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on permintaan rows:", err);
+            }
+          };
+          cascadePromises.push(updatePermintaanRows());
+
+          // 5. Surat Tugas Pengajar (surat_tugas)
+          const updateSuratTugasRows = async () => {
+            try {
+              const stRows = await listRows(dataBucket["Surat Tugas Pengajar"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of stRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on surat tugas rows:", err);
+            }
+          };
+          cascadePromises.push(updateSuratTugasRows());
+
+          // 6. Riwayat Notifikasi Pengajar (riwayat_notifikasi_pengajar)
+          const updateNotifikasiRows = async () => {
+            try {
+              const notifRows = await listRows(dataBucket["Riwayat Notifikasi Pengajar"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of notifRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on notifikasi rows:", err);
+            }
+          };
+          cascadePromises.push(updateNotifikasiRows());
+
+          await Promise.all(cascadePromises);
+        }
+      }
+
       setIsPengajarModalOpen(false);
-      handleLoadPengajar();
-      pushToast("Data pengajar berhasil disimpan.", "success");
+      setEditingPengajarOldKode(null);
+      setEditingPengajarOldNama(null);
+
+      // Reload all datasets in state
+      await Promise.all([
+        handleLoadPengajar({ silent: true }),
+        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+        handleLoadPenempatanPengajar({ silent: true }),
+        handleLoadIzinPengajar({ silent: true }),
+        handleLoadPermintaanPengajar({ silent: true }),
+        handleLoadSuratTugas({ silent: true }),
+      ]);
+
+      pushToast("Data pengajar dan seluruh tabel terkait berhasil diperbarui.", "success");
     } catch (error) {
       setPengajarStatus((prev) => ({
         ...prev,
