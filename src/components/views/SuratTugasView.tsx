@@ -571,14 +571,8 @@ export function SuratTugasView({
                 isSearchable
                 isDisabled={!selectedMonthKey}
                 className="text-xs"
+                classNamePrefix="react-select"
                 styles={{
-                  control: (base) => ({
-                    ...base,
-                    minHeight: 34,
-                    borderRadius: 8,
-                    borderColor: "#cbd5e1",
-                    fontSize: "0.82rem",
-                  }),
                   menuPortal: (base) => ({ ...base, zIndex: 9999 }),
                 }}
                 menuPortalTarget={typeof document !== "undefined" ? document.body : null}

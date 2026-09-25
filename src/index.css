@@ -2252,6 +2252,138 @@ body.dark-mode .app-toast .btn-close:hover,
 }
 
 /* =========================================================
+   REACT-SELECT COMPREHENSIVE DARK MODE STYLES
+   ========================================================= */
+.react-select__control,
+div[class*="-control"] {
+  border-radius: 8px !important;
+  transition: all 0.15s ease !important;
+}
+
+body.dark-mode .react-select__control,
+body.dark-mode div[class*="-control"],
+[data-theme="dark"] .react-select__control,
+[data-theme="dark"] div[class*="-control"] {
+  background-color: #0f172a !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
+}
+
+body.dark-mode .react-select__control:hover,
+body.dark-mode div[class*="-control"]:hover,
+[data-theme="dark"] .react-select__control:hover,
+[data-theme="dark"] div[class*="-control"]:hover {
+  border-color: #64748b !important;
+}
+
+body.dark-mode .react-select__single-value,
+body.dark-mode div[class*="-singleValue"],
+[data-theme="dark"] .react-select__single-value,
+[data-theme="dark"] div[class*="-singleValue"] {
+  color: #f8fafc !important;
+}
+
+body.dark-mode .react-select__input-container,
+body.dark-mode div[class*="-Input"],
+body.dark-mode div[class*="-input"],
+body.dark-mode div[class*="-Input"] input,
+[data-theme="dark"] .react-select__input-container,
+[data-theme="dark"] div[class*="-Input"],
+[data-theme="dark"] div[class*="-input"],
+[data-theme="dark"] div[class*="-Input"] input {
+  color: #f8fafc !important;
+}
+
+body.dark-mode .react-select__placeholder,
+body.dark-mode div[class*="-placeholder"],
+[data-theme="dark"] .react-select__placeholder,
+[data-theme="dark"] div[class*="-placeholder"] {
+  color: #64748b !important;
+}
+
+body.dark-mode .react-select__indicator-separator,
+body.dark-mode div[class*="-indicatorSeparator"],
+[data-theme="dark"] .react-select__indicator-separator,
+[data-theme="dark"] div[class*="-indicatorSeparator"] {
+  background-color: #334155 !important;
+}
+
+body.dark-mode .react-select__dropdown-indicator,
+body.dark-mode div[class*="-indicatorContainer"],
+[data-theme="dark"] .react-select__dropdown-indicator,
+[data-theme="dark"] div[class*="-indicatorContainer"] {
+  color: #94a3b8 !important;
+}
+
+body.dark-mode .react-select__menu,
+body.dark-mode .react-select__menu-list,
+body.dark-mode div[class*="-menu"],
+body.dark-mode div[class*="-MenuList"],
+[data-theme="dark"] .react-select__menu,
+[data-theme="dark"] .react-select__menu-list,
+[data-theme="dark"] div[class*="-menu"],
+[data-theme="dark"] div[class*="-MenuList"] {
+  background-color: #1e293b !important;
+  border: 1px solid #334155 !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7) !important;
+  color: #f8fafc !important;
+}
+
+body.dark-mode .react-select__option,
+body.dark-mode div[class*="-option"],
+[data-theme="dark"] .react-select__option,
+[data-theme="dark"] div[class*="-option"] {
+  background-color: #1e293b !important;
+  color: #cbd5e1 !important;
+}
+
+body.dark-mode .react-select__option:hover,
+body.dark-mode .react-select__option--is-focused,
+body.dark-mode div[class*="-option"][class*="focused"],
+[data-theme="dark"] .react-select__option:hover,
+[data-theme="dark"] .react-select__option--is-focused,
+[data-theme="dark"] div[class*="-option"][class*="focused"] {
+  background-color: #334155 !important;
+  color: #ffffff !important;
+}
+
+body.dark-mode .react-select__option--is-selected,
+body.dark-mode div[class*="-option"][class*="selected"],
+[data-theme="dark"] .react-select__option--is-selected,
+[data-theme="dark"] div[class*="-option"][class*="selected"] {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+body.dark-mode .react-select__multi-value,
+body.dark-mode div[class*="-multiValue"],
+[data-theme="dark"] .react-select__multi-value,
+[data-theme="dark"] div[class*="-multiValue"] {
+  background-color: #1e3a8a !important;
+  border-color: #3b82f6 !important;
+}
+
+body.dark-mode .react-select__multi-value__label,
+body.dark-mode div[class*="-multiValue"] div,
+[data-theme="dark"] .react-select__multi-value__label,
+[data-theme="dark"] div[class*="-multiValue"] div {
+  color: #eff6ff !important;
+}
+
+/* Surat Tugas Dark Theme Adjustments */
+body.dark-mode .bg-gradient-primary-soft,
+[data-theme="dark"] .bg-gradient-primary-soft {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+  border-color: #334155 !important;
+}
+
+body.dark-mode .bg-light-subtle,
+[data-theme="dark"] .bg-light-subtle {
+  background-color: #131c2e !important;
+  border-color: #334155 !important;
+}
+
+/* =========================================================
    COMPACT MODE STYLES
    ========================================================= */
 body.compact-mode .schedule-table th,
