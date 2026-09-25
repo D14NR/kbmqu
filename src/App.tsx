@@ -377,6 +377,43 @@ export function App() {
   const sidebarCollapsed = sidebarWidth <= 220;
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [, setMonthAnchor] = useState(() => new Date());
+  const [appTheme, setAppTheme] = useState<string>(() => {
+    try {
+      return localStorage.getItem("app-theme") || "light";
+    } catch {
+      return "light";
+    }
+  });
+  const [isCompactMode, setIsCompactMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("app-compact-mode") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-bs-theme", appTheme);
+    document.documentElement.setAttribute("data-theme", appTheme);
+    if (appTheme === "dark") {
+      document.documentElement.classList.add("dark");
+      document.body.classList.add("dark-mode");
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.body.classList.remove("dark-mode");
+    }
+  }, [appTheme]);
+
+  useEffect(() => {
+    if (isCompactMode) {
+      document.body.classList.add("compact-mode");
+      document.documentElement.classList.add("compact-mode");
+    } else {
+      document.body.classList.remove("compact-mode");
+      document.documentElement.classList.remove("compact-mode");
+    }
+  }, [isCompactMode]);
+
   const [lastCacheCleanedAt, setLastCacheCleanedAt] = useState<string | undefined>(undefined);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isClearingCache, setIsClearingCache] = useState(false);
@@ -7819,6 +7856,10 @@ export function App() {
                         onChangePassword={() => setIsChangePasswordModalOpen(true)}
                         isClearingCache={isClearingCache}
                         isCheckingUpdates={isCheckingUpdates}
+                        theme={appTheme}
+                        onThemeChange={setAppTheme}
+                        compactMode={isCompactMode}
+                        onCompactModeChange={setIsCompactMode}
                       />
                     ) : activeKey === "printJadwal" ? (
                       <PrintJadwalView

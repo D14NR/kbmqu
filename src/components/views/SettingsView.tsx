@@ -8,6 +8,10 @@ type SettingsViewProps = {
   onChangePassword?: () => void;
   isCheckingUpdates: boolean;
   isClearingCache: boolean;
+  theme?: string;
+  onThemeChange?: (theme: string) => void;
+  compactMode?: boolean;
+  onCompactModeChange?: (compact: boolean) => void;
 };
 
 const formatDateTime = (value: string | undefined) => {
@@ -31,10 +35,17 @@ export function SettingsView({
   onChangePassword,
   isCheckingUpdates,
   isClearingCache,
+  theme: propTheme,
+  onThemeChange,
+  compactMode: propCompactMode,
+  onCompactModeChange,
 }: SettingsViewProps) {
-  const [theme, setTheme] = useState(localStorage.getItem("app-theme") || "light");
-  const [notifications, setNotifications] = useState(localStorage.getItem("app-notifications") !== "false");
-  const [compactMode, setCompactMode] = useState(localStorage.getItem("app-compact-mode") === "true");
+  const [internalTheme, setInternalTheme] = useState(() => localStorage.getItem("app-theme") || "light");
+  const [notifications, setNotifications] = useState(() => localStorage.getItem("app-notifications") !== "false");
+  const [internalCompactMode, setInternalCompactMode] = useState(() => localStorage.getItem("app-compact-mode") === "true");
+
+  const theme = propTheme !== undefined ? propTheme : internalTheme;
+  const compactMode = propCompactMode !== undefined ? propCompactMode : internalCompactMode;
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -52,9 +63,18 @@ export function SettingsView({
   }, []);
 
   const handleThemeChange = (newTheme: string) => {
-    setTheme(newTheme);
+    setInternalTheme(newTheme);
     localStorage.setItem("app-theme", newTheme);
-    // Real implementation would toggle a class on document.body or HTML element
+    document.documentElement.setAttribute("data-bs-theme", newTheme);
+    document.documentElement.setAttribute("data-theme", newTheme);
+    if (newTheme === "dark") {
+      document.documentElement.classList.add("dark");
+      document.body.classList.add("dark-mode");
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.body.classList.remove("dark-mode");
+    }
+    onThemeChange?.(newTheme);
   };
 
   const handleNotificationsChange = (val: boolean) => {
@@ -63,8 +83,16 @@ export function SettingsView({
   };
 
   const handleCompactModeChange = (val: boolean) => {
-    setCompactMode(val);
+    setInternalCompactMode(val);
     localStorage.setItem("app-compact-mode", String(val));
+    if (val) {
+      document.body.classList.add("compact-mode");
+      document.documentElement.classList.add("compact-mode");
+    } else {
+      document.body.classList.remove("compact-mode");
+      document.documentElement.classList.remove("compact-mode");
+    }
+    onCompactModeChange?.(val);
   };
 
   return (

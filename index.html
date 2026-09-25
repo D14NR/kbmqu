@@ -14,6 +14,22 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
     />
+    <script>
+      (function() {
+        try {
+          var theme = localStorage.getItem('app-theme') || 'light';
+          var compact = localStorage.getItem('app-compact-mode') === 'true';
+          document.documentElement.setAttribute('data-bs-theme', theme);
+          document.documentElement.setAttribute('data-theme', theme);
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+          }
+          if (compact) {
+            document.documentElement.classList.add('compact-mode');
+          }
+        } catch(e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

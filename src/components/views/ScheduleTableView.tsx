@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { formatScheduleLabel } from "../../utils/schedule";
 import { isNationalHoliday, getNationalHolidayName } from "../../config/holidays";
 import { getTagStyle } from "../../utils/tagColor";
@@ -184,6 +185,29 @@ export function ScheduleTableView({
     }
     prevPeriodKeyRef.current = currentPeriodKey;
   }, [isJadwalTambahanMenu, activeScheduleDates]);
+
+  // Reset vertical scroll on search/filter changes
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+  }, [searchFilter, selectedJenjangFilter, onlyConflictFilter]);
+
+  // Virtualizer for smooth rendering of large schedule datasets
+  const rowVirtualizer = useVirtualizer({
+    count: filteredGroups.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 78,
+    overscan: 6,
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? totalSize - virtualRows[virtualRows.length - 1].end
+      : 0;
 
   return (
     <div className="schedule-table-module d-flex flex-column gap-3 mt-3">
@@ -500,308 +524,335 @@ export function ScheduleTableView({
                 </td>
               </tr>
             ) : (
-              filteredGroups.map((group, groupIndex) => (
-                <tr key={`${group.cabang}-${group.kelas}-${group.sekolah || ""}`}>
-                  {/* Action Column */}
-                  <td className="text-center col-aksi sticky-col-aksi">
-                    {readOnly ? (
-                      <span className="text-muted">-</span>
-                    ) : (
-                      <div className="d-flex flex-column align-items-center justify-content-center gap-1 py-1">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onMoveClass(group, -1);
-                          }}
-                          className="btn btn-sm p-0 rounded-2 border bg-white text-secondary shadow-xs hover-bg-light"
-                          style={{ width: "26px", height: "24px" }}
-                          aria-label="Geser kelas ke atas"
-                          title="Geser kelas ke atas"
-                          disabled={saving || groupIndex === 0}
-                        >
-                          <i className="bi bi-chevron-up" style={{ fontSize: "12px" }} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onMoveClass(group, 1);
-                          }}
-                          className="btn btn-sm p-0 rounded-2 border bg-white text-secondary shadow-xs hover-bg-light"
-                          style={{ width: "26px", height: "24px" }}
-                          aria-label="Geser kelas ke bawah"
-                          title="Geser kelas ke bawah"
-                          disabled={saving || groupIndex === filteredGroups.length - 1}
-                        >
-                          <i className="bi bi-chevron-down" style={{ fontSize: "12px" }} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onDeleteClass(group);
-                          }}
-                          className="btn btn-sm p-0 rounded-2 border border-danger-subtle bg-danger-subtle text-danger shadow-xs"
-                          style={{ width: "26px", height: "24px" }}
-                          aria-label="Hapus kelas"
-                          disabled={saving || (!isAdmin && (group.entriesByDate?.[todayStr] ?? []).length > 0)}
-                          title={
-                            saving || (!isAdmin && (group.entriesByDate?.[todayStr] ?? []).length > 0)
-                              ? "Tidak dapat menghapus kelas yang memiliki jadwal hari ini"
-                              : "Hapus kelas ini"
-                          }
-                        >
-                          <i className="bi bi-trash" style={{ fontSize: "12px" }} />
-                        </button>
-                      </div>
-                    )}
-                  </td>
+              <>
+                {paddingTop > 0 && (
+                  <tr>
+                    <td
+                      colSpan={activeScheduleDates.length + 2}
+                      style={{ height: `${paddingTop}px`, padding: 0, border: 0 }}
+                    />
+                  </tr>
+                )}
+                {virtualRows.map((virtualRow) => {
+                  const group = filteredGroups[virtualRow.index];
+                  const groupIndex = virtualRow.index;
 
-                  {/* Class Column */}
-                  <td className="fw-semibold col-kelas sticky-col-kelas">
-                    {!readOnly ? (
-                      <div className="schedule-class-wrapper p-1">
-                        <button
-                          type="button"
-                          className="btn btn-link text-start text-decoration-none text-reset p-0 w-100 class-interactive-card"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            (onOpenEditClass as any)(group);
-                          }}
-                          aria-label="Edit nama kelas"
-                          title="Klik untuk edit kelas / jenjang"
-                        >
-                          <div className="d-flex align-items-center gap-1 mb-1 flex-wrap">
-                            {group.jenjang ? (
-                              <span className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs rounded-pill px-2 py-0.5">
-                                {group.jenjang}
-                              </span>
-                            ) : null}
-                            {group.classOrder !== undefined && group.classOrder !== null && (
-                              <span
-                                className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle text-xxs rounded-pill px-1.5 py-0.5 font-monospace"
-                                title={`Urutan Kelas: ${group.classOrder}`}
-                              >
-                                #{group.classOrder}
-                              </span>
-                            )}
-                          </div>
-                          <div className="schedule-class-main fw-bold text-dark d-flex align-items-center justify-content-between">
-                            <span>{group.kelas}</span>
-                            <i className="bi bi-pencil-square text-muted text-xxs class-edit-icon" />
-                          </div>
-                          {isJadwalTambahanMenu && group.sekolah ? (
-                            <div className="schedule-class-sub text-muted small mt-0.5 text-truncate" title={group.sekolah}>
-                              <i className="bi bi-building me-1" />
-                              {group.sekolah}
-                            </div>
-                          ) : null}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="schedule-class-wrapper p-1">
-                        <div className="d-flex align-items-center gap-1 mb-1 flex-wrap">
-                          {group.jenjang ? (
-                            <span className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs rounded-pill px-2 py-0.5">
-                              {group.jenjang}
-                            </span>
-                          ) : null}
-                          {group.classOrder !== undefined && group.classOrder !== null && (
-                            <span
-                              className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle text-xxs rounded-pill px-1.5 py-0.5 font-monospace"
-                              title={`Urutan Kelas: ${group.classOrder}`}
-                            >
-                              #{group.classOrder}
-                            </span>
-                          )}
-                        </div>
-                        <div className="schedule-class-main fw-bold text-dark">{group.kelas}</div>
-                        {isJadwalTambahanMenu && group.sekolah ? (
-                          <div className="schedule-class-sub text-muted small mt-0.5 text-truncate" title={group.sekolah}>
-                            <i className="bi bi-building me-1" />
-                            {group.sekolah}
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
-                  </td>
-
-                  {/* Schedule Slot Cells */}
-                  {activeScheduleDates.map((slot, index) => {
-                    const entries = group.entriesByDate[slot.date] ?? [];
-                    const hasConflictInCell = entries.some((item) => conflictEntryIds.has(item.id));
-                    const isEditingCell =
-                      editingSlot?.cabang === group.cabang &&
-                      editingSlot?.kelas === group.kelas &&
-                      (editingSlot?.sekolah || "") === (group.sekolah || "") &&
-                      editingSlot?.tanggal === slot.date;
-                    const holidayCell = isNationalHoliday(slot.date);
-                    const isToday = slot.date === todayStr;
-
-                    return (
-                      <td
-                        key={slot.date}
-                        onClick={() => {
-                          if (!readOnly) {
-                            if (!isAdmin && slot.date === todayStr) {
-                              window.alert("Tidak diperbolehkan menambah atau mengubah jadwal pada hari ini.");
-                            } else {
-                              onSelectSlot(group, slot);
-                            }
-                          }
-                        }}
-                        title={
-                          !isAdmin && slot.date === todayStr
-                            ? "Terkunci: Tidak dapat menambah/mengubah jadwal hari ini"
-                            : hasConflictInCell
-                            ? "⚠️ Terdapat jadwal bentrok di sel ini! Klik untuk mengelola/memperbaiki sesi."
-                            : !readOnly
-                            ? "Klik untuk menambah / kelola jadwal sesi ini"
-                            : undefined
-                        }
-                        className={`schedule-cell ${
-                          !isJadwalTambahanMenu && activeDayStartIndexes.has(index) && index !== 0 ? "day-divider" : ""
-                        } ${isEditingCell && !editingSlot?.entryId ? "is-editing" : ""} ${
-                          hasConflictInCell ? "schedule-cell-conflict" : ""
-                        } ${holidayCell ? "holiday-col" : ""} ${isToday ? "today-cell-col" : ""}`}
-                      >
-                        {hasConflictInCell && (
-                          <div className="schedule-cell-alert-bar d-flex align-items-center justify-content-center gap-1 mb-1 py-0.5 px-1 rounded text-white bg-danger shadow-xs">
-                            <i className="bi bi-exclamation-octagon-fill text-xxs animate-pulse" />
-                            <span className="fw-bold" style={{ fontSize: "8px", letterSpacing: "0.3px" }}>
-                              BENTROK
-                            </span>
-                          </div>
-                        )}
-
-                        {entries.length === 0 ? (
-                          <div className="schedule-empty-slot d-flex align-items-center justify-content-center">
-                            {!readOnly && (isAdmin || !isToday) ? (
-                              <span className="empty-add-icon text-muted opacity-25">
-                                <i className="bi bi-plus-lg" />
-                              </span>
-                            ) : (
-                              <span className="text-muted text-xxs opacity-50">-</span>
-                            )}
-                          </div>
+                  return (
+                    <tr
+                      key={`${group.cabang}-${group.kelas}-${group.sekolah || ""}-${groupIndex}`}
+                      ref={rowVirtualizer.measureElement}
+                      data-index={virtualRow.index}
+                    >
+                      {/* Action Column */}
+                      <td className="text-center col-aksi sticky-col-aksi">
+                        {readOnly ? (
+                          <span className="text-muted">-</span>
                         ) : (
-                          <div className="d-flex flex-column gap-1.5 py-0.5">
-                            {entries.map((item, itemIndex) => {
-                              const isEditingEntry = editingSlot?.entryId === item.id;
-                              const rawMapel = item.mapel || `Sesi ${itemIndex + 1}`;
-                              const displayKode = getMapelKode(rawMapel) || rawMapel;
-                              const tagStyle = getTagStyle(displayKode, "mapel");
-                              const isConflict = conflictEntryIds.has(item.id);
-
-                              return (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  className={`btn text-start p-1.5 schedule-entry-btn rounded-2 shadow-xs ${
-                                    isEditingEntry ? "active" : ""
-                                  } ${isConflict ? "is-conflict" : ""}`}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    if (!readOnly) {
-                                      if (!isAdmin && slot.date === todayStr) {
-                                        window.alert("Tidak diperbolehkan menambah atau mengubah jadwal pada hari ini.");
-                                      } else {
-                                        onSelectSlot(group, slot, item);
-                                      }
-                                    }
-                                  }}
-                                  disabled={readOnly || (!isAdmin && slot.date === todayStr)}
-                                  title={
-                                    !isAdmin && slot.date === todayStr
-                                      ? "Terkunci: Tidak dapat mengubah/hapus jadwal hari ini"
-                                      : isConflict
-                                      ? `⚠️ BENTROK: Pengajar ${item.pengajar || ""} terjadwal di cabang lain pada jam ${item.waktu || ""}. Klik untuk memperbaiki jadwal!`
-                                      : undefined
-                                  }
-                                >
-                                  {/* Mapel Header Pill & Conflict Indicator */}
-                                  <div className="d-flex align-items-center justify-content-between gap-1 flex-wrap">
-                                    <span
-                                      className="name-chip fw-bold text-xxs"
-                                      style={{
-                                        ...tagStyle,
-                                        fontSize: "9px",
-                                        padding: "1px 5px",
-                                        maxWidth: "100%",
-                                      }}
-                                    >
-                                      {displayKode}
-                                    </span>
-                                    {isConflict && (
-                                      <span
-                                        className="badge bg-danger text-white border border-danger-subtle d-inline-flex align-items-center gap-0.5 px-1.5 py-0.5 rounded-pill shadow-xs animate-pulse"
-                                        style={{ fontSize: "7.5px", letterSpacing: "0.2px" }}
-                                        title="Pengajar bentrok pada jam ini! Klik untuk perbaiki."
-                                      >
-                                        <i className="bi bi-exclamation-triangle-fill" style={{ fontSize: "7.5px" }} />
-                                        <span>BENTROK</span>
-                                      </span>
-                                    )}
-                                    {isToday && !isAdmin && !isConflict && (
-                                      <i className="bi bi-lock-fill text-muted text-xxs" title="Terkunci hari ini" />
-                                    )}
-                                  </div>
-
-                                  {/* Gabung Info */}
-                                  {item.isGabung ? (
-                                    <div className="schedule-class-sub text-xxs mt-0.5 text-primary fw-semibold">
-                                      <i className="bi bi-link-45deg me-0.5" />
-                                      Gabung
-                                    </div>
-                                  ) : null}
-
-                                  {/* Pengajar */}
-                                  <div className="mt-1 d-flex align-items-center gap-1">
-                                    {item.pengajar ? (
-                                      <span
-                                        className={`name-chip fw-semibold text-xxs ${
-                                          isConflict ? "border-danger text-danger bg-danger-subtle" : ""
-                                        }`}
-                                        style={{
-                                          ...(!isConflict ? getTagStyle(item.pengajar, "pengajar") : {}),
-                                          fontSize: "9px",
-                                          padding: "1px 5px",
-                                        }}
-                                      >
-                                        {item.pengajar}
-                                      </span>
-                                    ) : (
-                                      <span className="text-muted text-xxs">-</span>
-                                    )}
-                                  </div>
-
-                                  {/* Waktu Jam */}
-                                  <div
-                                    className={`text-xxs mt-1 font-monospace d-flex align-items-center justify-content-between gap-1 ${
-                                      isConflict ? "text-danger fw-bold" : "text-muted"
-                                    }`}
-                                  >
-                                    <div className="d-flex align-items-center gap-1">
-                                      <i className={`bi bi-clock ${isConflict ? "text-danger" : "text-primary opacity-75"}`} />
-                                      <span>{item.waktu || "-"}</span>
-                                    </div>
-                                    {isConflict && !readOnly && slot.date !== todayStr && (
-                                      <span className="badge bg-danger-subtle text-danger border border-danger-subtle text-xxs px-1 py-0" title="Klik untuk perbaiki">
-                                        Perbaiki
-                                      </span>
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })}
+                          <div className="d-flex flex-column align-items-center justify-content-center gap-1 py-1">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onMoveClass(group, -1);
+                              }}
+                              className="btn btn-sm p-0 rounded-2 border bg-white text-secondary shadow-xs hover-bg-light"
+                              style={{ width: "26px", height: "24px" }}
+                              aria-label="Geser kelas ke atas"
+                              title="Geser kelas ke atas"
+                              disabled={saving || groupIndex === 0}
+                            >
+                              <i className="bi bi-chevron-up" style={{ fontSize: "12px" }} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onMoveClass(group, 1);
+                              }}
+                              className="btn btn-sm p-0 rounded-2 border bg-white text-secondary shadow-xs hover-bg-light"
+                              style={{ width: "26px", height: "24px" }}
+                              aria-label="Geser kelas ke bawah"
+                              title="Geser kelas ke bawah"
+                              disabled={saving || groupIndex === filteredGroups.length - 1}
+                            >
+                              <i className="bi bi-chevron-down" style={{ fontSize: "12px" }} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteClass(group);
+                              }}
+                              className="btn btn-sm p-0 rounded-2 border border-danger-subtle bg-danger-subtle text-danger shadow-xs"
+                              style={{ width: "26px", height: "24px" }}
+                              aria-label="Hapus kelas"
+                              disabled={saving || (!isAdmin && (group.entriesByDate?.[todayStr] ?? []).length > 0)}
+                              title={
+                                saving || (!isAdmin && (group.entriesByDate?.[todayStr] ?? []).length > 0)
+                                  ? "Tidak dapat menghapus kelas yang memiliki jadwal hari ini"
+                                  : "Hapus kelas ini"
+                              }
+                            >
+                              <i className="bi bi-trash" style={{ fontSize: "12px" }} />
+                            </button>
                           </div>
                         )}
                       </td>
-                    );
-                  })}
-                </tr>
-              ))
+
+                      {/* Class Column */}
+                      <td className="fw-semibold col-kelas sticky-col-kelas">
+                        {!readOnly ? (
+                          <div className="schedule-class-wrapper p-1">
+                            <button
+                              type="button"
+                              className="btn btn-link text-start text-decoration-none text-reset p-0 w-100 class-interactive-card"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                (onOpenEditClass as any)(group);
+                              }}
+                              aria-label="Edit nama kelas"
+                              title="Klik untuk edit kelas / jenjang"
+                            >
+                              <div className="d-flex align-items-center gap-1 mb-1 flex-wrap">
+                                {group.jenjang ? (
+                                  <span className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs rounded-pill px-2 py-0.5">
+                                    {group.jenjang}
+                                  </span>
+                                ) : null}
+                                {group.classOrder !== undefined && group.classOrder !== null && (
+                                  <span
+                                    className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle text-xxs rounded-pill px-1.5 py-0.5 font-monospace"
+                                    title={`Urutan Kelas: ${group.classOrder}`}
+                                  >
+                                    #{group.classOrder}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="schedule-class-main fw-bold text-dark d-flex align-items-center justify-content-between">
+                                <span>{group.kelas}</span>
+                                <i className="bi bi-pencil-square text-muted text-xxs class-edit-icon" />
+                              </div>
+                              {isJadwalTambahanMenu && group.sekolah ? (
+                                <div className="schedule-class-sub text-muted small mt-0.5 text-truncate" title={group.sekolah}>
+                                  <i className="bi bi-building me-1" />
+                                  {group.sekolah}
+                                </div>
+                              ) : null}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="schedule-class-wrapper p-1">
+                            <div className="d-flex align-items-center gap-1 mb-1 flex-wrap">
+                              {group.jenjang ? (
+                                <span className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs rounded-pill px-2 py-0.5">
+                                  {group.jenjang}
+                                </span>
+                              ) : null}
+                              {group.classOrder !== undefined && group.classOrder !== null && (
+                                <span
+                                  className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle text-xxs rounded-pill px-1.5 py-0.5 font-monospace"
+                                  title={`Urutan Kelas: ${group.classOrder}`}
+                                >
+                                  #{group.classOrder}
+                                </span>
+                              )}
+                            </div>
+                            <div className="schedule-class-main fw-bold text-dark">{group.kelas}</div>
+                            {isJadwalTambahanMenu && group.sekolah ? (
+                              <div className="schedule-class-sub text-muted small mt-0.5 text-truncate" title={group.sekolah}>
+                                <i className="bi bi-building me-1" />
+                                {group.sekolah}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Schedule Slot Cells */}
+                      {activeScheduleDates.map((slot, index) => {
+                        const entries = group.entriesByDate[slot.date] ?? [];
+                        const hasConflictInCell = entries.some((item) => conflictEntryIds.has(item.id));
+                        const isEditingCell =
+                          editingSlot?.cabang === group.cabang &&
+                          editingSlot?.kelas === group.kelas &&
+                          (editingSlot?.sekolah || "") === (group.sekolah || "") &&
+                          editingSlot?.tanggal === slot.date;
+                        const holidayCell = isNationalHoliday(slot.date);
+                        const isToday = slot.date === todayStr;
+
+                        return (
+                          <td
+                            key={slot.date}
+                            onClick={() => {
+                              if (!readOnly) {
+                                if (!isAdmin && slot.date === todayStr) {
+                                  window.alert("Tidak diperbolehkan menambah atau mengubah jadwal pada hari ini.");
+                                } else {
+                                  onSelectSlot(group, slot);
+                                }
+                              }
+                            }}
+                            title={
+                              !isAdmin && slot.date === todayStr
+                                ? "Terkunci: Tidak dapat menambah/mengubah jadwal hari ini"
+                                : hasConflictInCell
+                                ? "⚠️ Terdapat jadwal bentrok di sel ini! Klik untuk mengelola/memperbaiki sesi."
+                                : !readOnly
+                                ? "Klik untuk menambah / kelola jadwal sesi ini"
+                                : undefined
+                            }
+                            className={`schedule-cell ${
+                              !isJadwalTambahanMenu && activeDayStartIndexes.has(index) && index !== 0 ? "day-divider" : ""
+                            } ${isEditingCell && !editingSlot?.entryId ? "is-editing" : ""} ${
+                              hasConflictInCell ? "schedule-cell-conflict" : ""
+                            } ${holidayCell ? "holiday-col" : ""} ${isToday ? "today-cell-col" : ""}`}
+                          >
+                            {hasConflictInCell && (
+                              <div className="schedule-cell-alert-bar d-flex align-items-center justify-content-center gap-1 mb-1 py-0.5 px-1 rounded text-white bg-danger shadow-xs">
+                                <i className="bi bi-exclamation-octagon-fill text-xxs animate-pulse" />
+                                <span className="fw-bold" style={{ fontSize: "8px", letterSpacing: "0.3px" }}>
+                                  BENTROK
+                                </span>
+                              </div>
+                            )}
+
+                            {entries.length === 0 ? (
+                              <div className="schedule-empty-slot d-flex align-items-center justify-content-center">
+                                {!readOnly && (isAdmin || !isToday) ? (
+                                  <span className="empty-add-icon text-muted opacity-25">
+                                    <i className="bi bi-plus-lg" />
+                                  </span>
+                                ) : (
+                                  <span className="text-muted text-xxs opacity-50">-</span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="d-flex flex-column gap-1.5 py-0.5">
+                                {entries.map((item, itemIndex) => {
+                                  const isEditingEntry = editingSlot?.entryId === item.id;
+                                  const rawMapel = item.mapel || `Sesi ${itemIndex + 1}`;
+                                  const displayKode = getMapelKode(rawMapel) || rawMapel;
+                                  const tagStyle = getTagStyle(displayKode, "mapel");
+                                  const isConflict = conflictEntryIds.has(item.id);
+
+                                  return (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      className={`btn text-start p-1.5 schedule-entry-btn rounded-2 shadow-xs ${
+                                        isEditingEntry ? "active" : ""
+                                      } ${isConflict ? "is-conflict" : ""}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (!readOnly) {
+                                          if (!isAdmin && slot.date === todayStr) {
+                                            window.alert("Tidak diperbolehkan menambah atau mengubah jadwal pada hari ini.");
+                                          } else {
+                                            onSelectSlot(group, slot, item);
+                                          }
+                                        }
+                                      }}
+                                      disabled={readOnly || (!isAdmin && slot.date === todayStr)}
+                                      title={
+                                        !isAdmin && slot.date === todayStr
+                                          ? "Terkunci: Tidak dapat mengubah/hapus jadwal hari ini"
+                                          : isConflict
+                                          ? `⚠️ BENTROK: Pengajar ${item.pengajar || ""} terjadwal di cabang lain pada jam ${item.waktu || ""}. Klik untuk memperbaiki jadwal!`
+                                          : undefined
+                                      }
+                                    >
+                                      {/* Mapel Header Pill & Conflict Indicator */}
+                                      <div className="d-flex align-items-center justify-content-between gap-1 flex-wrap">
+                                        <span
+                                          className="name-chip fw-bold text-xxs"
+                                          style={{
+                                            ...tagStyle,
+                                            fontSize: "9px",
+                                            padding: "1px 5px",
+                                            maxWidth: "100%",
+                                          }}
+                                        >
+                                          {displayKode}
+                                        </span>
+                                        {isConflict && (
+                                          <span
+                                            className="badge bg-danger text-white border border-danger-subtle d-inline-flex align-items-center gap-0.5 px-1.5 py-0.5 rounded-pill shadow-xs animate-pulse"
+                                            style={{ fontSize: "7.5px", letterSpacing: "0.2px" }}
+                                            title="Pengajar bentrok pada jam ini! Klik untuk perbaiki."
+                                          >
+                                            <i className="bi bi-exclamation-triangle-fill" style={{ fontSize: "7.5px" }} />
+                                            <span>BENTROK</span>
+                                          </span>
+                                        )}
+                                        {isToday && !isAdmin && !isConflict && (
+                                          <i className="bi bi-lock-fill text-muted text-xxs" title="Terkunci hari ini" />
+                                        )}
+                                      </div>
+
+                                      {/* Gabung Info */}
+                                      {item.isGabung ? (
+                                        <div className="schedule-class-sub text-xxs mt-0.5 text-primary fw-semibold">
+                                          <i className="bi bi-link-45deg me-0.5" />
+                                          Gabung
+                                        </div>
+                                      ) : null}
+
+                                      {/* Pengajar */}
+                                      <div className="mt-1 d-flex align-items-center gap-1">
+                                        {item.pengajar ? (
+                                          <span
+                                            className={`name-chip fw-semibold text-xxs ${
+                                              isConflict ? "border-danger text-danger bg-danger-subtle" : ""
+                                            }`}
+                                            style={{
+                                              ...(!isConflict ? getTagStyle(item.pengajar, "pengajar") : {}),
+                                              fontSize: "9px",
+                                              padding: "1px 5px",
+                                            }}
+                                          >
+                                            {item.pengajar}
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted text-xxs">-</span>
+                                        )}
+                                      </div>
+
+                                      {/* Waktu Jam */}
+                                      <div
+                                        className={`text-xxs mt-1 font-monospace d-flex align-items-center justify-content-between gap-1 ${
+                                          isConflict ? "text-danger fw-bold" : "text-muted"
+                                        }`}
+                                      >
+                                        <div className="d-flex align-items-center gap-1">
+                                          <i className={`bi bi-clock ${isConflict ? "text-danger" : "text-primary opacity-75"}`} />
+                                          <span>{item.waktu || "-"}</span>
+                                        </div>
+                                        {isConflict && !readOnly && slot.date !== todayStr && (
+                                          <span className="badge bg-danger-subtle text-danger border border-danger-subtle text-xxs px-1 py-0" title="Klik untuk perbaiki">
+                                            Perbaiki
+                                          </span>
+                                        )}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+                {paddingBottom > 0 && (
+                  <tr>
+                    <td
+                      colSpan={activeScheduleDates.length + 2}
+                      style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }}
+                    />
+                  </tr>
+                )}
+              </>
             )}
           </tbody>
           {!readOnly && filteredGroups.length > 0 && (
