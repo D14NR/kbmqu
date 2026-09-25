@@ -717,7 +717,7 @@ export function App() {
     const timeoutId = window.setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
       delete toastTimeoutsRef.current[id];
-    }, 3200);
+    }, 2000);
 
     toastTimeoutsRef.current[id] = timeoutId;
   };
@@ -7343,6 +7343,7 @@ export function App() {
       );
     }
 
+    clearEditing();
     try {
       if (entryId) {
         await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
@@ -7354,7 +7355,6 @@ export function App() {
       } else {
         await postToSheet({ action: "append", record: sheetRecord });
       }
-      clearEditing();
       pushToast("Jadwal berhasil disimpan.", "success");
       await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     } catch (err: any) {
@@ -7397,9 +7397,9 @@ export function App() {
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== deletingId),
     }));
+    clearEditing();
     try {
       await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
-      clearEditing();
       pushToast("Sesi jadwal berhasil dihapus.", "success");
       await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     } catch (err: any) {
@@ -7411,11 +7411,9 @@ export function App() {
     }
   };
 
-  const isBusy = isImporting || sheetStatus.saving;
+  const isBusy = isImporting;
 
-  const busyMessage = sheetStatus.saving
-    ? "Menyimpan perubahan ke database..."
-    : "Memproses import data Excel...";
+  const busyMessage = "Memproses import data Excel...";
 
   if (isAppInitializing) {
     return (

@@ -1150,9 +1150,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  pointer-events: none !important;
 }
 
 .app-toast {
+  pointer-events: auto !important;
+  cursor: pointer;
   border-radius: 12px;
   border: 1px solid transparent;
   box-shadow: 0 10px 25px -3px rgba(15, 23, 42, 0.18), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
@@ -1166,6 +1169,11 @@ body {
   min-width: 280px;
   max-width: 440px;
   animation: slide-in 0.18s ease-out;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.app-toast:hover {
+  transform: translateY(-2px);
 }
 
 .app-toast-success {
@@ -1903,19 +1911,90 @@ body.dark-mode .alert-info,
 
 body.dark-mode .form-control,
 body.dark-mode .form-select,
+body.dark-mode input,
+body.dark-mode textarea,
+body.dark-mode select,
 [data-theme="dark"] .form-control,
-[data-theme="dark"] .form-select {
+[data-theme="dark"] .form-select,
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select,
+[data-bs-theme="dark"] .form-control,
+[data-bs-theme="dark"] .form-select,
+[data-bs-theme="dark"] input,
+[data-bs-theme="dark"] textarea,
+[data-bs-theme="dark"] select {
   background-color: #0f172a !important;
   border-color: #475569 !important;
   color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  caret-color: #60a5fa !important;
 }
 
 body.dark-mode .form-control:focus,
 body.dark-mode .form-select:focus,
+body.dark-mode input:focus,
+body.dark-mode textarea:focus,
+body.dark-mode select:focus,
 [data-theme="dark"] .form-control:focus,
-[data-theme="dark"] .form-select:focus {
+[data-theme="dark"] .form-select:focus,
+[data-theme="dark"] input:focus,
+[data-theme="dark"] textarea:focus,
+[data-theme="dark"] select:focus,
+[data-bs-theme="dark"] .form-control:focus,
+[data-bs-theme="dark"] .form-select:focus,
+[data-bs-theme="dark"] input:focus,
+[data-bs-theme="dark"] textarea:focus,
+[data-bs-theme="dark"] select:focus {
+  background-color: #0f172a !important;
   border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #60a5fa !important;
   box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25) !important;
+}
+
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder,
+body.dark-mode .form-control::placeholder,
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder,
+[data-theme="dark"] .form-control::placeholder,
+[data-bs-theme="dark"] input::placeholder,
+[data-bs-theme="dark"] textarea::placeholder,
+[data-bs-theme="dark"] .form-control::placeholder {
+  color: #64748b !important;
+  -webkit-text-fill-color: #64748b !important;
+  opacity: 1 !important;
+}
+
+body.dark-mode input:-webkit-autofill,
+body.dark-mode input:-webkit-autofill:hover,
+body.dark-mode input:-webkit-autofill:focus,
+[data-theme="dark"] input:-webkit-autofill,
+[data-theme="dark"] input:-webkit-autofill:hover,
+[data-theme="dark"] input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f8fafc !important;
+  -webkit-box-shadow: 0 0 0px 1000px #0f172a inset !important;
+  box-shadow: 0 0 0px 1000px #0f172a inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: #60a5fa !important;
+}
+
+body.dark-mode input[readonly],
+body.dark-mode input:disabled,
+body.dark-mode textarea[readonly],
+body.dark-mode textarea:disabled,
+body.dark-mode select:disabled,
+[data-theme="dark"] input[readonly],
+[data-theme="dark"] input:disabled,
+[data-theme="dark"] textarea[readonly],
+[data-theme="dark"] textarea:disabled,
+[data-theme="dark"] select:disabled {
+  background-color: #1e293b !important;
+  color: #94a3b8 !important;
+  -webkit-text-fill-color: #94a3b8 !important;
+  border-color: #334155 !important;
 }
 
 body.dark-mode .input-group-text,
@@ -2252,12 +2331,19 @@ body.dark-mode .app-toast .btn-close:hover,
 }
 
 /* =========================================================
-   REACT-SELECT COMPREHENSIVE DARK MODE STYLES
+   REACT-SELECT COMPREHENSIVE DARK MODE & TYPING STYLES
    ========================================================= */
 .react-select__control,
 div[class*="-control"] {
   border-radius: 8px !important;
   transition: all 0.15s ease !important;
+}
+
+.react-select__input input,
+.react-select__input-container input,
+div[class*="-Input"] input,
+div[class*="-input"] input {
+  caret-color: #2563eb !important;
 }
 
 body.dark-mode .react-select__control,
@@ -2281,17 +2367,31 @@ body.dark-mode div[class*="-singleValue"],
 [data-theme="dark"] .react-select__single-value,
 [data-theme="dark"] div[class*="-singleValue"] {
   color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
 }
 
 body.dark-mode .react-select__input-container,
+body.dark-mode .react-select__input,
+body.dark-mode .react-select__input input,
+body.dark-mode .react-select__input-container input,
 body.dark-mode div[class*="-Input"],
 body.dark-mode div[class*="-input"],
 body.dark-mode div[class*="-Input"] input,
+body.dark-mode div[class*="-input"] input,
+body.dark-mode div[class*="Input"] input,
 [data-theme="dark"] .react-select__input-container,
+[data-theme="dark"] .react-select__input,
+[data-theme="dark"] .react-select__input input,
+[data-theme="dark"] .react-select__input-container input,
 [data-theme="dark"] div[class*="-Input"],
 [data-theme="dark"] div[class*="-input"],
-[data-theme="dark"] div[class*="-Input"] input {
+[data-theme="dark"] div[class*="-Input"] input,
+[data-theme="dark"] div[class*="-input"] input,
+[data-theme="dark"] div[class*="Input"] input {
   color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  caret-color: #60a5fa !important;
+  opacity: 1 !important;
 }
 
 body.dark-mode .react-select__placeholder,
@@ -2299,6 +2399,7 @@ body.dark-mode div[class*="-placeholder"],
 [data-theme="dark"] .react-select__placeholder,
 [data-theme="dark"] div[class*="-placeholder"] {
   color: #64748b !important;
+  -webkit-text-fill-color: #64748b !important;
 }
 
 body.dark-mode .react-select__indicator-separator,
@@ -2368,6 +2469,7 @@ body.dark-mode div[class*="-multiValue"] div,
 [data-theme="dark"] .react-select__multi-value__label,
 [data-theme="dark"] div[class*="-multiValue"] div {
   color: #eff6ff !important;
+  -webkit-text-fill-color: #eff6ff !important;
 }
 
 /* Surat Tugas Dark Theme Adjustments */
