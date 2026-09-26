@@ -483,6 +483,62 @@ export function App() {
     };
   }, []);
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("app_auto_sync_enabled");
+      return saved === "true"; // Default: false (manual sync only, to prevent interruption while typing or scrolling)
+    } catch {
+      return false;
+    }
+  });
+
+  const lastUserActivityTimestampRef = useRef<number>(Date.now());
+
+  // Pantau aktivitas pengguna (scroll, ketik, gerak kursor, touch) agar sinkronisasi tidak pernah berjalan saat user sedang aktif
+  useEffect(() => {
+    const markActivity = () => {
+      lastUserActivityTimestampRef.current = Date.now();
+    };
+
+    window.addEventListener("scroll", markActivity, { passive: true });
+    window.addEventListener("wheel", markActivity, { passive: true });
+    window.addEventListener("mousemove", markActivity, { passive: true });
+    window.addEventListener("keydown", markActivity, { passive: true });
+    window.addEventListener("mousedown", markActivity, { passive: true });
+    window.addEventListener("touchstart", markActivity, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", markActivity);
+      window.removeEventListener("wheel", markActivity);
+      window.removeEventListener("mousemove", markActivity);
+      window.removeEventListener("keydown", markActivity);
+      window.removeEventListener("mousedown", markActivity);
+      window.removeEventListener("touchstart", markActivity);
+    };
+  }, []);
+
+  const toggleAutoSync = () => {
+    setAutoSyncEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("app_auto_sync_enabled", String(next));
+      } catch {
+        // ignore
+      }
+      if (next) {
+        pushToast(
+          "Auto-Sync diaktifkan (hanya sinkron saat santai/idle dan tidak akan mengganggu saat mengetik atau scroll).",
+          "info"
+        );
+      } else {
+        pushToast(
+          "Auto-Sync dinonaktifkan. Data hanya disinkronkan saat tombol Refresh ditekan.",
+          "info"
+        );
+      }
+      return next;
+    });
+  };
   const [isImporting, setIsImporting] = useState(false);
   const [isExportClassModalOpen, setIsExportClassModalOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -3112,10 +3168,36 @@ export function App() {
           createdAt: row.createdAt,
         } as RecordItem & { updatedAt?: string; createdAt?: string };
       });
-      setRecords((prev) => ({
-        ...prev,
-        [scheduleKey]: parsedRecords,
-      }));
+      setRecords((prev) => {
+        const currentList = prev[scheduleKey] ?? [];
+        if (
+          currentList.length === parsedRecords.length &&
+          currentList.every((curr, i) => {
+            const next = parsedRecords[i];
+            return (
+              next &&
+              curr.id === next.id &&
+              (curr.updatedAt || "") === (next.updatedAt || "") &&
+              curr.cabang === next.cabang &&
+              curr.kelas === next.kelas &&
+              curr.sekolah === next.sekolah &&
+              curr.tanggal === next.tanggal &&
+              curr.mapel === next.mapel &&
+              curr.pengajar === next.pengajar &&
+              curr.waktu === next.waktu &&
+              Boolean(curr.isGabung) === Boolean(next.isGabung) &&
+              (curr.gabungWith || "") === (next.gabungWith || "") &&
+              String(curr.classOrder || "") === String(next.classOrder || "")
+            );
+          })
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [scheduleKey]: parsedRecords,
+        };
+      });
       if (!options?.preserveUiState) {
         clearEditing();
         setQuery("");
@@ -3146,7 +3228,23 @@ export function App() {
       const parsed = rows.map((row) => toRecord(row));
       const normalized = parsed.map((row) => mapMapelRecord(row));
       setMapelHeaders(mapelHeadersExpected);
-      setMapelRecords(normalized);
+      setMapelRecords((prev) => {
+        if (
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.Mapel === next.Mapel &&
+              curr.Kode_Mapel === next.Kode_Mapel &&
+              curr.Kategori === next.Kategori
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
       setMapelStatus({
         loading: false,
         error: "",
@@ -3301,7 +3399,26 @@ export function App() {
         });
 
       setPengajarHeaders(expectedHeaders);
-      setPengajarRecords(records);
+      setPengajarRecords((prev) => {
+        if (
+          prev.length === records.length &&
+          prev.every((curr, i) => {
+            const next = records[i];
+            return (
+              next &&
+              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
+              curr["Nama"] === next["Nama"] &&
+              curr["Domisili"] === next["Domisili"] &&
+              curr["Bidang Studi"] === next["Bidang Studi"] &&
+              curr["No.WhatsApp"] === next["No.WhatsApp"] &&
+              curr["Username"] === next["Username"]
+            );
+          })
+        ) {
+          return prev;
+        }
+        return records;
+      });
       setPengajarStatus({
         loading: false,
         error: "",
@@ -3804,7 +3921,27 @@ export function App() {
         });
       });
 
-      setPenempatanRecords(normalized);
+      setPenempatanRecords((prev) => {
+        if (
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
+              curr["Nama Pengajar"] === next["Nama Pengajar"] &&
+              curr.Domisili === next.Domisili &&
+              curr.Hari === next.Hari &&
+              curr["Jam Mulai"] === next["Jam Mulai"] &&
+              curr["Jam Selesai"] === next["Jam Selesai"] &&
+              curr["Cabang Penempatan"] === next["Cabang Penempatan"]
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
       setPenempatanStatus({
         loading: false,
         error: "",
@@ -4105,7 +4242,25 @@ export function App() {
         .map((row) => ({ ...toRecord(row), _id: row.id }))
         .map((record) => normalizeIzinRecord(record));
       console.debug("[debug] normalized izin records count:", normalized.length);
-      setIzinRecords(normalized);
+      setIzinRecords((prev) => {
+        if (
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.ID === next.ID &&
+              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
+              curr["Keterangan Status"] === next["Keterangan Status"] &&
+              curr["Tanggal Mulai"] === next["Tanggal Mulai"] &&
+              curr["Tanggal Selesai"] === next["Tanggal Selesai"]
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
       setIzinStatus({
         loading: false,
         error: "",
@@ -4320,7 +4475,26 @@ export function App() {
         .map((row) => toRecord(row))
         .map((record) => normalizePermintaanRecord(record));
       console.debug("[debug] normalized permintaan records count:", normalized.length, "restrictedCabang=", restrictedCabang);
-      setPermintaanRecords(normalized);
+      setPermintaanRecords((prev) => {
+        if (
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.ID === next.ID &&
+              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
+              curr.Status === next.Status &&
+              curr["Tanggal Diminta"] === next["Tanggal Diminta"] &&
+              curr["Jam Mulai"] === next["Jam Mulai"] &&
+              curr["Jam Selesai"] === next["Jam Selesai"]
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
       setPermintaanStatus({
         loading: false,
         error: "",
@@ -4346,7 +4520,24 @@ export function App() {
         ...toRecord(row),
         id: row.id,
       }));
-      setAccountsCabangRecords(normalized);
+      setAccountsCabangRecords((prev) => {
+        if (
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.id === next.id &&
+              curr.Username === next.Username &&
+              curr.Roll === next.Roll &&
+              curr.Cabang === next.Cabang
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
       setAccountsCabangStatus({
         loading: false,
         error: "",
@@ -4805,17 +4996,25 @@ export function App() {
     await refreshAllData(true, true, false);
   };
 
-  // Silent Background Sync berkala (setiap 60 detik) dan saat tab aktif kembali:
-  // 1. Skip jika user belum login / sesi tidak aktif
-  // 2. Skip jika tab browser sedang di-minimize/hidden
-  // 3. Skip jika user sedang membuka modal form (tambah/edit jadwal, pengajar, mapel, izin, penempatan, donasi, dsb)
-  // 4. Skip jika user sedang aktif mengetik di input / textarea / select
-  // 5. Menggunakan mode true-silent tanpa blocking spinner atau disable UI
+  // Background Sync:
+  // 1. Hanya aktif jika opsi autoSyncEnabled bernilai true (default: nonaktif agar tidak mengganggu)
+  // 2. Skip jika user belum login / sesi tidak aktif
+  // 3. Skip jika tab browser sedang di-minimize/hidden
+  // 4. Skip jika user sedang aktif mengetik, scroll, menggerakkan kursor, atau klik dalam 60 detik terakhir
+  // 5. Skip jika user sedang membuka modal form (tambah/edit jadwal, pengajar, mapel, izin, penempatan, donasi, dsb)
+  // 6. Menggunakan interval 2 menit yang tenang dan tidak melakukan bypass cache secara agresif
   useEffect(() => {
-    if (!authSession) return;
+    if (!authSession || !autoSyncEnabled) return;
 
     const shouldSkipBackgroundSync = () => {
+      if (!autoSyncEnabled) return true;
       if (document.hidden) return true;
+
+      // Cek apakah pengguna baru saja berinteraksi (scroll, ketik, klik, mouse) dalam 60 detik terakhir
+      const timeSinceLastActivity = Date.now() - lastUserActivityTimestampRef.current;
+      if (timeSinceLastActivity < 60 * 1000) {
+        return true;
+      }
 
       const isAnyModalOpen = Boolean(
         editingSlot ||
@@ -4841,7 +5040,9 @@ export function App() {
         (activeEl.tagName === "INPUT" ||
           activeEl.tagName === "TEXTAREA" ||
           activeEl.tagName === "SELECT" ||
-          (activeEl as HTMLElement).isContentEditable)
+          (activeEl as HTMLElement).isContentEditable ||
+          activeEl.closest(".modal") ||
+          activeEl.closest(".dropdown-menu"))
       ) {
         return true;
       }
@@ -4849,35 +5050,22 @@ export function App() {
       return false;
     };
 
-    const ONE_MINUTE_MS = 60 * 1000;
+    const TWO_MINUTES_MS = 2 * 60 * 1000;
 
     const intervalId = window.setInterval(() => {
       if (shouldSkipBackgroundSync()) {
         return;
       }
-      // Jalankan sinkronisasi hening (silent) di latar belakang
-      void refreshAllData(false, true, true);
-    }, ONE_MINUTE_MS);
-
-    const handleVisibilityOrFocus = () => {
-      if (shouldSkipBackgroundSync()) return;
-      const now = Date.now();
-      // Hanya lakukan background refresh jika sudah lebih dari 20 detik sejak sync terakhir
-      if (now - lastRefreshAllTimestampRef.current >= 20 * 1000) {
-        void refreshAllData(false, false, true);
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
-    window.addEventListener("focus", handleVisibilityOrFocus);
+      // Jalankan sinkronisasi hening (silent) di latar belakang hanya jika user benar-benar sedang idle
+      void refreshAllData(false, false, true);
+    }, TWO_MINUTES_MS);
 
     return () => {
       window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
-      window.removeEventListener("focus", handleVisibilityOrFocus);
     };
   }, [
     authSession,
+    autoSyncEnabled,
     editingSlot,
     isClassModalOpen,
     isMapelModalOpen,
@@ -8155,8 +8343,30 @@ export function App() {
                     </button>
                     <button
                       type="button"
+                      className={`btn btn-sm d-flex align-items-center gap-1.5 ${
+                        autoSyncEnabled ? "btn-outline-primary" : "btn-outline-secondary"
+                      }`}
+                      title={
+                        autoSyncEnabled
+                          ? "Auto-Sync: Aktif (hanya berjalan otomatis saat Anda santai/idle). Klik untuk mematikan."
+                          : "Auto-Sync: Nonaktif (data hanya di-refresh saat tombol Refresh ditekan). Klik untuk mengaktifkan."
+                      }
+                      aria-label="Toggle Auto-Sync"
+                      onClick={toggleAutoSync}
+                    >
+                      <i
+                        className={`bi ${
+                          autoSyncEnabled ? "bi-arrow-repeat text-primary" : "bi-pause-circle text-muted"
+                        }`}
+                      />
+                      <span className="d-none d-lg-inline" style={{ fontSize: "0.8rem" }}>
+                        Auto-Sync: {autoSyncEnabled ? "Aktif" : "Mati"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
                       className="btn btn-outline-secondary btn-sm"
-                      title="Refresh semua data"
+                      title="Refresh semua data secara manual"
                       aria-label="Refresh semua data"
                       onClick={() => {
                         void handleRefreshAllData();
