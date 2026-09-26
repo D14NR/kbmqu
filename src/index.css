@@ -285,11 +285,17 @@ body {
 }
 
 .schedule-cell.schedule-cell-conflict {
-  background: #fff5f5 !important;
+  background: #fef2f2 !important;
   border: 2px solid #ef4444 !important;
   position: relative;
-  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.4), 0 0 8px rgba(239, 68, 68, 0.15) !important;
+  box-shadow: inset 0 0 0 1.5px #ef4444, 0 0 10px rgba(239, 68, 68, 0.25) !important;
   z-index: 2;
+}
+
+.schedule-cell.schedule-cell-conflict.has-gap-only {
+  background: #fff7ed !important;
+  border: 2px solid #f97316 !important;
+  box-shadow: inset 0 0 0 1.5px #f97316, 0 0 10px rgba(249, 115, 22, 0.2) !important;
 }
 
 .schedule-cell-alert-bar {
@@ -309,10 +315,20 @@ body {
   border-radius: 2px 2px 0 0;
 }
 
+.schedule-cell.schedule-cell-conflict.has-gap-only::before {
+  background: #ea580c !important;
+}
+
 .schedule-cell.schedule-cell-conflict:hover {
   background: #fee2e2 !important;
   border-color: #dc2626 !important;
-  box-shadow: inset 0 0 0 1.5px rgba(220, 38, 38, 0.8), 0 0 12px rgba(220, 38, 38, 0.25) !important;
+  box-shadow: inset 0 0 0 2px #dc2626, 0 0 14px rgba(220, 38, 38, 0.35) !important;
+}
+
+.schedule-cell.schedule-cell-conflict.has-gap-only:hover {
+  background: #ffedd5 !important;
+  border-color: #ea580c !important;
+  box-shadow: inset 0 0 0 2px #ea580c, 0 0 14px rgba(234, 88, 12, 0.3) !important;
 }
 
 .holiday-col {
@@ -358,10 +374,29 @@ body {
   }
 }
 
+@keyframes conflict-gap-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.4), 0 0 10px rgba(249, 115, 22, 0.35);
+    border-color: #f97316 !important;
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.75), 0 0 16px rgba(234, 88, 12, 0.55);
+    border-color: #ea580c !important;
+  }
+}
+
 .schedule-entry-btn.is-conflict {
-  border: 1.5px solid #ef4444 !important;
+  border: 2px solid #ef4444 !important;
   background-color: #ffffff !important;
   animation: conflict-pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  position: relative;
+  z-index: 1;
+}
+
+.schedule-entry-btn.is-conflict-gap {
+  border: 2px solid #f97316 !important;
+  background-color: #ffffff !important;
+  animation: conflict-gap-pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   position: relative;
   z-index: 1;
 }
@@ -373,10 +408,23 @@ body {
   box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.5), 0 4px 12px rgba(185, 28, 28, 0.35) !important;
 }
 
+.schedule-entry-btn.is-conflict-gap:hover {
+  border-color: #c2410c !important;
+  background-color: #fff7ed !important;
+  transform: translateY(-1.5px) scale(1.01);
+  box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.5), 0 4px 12px rgba(194, 65, 12, 0.35) !important;
+}
+
 .schedule-entry-btn.is-conflict.active {
   border-color: #991b1b !important;
   background-color: #fee2e2 !important;
   box-shadow: 0 0 0 3px rgba(153, 27, 27, 0.6), 0 0 14px rgba(153, 27, 27, 0.5) !important;
+}
+
+.schedule-conflict-note {
+  border-radius: 4px;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .schedule-entry-btn.active {
@@ -2123,9 +2171,37 @@ body.dark-mode .schedule-cell,
   border-color: #334155 !important;
 }
 
+body.dark-mode .schedule-cell.schedule-cell-conflict,
+[data-theme="dark"] .schedule-cell.schedule-cell-conflict {
+  background-color: #3b1114 !important;
+  border-color: #ef4444 !important;
+  box-shadow: inset 0 0 0 1.5px #ef4444, 0 0 12px rgba(239, 68, 68, 0.45) !important;
+}
+
+body.dark-mode .schedule-cell.schedule-cell-conflict.has-gap-only,
+[data-theme="dark"] .schedule-cell.schedule-cell-conflict.has-gap-only {
+  background-color: #381b0a !important;
+  border-color: #f97316 !important;
+  box-shadow: inset 0 0 0 1.5px #f97316, 0 0 12px rgba(249, 115, 22, 0.4) !important;
+}
+
 body.dark-mode .schedule-cell:hover,
 [data-theme="dark"] .schedule-cell:hover {
   background-color: #1e293b !important;
+}
+
+body.dark-mode .schedule-cell.schedule-cell-conflict:hover,
+[data-theme="dark"] .schedule-cell.schedule-cell-conflict:hover {
+  background-color: #4c1d24 !important;
+  border-color: #f87171 !important;
+  box-shadow: inset 0 0 0 2px #f87171, 0 0 16px rgba(248, 113, 113, 0.5) !important;
+}
+
+body.dark-mode .schedule-cell.schedule-cell-conflict.has-gap-only:hover,
+[data-theme="dark"] .schedule-cell.schedule-cell-conflict.has-gap-only:hover {
+  background-color: #4a2410 !important;
+  border-color: #fb923c !important;
+  box-shadow: inset 0 0 0 2px #fb923c, 0 0 16px rgba(251, 146, 60, 0.5) !important;
 }
 
 body.dark-mode .today-header-col,
@@ -2155,6 +2231,36 @@ body.dark-mode .schedule-entry-btn:hover,
 [data-theme="dark"] .schedule-entry-btn:hover {
   background-color: #334155 !important;
   border-color: #64748b !important;
+}
+
+body.dark-mode .schedule-entry-btn.is-conflict,
+[data-theme="dark"] .schedule-entry-btn.is-conflict {
+  background-color: #271417 !important;
+  border-color: #ef4444 !important;
+  color: #fecaca !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.5), 0 0 10px rgba(239, 68, 68, 0.4) !important;
+}
+
+body.dark-mode .schedule-entry-btn.is-conflict:hover,
+[data-theme="dark"] .schedule-entry-btn.is-conflict:hover {
+  background-color: #3b181c !important;
+  border-color: #f87171 !important;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.6), 0 0 14px rgba(248, 113, 113, 0.5) !important;
+}
+
+body.dark-mode .schedule-entry-btn.is-conflict-gap,
+[data-theme="dark"] .schedule-entry-btn.is-conflict-gap {
+  background-color: #271a0e !important;
+  border-color: #f97316 !important;
+  color: #fed7aa !important;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.5), 0 0 10px rgba(249, 115, 22, 0.4) !important;
+}
+
+body.dark-mode .schedule-entry-btn.is-conflict-gap:hover,
+[data-theme="dark"] .schedule-entry-btn.is-conflict-gap:hover {
+  background-color: #3d2311 !important;
+  border-color: #fb923c !important;
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.6), 0 0 14px rgba(251, 146, 60, 0.5) !important;
 }
 
 body.dark-mode .schedule-class-main,

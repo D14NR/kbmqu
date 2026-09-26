@@ -91,6 +91,16 @@ export type MonitoringRow = {
 
 export type ToastType = "success" | "error" | "info";
 
+export type ScheduleConflictInfo = {
+  type: "overlap" | "gap";
+  label: string;
+  reason: string;
+  otherCabang?: string;
+  otherKelas?: string;
+  otherWaktu?: string;
+  pengajar?: string;
+};
+
 export type AppToast = {
   id: string;
   message: string;

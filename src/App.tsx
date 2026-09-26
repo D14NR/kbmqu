@@ -60,6 +60,7 @@ import type {
   AuthSession,
   EditingSlot,
   RecordItem,
+  ScheduleConflictInfo,
   ToastType,
 } from "./types/app";
 import {
@@ -373,6 +374,7 @@ export function App() {
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const lastRefreshAllTimestampRef = useRef<number>(0);
+  const isSyncingRef = useRef<boolean>(false);
 
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const sidebarCollapsed = sidebarWidth <= 220;
@@ -1857,12 +1859,16 @@ export function App() {
 
   // allScheduleEntries and resolveCanonicalDate are initialized above
 
-  const conflictingScheduleEntryIds = useMemo(() => {
+  const { conflictingScheduleEntryIds, scheduleConflictDetails } = useMemo(() => {
     type ParsedScheduleEntry = {
       id: string;
       start: number;
       end: number;
       cabangNorm: string;
+      cabangRaw: string;
+      kelasRaw: string;
+      waktuRaw: string;
+      pengajarRaw: string;
       mapelNorm: string;
       waktuNorm: string;
       isGabung: boolean;
@@ -1891,6 +1897,10 @@ export function App() {
         start: range.start,
         end: range.end,
         cabangNorm: normalizeText(entry.cabang || ""),
+        cabangRaw: String(entry.cabang || "").trim(),
+        kelasRaw: String(entry.kelas || "").trim(),
+        waktuRaw: String(entry.waktu || "").trim(),
+        pengajarRaw: String(entry.pengajar || "").trim(),
         mapelNorm: normalizeText(entry.mapel || ""),
         waktuNorm: normalizeText(entry.waktu || ""),
         isGabung: Boolean(entry.isGabung),
@@ -1907,6 +1917,7 @@ export function App() {
     });
 
     const conflictIds = new Set<string>();
+    const conflictDetails = new Map<string, ScheduleConflictInfo>();
 
     groupedByPengajarTanggal.forEach((entries) => {
       const len = entries.length;
@@ -1923,17 +1934,17 @@ export function App() {
         for (let j = i + 1; j < len; j += 1) {
           const target = entries[j];
 
-          // If combined class (Kelas Gabungan), they are not in conflict
+          // If combined class (Kelas Gabungan in same branch), they are not in conflict
+          const isSameBranch = Boolean(current.cabangNorm && target.cabangNorm && current.cabangNorm === target.cabangNorm);
           const isCombined =
             current.id === target.id ||
-            current.isGabung ||
-            target.isGabung ||
-            Boolean(current.gabungWithNorm) ||
-            Boolean(target.gabungWithNorm) ||
-            (current.cabangNorm &&
-              current.cabangNorm === target.cabangNorm &&
-              current.waktuNorm === target.waktuNorm &&
-              current.mapelNorm === target.mapelNorm);
+            (isSameBranch && (
+              current.isGabung ||
+              target.isGabung ||
+              Boolean(current.gabungWithNorm) ||
+              Boolean(target.gabungWithNorm) ||
+              (current.waktuNorm === target.waktuNorm && current.mapelNorm === target.mapelNorm)
+            ));
 
           if (isCombined) {
             continue;
@@ -1951,6 +1962,29 @@ export function App() {
           if (isOverlap) {
             conflictIds.add(current.id);
             conflictIds.add(target.id);
+
+            const currentReason = `Bentrok jam mengajar dengan ${target.cabangRaw || "cabang lain"} (${target.kelasRaw || "kelas lain"}) pukul ${target.waktuRaw}`;
+            const targetReason = `Bentrok jam mengajar dengan ${current.cabangRaw || "cabang lain"} (${current.kelasRaw || "kelas lain"}) pukul ${current.waktuRaw}`;
+
+            conflictDetails.set(current.id, {
+              type: "overlap",
+              label: "BENTROK JAM",
+              reason: currentReason,
+              otherCabang: target.cabangRaw,
+              otherKelas: target.kelasRaw,
+              otherWaktu: target.waktuRaw,
+              pengajar: current.pengajarRaw || target.pengajarRaw,
+            });
+
+            conflictDetails.set(target.id, {
+              type: "overlap",
+              label: "BENTROK JAM",
+              reason: targetReason,
+              otherCabang: current.cabangRaw,
+              otherKelas: current.kelasRaw,
+              otherWaktu: current.waktuRaw,
+              pengajar: target.pengajarRaw || current.pengajarRaw,
+            });
           } else if (
             current.cabangNorm &&
             target.cabangNorm &&
@@ -1959,12 +1993,38 @@ export function App() {
             // Target starts before current.end + 30 in a different branch -> conflict gap
             conflictIds.add(current.id);
             conflictIds.add(target.id);
+
+            const currentExisting = conflictDetails.get(current.id);
+            if (!currentExisting || currentExisting.type === "gap") {
+              conflictDetails.set(current.id, {
+                type: "gap",
+                label: "JEDA CABANG < 30M",
+                reason: `Jeda antar cabang < 30 menit! Selesai di ${current.cabangRaw} (${current.waktuRaw}), jadwal berikutnya di ${target.cabangRaw} (${target.kelasRaw}) mulai pukul ${target.waktuRaw}`,
+                otherCabang: target.cabangRaw,
+                otherKelas: target.kelasRaw,
+                otherWaktu: target.waktuRaw,
+                pengajar: current.pengajarRaw || target.pengajarRaw,
+              });
+            }
+
+            const targetExisting = conflictDetails.get(target.id);
+            if (!targetExisting || targetExisting.type === "gap") {
+              conflictDetails.set(target.id, {
+                type: "gap",
+                label: "JEDA CABANG < 30M",
+                reason: `Jeda antar cabang < 30 menit! Mulai di ${target.cabangRaw} (${target.waktuRaw}), jadwal sebelumnya di ${current.cabangRaw} (${current.kelasRaw}) selesai pukul ${current.waktuRaw}`,
+                otherCabang: current.cabangRaw,
+                otherKelas: current.kelasRaw,
+                otherWaktu: current.waktuRaw,
+                pengajar: target.pengajarRaw || current.pengajarRaw,
+              });
+            }
           }
         }
       }
     });
 
-    return conflictIds;
+    return { conflictingScheduleEntryIds: conflictIds, scheduleConflictDetails: conflictDetails };
   }, [allScheduleEntries, resolvePengajarCode, resolveCanonicalDate]);
 
   const hasPengajarAccessInCabang = (kodePengajar: string, cabang: string, tanggal?: string) => {
@@ -2141,16 +2201,100 @@ export function App() {
 
     // Check existing schedule entries on the selected date for this teacher
     const targetCanonicalDate = resolveCanonicalDate(editingSlot.tanggal);
+    const currentCabangNorm = normalizeText(editingSlot.cabang || "");
+    const currentKelasNorm = normalizeText(editingSlot.kelas || "");
+    const currentSekolahNorm = normalizeText(editingSlot.sekolah || "");
+    const currentClassKey = buildClassGroupKey(editingSlot.cabang, editingSlot.kelas, editingSlot.sekolah || "");
+
     const existingScheduleOnDate = allScheduleEntries.filter((item) => {
       if (!hasScheduleContent(item)) return false;
       if (editingSlot.entryId && item.id === editingSlot.entryId) return false;
-      if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
+
+      const itemCabangNorm = normalizeText(item.cabang || "");
+      const itemKelasNorm = normalizeText(item.kelas || "");
+      const itemSekolahNorm = normalizeText(item.sekolah || "");
+      const itemCanonicalDate = resolveCanonicalDate(item.tanggal || "");
+
+      // Ignore self slot
+      if (
+        itemCabangNorm === currentCabangNorm &&
+        itemKelasNorm === currentKelasNorm &&
+        itemSekolahNorm === currentSekolahNorm &&
+        itemCanonicalDate === targetCanonicalDate
+      ) {
+        return false;
+      }
+
+      if (itemCanonicalDate !== targetCanonicalDate) return false;
       if (resolvePengajarCode(item.pengajar || "") !== pengajarKey) return false;
 
-      if (gabungEnabled && gabungClassKeys.length > 0) {
-        const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
-        if (gabungClassKeys.includes(itemKey)) return false;
+      const isSameBranch = itemCabangNorm === currentCabangNorm;
+      const itemClassKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+      const itemGabungWithNorm = normalizeText(item.gabungWith || "");
+
+      // 1. If gabung is explicitly enabled in the modal
+      if (gabungEnabled) {
+        if (gabungClassKeys.length > 0) {
+          const isSelected = gabungClassKeys.some((k) => {
+            const normK = normalizeText(k);
+            return (
+              normK === normalizeText(itemClassKey) ||
+              normK === itemKelasNorm ||
+              normK.includes(`||${itemKelasNorm}||`) ||
+              normalizeText(itemClassKey).includes(`||${normK}||`)
+            );
+          });
+          if (isSelected) return false;
+        }
+
+        // If in same branch and item is candidate or marked as gabung
+        if (isSameBranch) {
+          if (item.isGabung || Boolean(item.gabungWith)) return false;
+          // While user is currently choosing classes with gabung switch on, don't flag same-branch classes
+          if (gabungClassKeys.length === 0) return false;
+        }
       }
+
+      // 2. Bidirectional Gabung check (even if gabung switch isn't explicitly on)
+      if (isSameBranch) {
+        // Item explicitly references current class in gabungWith
+        if (
+          itemGabungWithNorm.includes(currentKelasNorm) ||
+          itemGabungWithNorm.includes(normalizeText(currentClassKey))
+        ) {
+          return false;
+        }
+        // Current slot references item
+        if (
+          (editingSlot as any).gabungWith &&
+          normalizeText((editingSlot as any).gabungWith).includes(itemKelasNorm)
+        ) {
+          return false;
+        }
+        // If item is already marked as isGabung in same branch on this date & overlapping time
+        if (item.isGabung || Boolean(item.gabungWith)) {
+          return false;
+        }
+        // If both have identical schedule time and same subject in same branch
+        if (
+          item.waktu &&
+          draft.waktuMulai &&
+          draft.waktuSelesai &&
+          item.mapel &&
+          draft.mapel &&
+          normalizeText(item.mapel) === normalizeText(draft.mapel)
+        ) {
+          const itemRange = parseRangeFromString(item.waktu);
+          const startMin = parseTimeValue(draft.waktuMulai);
+          const endMin = parseTimeValue(draft.waktuSelesai);
+          if (itemRange && startMin !== null && endMin !== null) {
+            if (itemRange.start === startMin && itemRange.end === endMin) {
+              return false; // Exactly same time and mapel in same branch -> Gabung class!
+            }
+          }
+        }
+      }
+
       return true;
     });
 
@@ -2159,6 +2303,29 @@ export function App() {
 
     let scheduleWarning = "";
     let scheduleInfoNote = "";
+
+    // Find any combined partner classes in same branch to display helpful note
+    const partnerClasses = allScheduleEntries
+      .filter((item) => {
+        if (!hasScheduleContent(item)) return false;
+        if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
+        if (normalizeText(item.cabang || "") !== currentCabangNorm) return false;
+        const kNorm = normalizeText(item.kelas || "");
+        if (kNorm === currentKelasNorm) return false;
+        const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+        const isSelected = gabungClassKeys.some((k) => {
+          const nk = normalizeText(k);
+          return nk === normalizeText(itemKey) || nk === kNorm || nk.includes(`||${kNorm}||`);
+        });
+        const itemRef = normalizeText(item.gabungWith || "").includes(currentKelasNorm);
+        const itemIsGabungSameSlot = Boolean(item.isGabung) && item.waktu === [draft.waktuMulai, draft.waktuSelesai].filter(Boolean).join("-");
+        return isSelected || itemRef || itemIsGabungSameSlot;
+      })
+      .map((item) => item.kelas || "");
+    const uniquePartners = Array.from(new Set(partnerClasses.filter(Boolean)));
+    if (uniquePartners.length > 0) {
+      scheduleInfoNote = `🔗 Kelas ini tergabung dengan: ${uniquePartners.join(", ")}.`;
+    }
 
     if (existingScheduleOnDate.length > 0) {
       if (startTime !== null && endTime !== null && startTime < endTime) {
@@ -3036,7 +3203,7 @@ export function App() {
       }
 
       setIsMapelModalOpen(false);
-      handleLoadMapel();
+      handleLoadMapel({ silent: true });
       pushToast("Data mata pelajaran berhasil disimpan.", "success");
     } catch (error) {
       setMapelStatus((prev) => ({
@@ -3060,7 +3227,7 @@ export function App() {
             .map((row) => row.id);
           await deleteRowsByIds(targetIds);
 
-          handleLoadMapel();
+          handleLoadMapel({ silent: true });
           pushToast("Data mata pelajaran berhasil dihapus.", "success");
         } catch (error) {
           setMapelStatus((prev) => ({
@@ -3570,7 +3737,12 @@ export function App() {
             .map((row) => row.id);
           await deleteRowsByIds(targetIds);
 
-          handleLoadPengajar();
+          await Promise.all([
+            handleLoadPengajar({ silent: true }),
+            handleLoadPenempatanPengajar({ silent: true }),
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+          ]);
           pushToast("Data pengajar berhasil dihapus.", "success");
         } catch (error) {
           setPengajarStatus((prev) => ({
@@ -3752,7 +3924,7 @@ export function App() {
           .map((row) => row.id);
         await deleteRowsByIds(targetIds);
         await insertRow(bucket, payload);
-        await handleLoadPenempatanPengajar();
+        await handleLoadPenempatanPengajar({ silent: true });
         pushToast(`Penempatan hari ${av.hari} berhasil disimpan.`, "success");
       } catch (error) {
         setPenempatanStatus((prev) => ({
@@ -3875,7 +4047,7 @@ export function App() {
       
       setIsPenempatanModalOpen(false);
       setPenempatanError("");
-      await handleLoadPenempatanPengajar();
+      await handleLoadPenempatanPengajar({ silent: true });
       pushToast("Penempatan pengajar berhasil disimpan.", "success");
     } catch (error) {
       setPenempatanStatus((prev) => ({
@@ -4074,7 +4246,7 @@ export function App() {
       }
       setIsIzinModalOpen(false);
       setIzinError("");
-      await handleLoadIzinPengajar();
+      await handleLoadIzinPengajar({ silent: true });
       pushToast("Izin pengajar berhasil disimpan.", "success");
     } catch (error) {
       setIzinStatus((prev) => ({
@@ -4100,7 +4272,7 @@ export function App() {
           if (targetId) {
             await deleteRowsByIds([targetId]);
           }
-          await handleLoadIzinPengajar();
+          await handleLoadIzinPengajar({ silent: true });
           pushToast("Izin pengajar berhasil dihapus.", "success");
         } catch (error) {
           setIzinStatus((prev) => ({
@@ -4579,19 +4751,19 @@ export function App() {
     bypassCache = false,
     silent = false
   ) => {
-    if (!authSession || isRefreshingAll) {
+    if (!authSession || isSyncingRef.current) {
       return;
     }
 
-    const REALTIME_SYNC_TTL_MS = 30 * 1000;
+    const REALTIME_SYNC_TTL_MS = 25 * 1000;
     const now = Date.now();
     const elapsed = now - lastRefreshAllTimestampRef.current;
 
-    // Jika tidak bypassCache dan sinkronisasi dilakukan dalam rentang waktu kurang dari 30 detik,
+    // Jika tidak bypassCache dan sinkronisasi dilakukan dalam rentang waktu kurang dari 25 detik,
     // data tidak perlu diambil ulang dari D1.
     if (!bypassCache && lastRefreshAllTimestampRef.current > 0 && elapsed < REALTIME_SYNC_TTL_MS) {
       if (showToast) {
-        pushToast("Data disajikan dari memori (sinkronisasi < 30 detik yang lalu).", "info");
+        pushToast("Data disajikan dari memori (sinkronisasi < 25 detik yang lalu).", "info");
       }
       return;
     }
@@ -4599,12 +4771,15 @@ export function App() {
     if (bypassCache) {
       clearAllReadCache();
     }
-    setIsRefreshingAll(true);
+    isSyncingRef.current = true;
+    if (!silent) {
+      setIsRefreshingAll(true);
+    }
     try {
-      const opts = { silent };
+      const opts = { silent: true };
       await Promise.all([
-        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent }),
-        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent }),
+        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
         handleLoadMapel(opts),
         handleLoadPengajar(opts),
         handleLoadSuratTugas(opts),
@@ -4619,32 +4794,29 @@ export function App() {
         pushToast("Semua data berhasil direfresh.", "success");
       }
     } finally {
-      setIsRefreshingAll(false);
+      isSyncingRef.current = false;
+      if (!silent) {
+        setIsRefreshingAll(false);
+      }
     }
   };
 
   const handleRefreshAllData = async () => {
-    await refreshAllData(true, true);
+    await refreshAllData(true, true, false);
   };
 
-  // Silent Background Sync setiap 5 menit dengan fitur pengaman anti-lag:
+  // Silent Background Sync berkala (setiap 60 detik) dan saat tab aktif kembali:
   // 1. Skip jika user belum login / sesi tidak aktif
   // 2. Skip jika tab browser sedang di-minimize/hidden
   // 3. Skip jika user sedang membuka modal form (tambah/edit jadwal, pengajar, mapel, izin, penempatan, donasi, dsb)
-  // 4. Skip jika user sedang aktif mengetik di input / textarea
-  // 5. Menggunakan mode true-silent tanpa blocking spinner
+  // 4. Skip jika user sedang aktif mengetik di input / textarea / select
+  // 5. Menggunakan mode true-silent tanpa blocking spinner atau disable UI
   useEffect(() => {
     if (!authSession) return;
 
-    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    const shouldSkipBackgroundSync = () => {
+      if (document.hidden) return true;
 
-    const intervalId = window.setInterval(() => {
-      // Guard 1: Tab browser sedang tidak aktif
-      if (document.hidden) {
-        return;
-      }
-
-      // Guard 2: Dialog modal form sedang terbuka
       const isAnyModalOpen = Boolean(
         editingSlot ||
         isClassModalOpen ||
@@ -4661,12 +4833,8 @@ export function App() {
         isPendingNotificationModalOpen ||
         isMenuTransitioning
       );
+      if (isAnyModalOpen) return true;
 
-      if (isAnyModalOpen) {
-        return;
-      }
-
-      // Guard 3: User sedang mengetik di input form
       const activeEl = document.activeElement;
       if (
         activeEl &&
@@ -4675,15 +4843,38 @@ export function App() {
           activeEl.tagName === "SELECT" ||
           (activeEl as HTMLElement).isContentEditable)
       ) {
-        return;
+        return true;
       }
 
+      return false;
+    };
+
+    const ONE_MINUTE_MS = 60 * 1000;
+
+    const intervalId = window.setInterval(() => {
+      if (shouldSkipBackgroundSync()) {
+        return;
+      }
       // Jalankan sinkronisasi hening (silent) di latar belakang
       void refreshAllData(false, true, true);
-    }, FIVE_MINUTES_MS);
+    }, ONE_MINUTE_MS);
+
+    const handleVisibilityOrFocus = () => {
+      if (shouldSkipBackgroundSync()) return;
+      const now = Date.now();
+      // Hanya lakukan background refresh jika sudah lebih dari 20 detik sejak sync terakhir
+      if (now - lastRefreshAllTimestampRef.current >= 20 * 1000) {
+        void refreshAllData(false, false, true);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
 
     return () => {
       window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
     };
   }, [
     authSession,
@@ -5547,7 +5738,7 @@ export function App() {
       }
       setIsPermintaanModalOpen(false);
       setPermintaanError("");
-      await handleLoadPermintaanPengajar();
+      await handleLoadPermintaanPengajar({ silent: true });
       pushToast(
         existingRequest
           ? "Permintaan sebelumnya untuk pengajar ini diperbarui otomatis."
@@ -5585,10 +5776,10 @@ export function App() {
             .map((row) => row.id);
           await deleteRowsByIds(targetIds);
           await Promise.all([
-            handleLoadPermintaanPengajar(),
-            handleLoadFromSheet("bulanIni"),
-            handleLoadFromSheet("jadwalTambahanPelayanan"),
-            handleLoadSuratTugas(),
+            handleLoadPermintaanPengajar({ silent: true }),
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+            handleLoadSuratTugas({ silent: true }),
           ]);
           pushToast("Permintaan pengajar berhasil dihapus.", "success");
         } catch (error) {
@@ -5643,10 +5834,10 @@ export function App() {
       });
 
       await Promise.all([
-        handleLoadPermintaanPengajar(),
-        handleLoadFromSheet("bulanIni", { preserveUiState: true }),
-        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true }),
-        handleLoadSuratTugas(),
+        handleLoadPermintaanPengajar({ silent: true }),
+        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+        handleLoadSuratTugas({ silent: true }),
       ]);
       pushToast(`Permintaan pengajar ${status.toLowerCase()}.`, "success");
     } catch (error) {
@@ -6934,7 +7125,7 @@ export function App() {
         lastSync: new Date().toLocaleString("id-ID"),
       }));
       // Keep Surat Tugas view in sync right after any jadwal save/delete.
-      handleLoadSuratTugas();
+      handleLoadSuratTugas({ silent: true });
       pushToast("Perubahan jadwal berhasil disimpan.", "success");
       return true;
     };
@@ -6996,8 +7187,8 @@ export function App() {
           await deleteRowsByIds(targetIds);
           await rebuildSuratTugasBucket();
           await Promise.all([
-            handleLoadFromSheet(deleteScheduleType, { preserveUiState: true }),
-            handleLoadSuratTugas(),
+            handleLoadFromSheet(deleteScheduleType, { preserveUiState: true, silent: true }),
+            handleLoadSuratTugas({ silent: true }),
           ]);
           setSheetStatus((prev) => ({
             ...prev,
@@ -7062,31 +7253,93 @@ export function App() {
     setCopyTargetDates([]);
     setConflictError("");
       
-    // prepare gabung options (classes from same cabang)
-    const options = monthScheduleGroups
-      .filter((g) => (g.cabang || "") === group.cabang)
+    // prepare gabung options (classes from same cabang, excluding self)
+    const options = monthScheduleGroupsAll
+      .filter((g) => (g.cabang || "") === group.cabang && (g.kelas !== group.kelas || (g.sekolah || "") !== (group.sekolah || "")))
       .map((g) => ({
         value: buildClassGroupKey(g.cabang || "", g.kelas || "", g.sekolah || ""),
         label: `${g.kelas}${g.sekolah ? ` • ${g.sekolah}` : ""}`,
       }));
-    const initialGabungKeys = (targetEntry?.isGabung && targetEntry?.gabungWith)
-      ? String(targetEntry.gabungWith)
-          .split(";")
-          .map((value) => value.trim())
-          .filter(Boolean)
-          .map((value) => {
-            const matchedByValue = options.find((opt) => opt.value === value);
-            if (matchedByValue) {
-              return matchedByValue.value;
-            }
-            const matchedByLabel = options.find((opt) => normalizeText(opt.label) === normalizeText(value));
-            return matchedByLabel ? matchedByLabel.value : value;
-          })
-      : [];
+
+    const currentClassKey = buildClassGroupKey(group.cabang, group.kelas, group.sekolah || "");
+    const currentClassNorm = normalizeText(group.kelas);
+
+    // 1. Direct from targetEntry.gabungWith
+    const directKeys: string[] = [];
+    if (targetEntry?.gabungWith) {
+      String(targetEntry.gabungWith)
+        .split(";")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .forEach((rawVal) => {
+          const normVal = normalizeText(rawVal);
+          const matched = options.find(
+            (opt) =>
+              opt.value === rawVal ||
+              normalizeText(opt.value) === normVal ||
+              normalizeText(opt.label) === normVal ||
+              normVal.includes(`||${normalizeText(opt.label)}||`) ||
+              normVal.includes(normalizeText(opt.label))
+          );
+          if (matched && !directKeys.includes(matched.value)) {
+            directKeys.push(matched.value);
+          } else if (rawVal && !directKeys.includes(rawVal)) {
+            directKeys.push(rawVal);
+          }
+        });
+    }
+
+    // 2. Reverse detection: find ANY other class in the same branch on the same date and overlapping time with same teacher
+    // where that other class is marked isGabung or references current class in gabungWith
+    const partnerKeys: string[] = [];
+    const targetWaktu = targetEntry?.waktu || "";
+    const canonicalDate = resolveCanonicalDate(slot.date);
+    const targetTeacher = resolvePengajarCode(targetEntry?.pengajar || "");
+    const targetTimeRange = parseRangeFromString(targetWaktu);
+
+    allScheduleEntries.forEach((other) => {
+      if (!hasScheduleContent(other) || !other.waktu) return;
+      if (targetEntry?.id && other.id === targetEntry.id) return;
+      if (normalizeText(other.cabang || "") !== normalizeText(group.cabang)) return;
+      if (resolveCanonicalDate(other.tanggal || "") !== canonicalDate) return;
+
+      const otherClassKey = buildClassGroupKey(other.cabang || "", other.kelas || "", other.sekolah || "");
+      if (otherClassKey === currentClassKey) return;
+
+      const otherRange = parseRangeFromString(other.waktu);
+      const hasTimeOverlap =
+        targetTimeRange && otherRange
+          ? targetTimeRange.start < otherRange.end && otherRange.start < targetTimeRange.end
+          : Boolean(targetWaktu && normalizeText(other.waktu) === normalizeText(targetWaktu));
+
+      if (!hasTimeOverlap) return;
+
+      const otherGabungWithNorm = normalizeText(other.gabungWith || "");
+      const otherReferencesSelf =
+        otherGabungWithNorm.includes(currentClassNorm) ||
+        otherGabungWithNorm.includes(normalizeText(currentClassKey));
+
+      const sameTeacher =
+        Boolean(targetTeacher && resolvePengajarCode(other.pengajar || "") === targetTeacher);
+      const sameMapel =
+        Boolean(targetEntry?.mapel &&
+        normalizeText(other.mapel || "") === normalizeText(targetEntry.mapel));
+
+      if (otherReferencesSelf || (other.isGabung && sameTeacher) || (sameTeacher && sameMapel)) {
+        const matchedOpt = options.find((opt) => opt.value === otherClassKey);
+        const optValue = matchedOpt ? matchedOpt.value : otherClassKey;
+        if (!partnerKeys.includes(optValue)) {
+          partnerKeys.push(optValue);
+        }
+      }
+    });
+
+    const mergedGabungKeys = Array.from(new Set([...directKeys, ...partnerKeys]));
+    const isGabungActive = Boolean(targetEntry?.isGabung) || mergedGabungKeys.length > 0;
 
     setGabungOptions(options);
-    setGabungEnabled(initialGabungKeys.length > 0);
-    setGabungClassKeys(initialGabungKeys);
+    setGabungEnabled(isGabungActive);
+    setGabungClassKeys(mergedGabungKeys);
   };
 
   const handleSaveSlot = async () => {
@@ -7194,10 +7447,15 @@ export function App() {
             .map((value) => normalizeText(value))
             .filter(Boolean);
           if (
-            itemGabungParts.includes(normalizeText(currentClassKey)) ||
-            itemGabungParts.includes(currentClassLabel) ||
-            itemGabungParts.includes(itemKey) ||
-            itemGabungParts.includes(itemLabel)
+            itemGabungParts.some(
+              (p) =>
+                p === normalizeText(currentClassKey) ||
+                p === currentClassLabel ||
+                p === normalizeText(kelas) ||
+                p.includes(`||${normalizeText(kelas)}||`) ||
+                normalizeText(currentClassKey).includes(`||${p}||`)
+            ) ||
+            item.isGabung
           ) {
             return false;
           }
@@ -7473,65 +7731,137 @@ export function App() {
         )
       : null;
 
+    // Build partner records for gabung classes if enabled
+    const partnerSheetRecordsToUpsert: { record: Record<string, string>; entryId?: string }[] = [];
+    const partnerSheetRecordsToAppend: Record<string, string>[] = [];
+    const partnerLocalItems: RecordItem[] = [];
+
+    if (gabungEnabled && gabungClassKeys.length > 0) {
+      const allTargetDates = [tanggal, ...validCopyDates];
+      for (const targetDate of allTargetDates) {
+        const dateLabel = dateLabelByKey.get(targetDate) || targetDate;
+        const targetCanDate = resolveCanonicalDate(targetDate);
+
+        for (const partnerKey of gabungClassKeys) {
+          const partnerGroup = monthScheduleGroupsAll.find(
+            (g) => buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "") === partnerKey
+          );
+          const [pCabangRaw, pKelasRaw, pSekolahRaw] = partnerKey.split("||");
+          const pCabang = partnerGroup?.cabang || pCabangRaw || cabang;
+          const pKelas = partnerGroup?.kelas || pKelasRaw || "";
+          const pSekolah = partnerGroup?.sekolah || pSekolahRaw || "";
+          const pJenjang = partnerGroup?.jenjang || sheetJenjang;
+          if (!pKelas) continue;
+
+          const partnerJoinedWith = [
+            targetClassKey,
+            ...gabungClassKeys.filter((k) => k !== partnerKey),
+          ].join("; ");
+
+          const partnerExisting = (records[activeScheduleKey] ?? []).find(
+            (item) =>
+              normalizeText(item.cabang || "") === normalizeText(pCabang) &&
+              normalizeText(item.kelas || "") === normalizeText(pKelas) &&
+              normalizeText(item.sekolah || "") === normalizeText(pSekolah) &&
+              resolveCanonicalDate(item.tanggal || "") === targetCanDate
+          );
+
+          const pSheetRecord = {
+            ...buildSheetRecord(
+              pCabang,
+              pKelas,
+              resolveSheetTanggal(dateLabel, targetDate),
+              nextValues.mapel,
+              nextValues.pengajar,
+              nextValues.waktu,
+              pJenjang,
+              pSekolah,
+              partnerGroup?.classOrder !== undefined && partnerGroup?.classOrder !== null ? String(partnerGroup.classOrder) : "",
+              getScheduleJenis(activeScheduleKey),
+              nextPengajarNama
+            ),
+            Gabung: partnerJoinedWith,
+            IsGabung: "true",
+          };
+
+          if (partnerExisting?.id) {
+            partnerSheetRecordsToUpsert.push({ record: pSheetRecord, entryId: partnerExisting.id });
+          } else {
+            partnerSheetRecordsToAppend.push(pSheetRecord);
+            partnerLocalItems.push({
+              id: `${activeScheduleKey}-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+              cabang: pCabang,
+              kelas: pKelas,
+              sekolah: pSekolah,
+              classOrder: partnerGroup?.classOrder !== undefined && partnerGroup?.classOrder !== null ? String(partnerGroup.classOrder) : "",
+              tanggal: targetDate,
+              tanggalSheet: pSheetRecord.Tanggal,
+              jenjang: pJenjang,
+              ...nextValues,
+              catatan: "",
+              isGabung: true,
+              gabungWith: partnerJoinedWith,
+            });
+          }
+        }
+      }
+    }
+
     setRecords((prev) => {
       const current = prev[activeScheduleKey] ?? [];
-      if (entryId) {
-        return {
-          ...prev,
-          [activeScheduleKey]: [
-            ...current.map((item) => {
-              const itemClassKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
-              if (item.id === entryId) {
-                return {
-                  ...item,
-                  ...nextValues,
-                  cabang,
-                  kelas,
-                  sekolah: sekolahValue,
-                  classOrder: classOrderValue,
-                  tanggal,
-                  tanggalSheet: sheetRecord.Tanggal,
-                  ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : { isGabung: false, gabungWith: "" }),
-                };
-              }
-              if (itemClassKey === targetClassKey && classOrderValue && item.classOrder !== classOrderValue) {
-                return { ...item, classOrder: classOrderValue };
-              }
-              return item;
-            }),
-            ...copiedItems,
-          ],
+      const updated = current.map((item) => {
+        const itemClassKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+        if (entryId && item.id === entryId) {
+          return {
+            ...item,
+            ...nextValues,
+            cabang,
+            kelas,
+            sekolah: sekolahValue,
+            classOrder: classOrderValue,
+            tanggal,
+            tanggalSheet: sheetRecord.Tanggal,
+            ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : { isGabung: false, gabungWith: "" }),
+          };
+        }
+        if (gabungEnabled && gabungClassKeys.includes(itemClassKey) && resolveCanonicalDate(item.tanggal || "") === targetCanonicalDate) {
+          const partnerJoinedWith = [
+            targetClassKey,
+            ...gabungClassKeys.filter((k) => k !== itemClassKey),
+          ].join("; ");
+          return {
+            ...item,
+            ...nextValues,
+            isGabung: true,
+            gabungWith: partnerJoinedWith,
+          };
+        }
+        if (itemClassKey === targetClassKey && classOrderValue && item.classOrder !== classOrderValue) {
+          return { ...item, classOrder: classOrderValue };
+        }
+        return item;
+      });
+
+      if (!entryId && (nextValues.mapel || nextValues.pengajar || nextValues.waktu)) {
+        const newItem: RecordItem = {
+          id: `${activeScheduleKey}-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+          cabang,
+          kelas,
+          sekolah: sekolahValue,
+          classOrder: classOrderValue,
+          tanggal,
+          tanggalSheet: sheetRecord.Tanggal,
+          jenjang: sheetJenjang,
+          ...nextValues,
+          catatan: "",
+          ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : {}),
         };
+        updated.push(newItem);
       }
-      if (!nextValues.mapel && !nextValues.pengajar && !nextValues.waktu) {
-        return prev;
-      }
-      const newItem: RecordItem = {
-        id: `${activeScheduleKey}-${Date.now()}-${Math.round(Math.random() * 1000)}`,
-        cabang,
-        kelas,
-        sekolah: sekolahValue,
-        classOrder: classOrderValue,
-        tanggal,
-        tanggalSheet: sheetRecord.Tanggal,
-        jenjang: sheetJenjang,
-        ...nextValues,
-        catatan: "",
-        ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : {}),
-      };
+
       return {
         ...prev,
-        [activeScheduleKey]: [
-          ...current.map((item) => {
-            const itemClassKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
-            if (itemClassKey === targetClassKey && classOrderValue && item.classOrder !== classOrderValue) {
-              return { ...item, classOrder: classOrderValue };
-            }
-            return item;
-          }),
-          newItem,
-          ...copiedItems,
-        ],
+        [activeScheduleKey]: [...updated, ...copiedItems, ...partnerLocalItems],
       };
     });
     if (skippedCopyLabels.length > 0) {
@@ -7552,6 +7882,13 @@ export function App() {
         await postToSheet({ action: "appendMany", records: [sheetRecord, ...copiedSheetRecords] });
       } else {
         await postToSheet({ action: "append", record: sheetRecord });
+      }
+
+      for (const pUpsert of partnerSheetRecordsToUpsert) {
+        await postToSheet({ action: "upsert", record: pUpsert.record, entryId: pUpsert.entryId });
+      }
+      if (partnerSheetRecordsToAppend.length > 0) {
+        await postToSheet({ action: "appendMany", records: partnerSheetRecordsToAppend });
       }
       pushToast("Jadwal berhasil disimpan.", "success");
       await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
@@ -7610,6 +7947,48 @@ export function App() {
   };
 
   const isBusy = isImporting;
+
+  const handleToggleGabung = (next: boolean) => {
+    setGabungEnabled(next);
+    if (next && gabungClassKeys.length === 0 && editingSlot) {
+      const canonicalDate = resolveCanonicalDate(editingSlot.tanggal);
+      const targetTeacher = resolvePengajarCode(draft.pengajar || "");
+      const targetRange =
+        draft.waktuMulai && draft.waktuSelesai
+          ? {
+              start: parseTimeValue(draft.waktuMulai) ?? 0,
+              end: parseTimeValue(draft.waktuSelesai) ?? 0,
+            }
+          : null;
+      const candidateKeys: string[] = [];
+      allScheduleEntries.forEach((other) => {
+        if (!hasScheduleContent(other) || !other.waktu) return;
+        if (editingSlot.entryId && other.id === editingSlot.entryId) return;
+        if (normalizeText(other.cabang || "") !== normalizeText(editingSlot.cabang)) return;
+        if (resolveCanonicalDate(other.tanggal || "") !== canonicalDate) return;
+        const otherKey = buildClassGroupKey(other.cabang || "", other.kelas || "", other.sekolah || "");
+        const currentKey = buildClassGroupKey(editingSlot.cabang, editingSlot.kelas, editingSlot.sekolah || "");
+        if (otherKey === currentKey) return;
+
+        const otherRange = parseRangeFromString(other.waktu);
+        const overlaps =
+          targetRange && otherRange
+            ? targetRange.start < otherRange.end && otherRange.start < targetRange.end
+            : false;
+        const sameTeacher = Boolean(targetTeacher && resolvePengajarCode(other.pengajar || "") === targetTeacher);
+        const sameMapel = Boolean(draft.mapel && normalizeText(other.mapel || "") === normalizeText(draft.mapel));
+
+        if (overlaps && (sameTeacher || sameMapel || other.isGabung)) {
+          if (!candidateKeys.includes(otherKey)) {
+            candidateKeys.push(otherKey);
+          }
+        }
+      });
+      if (candidateKeys.length > 0) {
+        setGabungClassKeys(candidateKeys);
+      }
+    }
+  };
 
   const busyMessage = "Memproses import data Excel...";
 
@@ -7928,6 +8307,7 @@ export function App() {
                         activeDayStartIndexes={activeDayStartIndexes}
                         monthScheduleGroups={monthScheduleGroups}
                         conflictEntryIds={conflictingScheduleEntryIds}
+                        conflictDetails={scheduleConflictDetails}
                         editingSlot={editingSlot}
                         saving={sheetStatus.saving}
                         onInlineSaveClass={handleInlineSaveClass}
@@ -8157,7 +8537,7 @@ export function App() {
         gabung={gabungEnabled}
         gabungOptions={gabungOptions}
         selectedGabung={gabungClassKeys}
-        onToggleGabung={(next) => setGabungEnabled(next)}
+        onToggleGabung={handleToggleGabung}
         onGabungChange={(next) => setGabungClassKeys(next)}
       />
 

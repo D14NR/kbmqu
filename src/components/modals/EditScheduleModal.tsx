@@ -356,7 +356,19 @@ export function EditScheduleModal({
                   Pilih Kelas Gabung ({editingSlot.cabang})
                 </label>
                 <Select
-                  value={gabungOptions.filter((opt) => selectedGabung.includes(opt.value))}
+                  value={gabungOptions.filter((opt) =>
+                    selectedGabung.some((val) => {
+                      const v = String(val || "").trim().toLowerCase();
+                      const optVal = String(opt.value || "").trim().toLowerCase();
+                      const optLbl = String(opt.label || "").trim().toLowerCase();
+                      return (
+                        v === optVal ||
+                        v === optLbl ||
+                        optVal.includes(`||${v}||`) ||
+                        (v.includes("||") && v.split("||")[1] === optLbl.split(" •")[0])
+                      );
+                    })
+                  )}
                   onChange={(opt) => {
                     const values = Array.isArray(opt) ? opt.map((item) => item.value) : [];
                     onGabungChange && onGabungChange(values);

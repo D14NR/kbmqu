@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { formatScheduleLabel } from "../../utils/schedule";
 import { isNationalHoliday, getNationalHolidayName } from "../../config/holidays";
 import { getTagStyle } from "../../utils/tagColor";
-import type { EditingSlot, RecordItem, ScheduleDayGroup, ScheduleGroup, ScheduleSlotDate } from "../../types/app";
+import type { EditingSlot, RecordItem, ScheduleConflictInfo, ScheduleDayGroup, ScheduleGroup, ScheduleSlotDate } from "../../types/app";
 
 type ScheduleTableViewProps = {
   isJadwalTambahanMenu: boolean;
@@ -14,6 +14,7 @@ type ScheduleTableViewProps = {
   activeDayStartIndexes: Set<number>;
   monthScheduleGroups: ScheduleGroup[];
   conflictEntryIds: Set<string>;
+  conflictDetails?: Map<string, ScheduleConflictInfo>;
   editingSlot: EditingSlot | null;
   saving: boolean;
   onInlineSaveClass: (group: ScheduleGroup, kelas: string, sekolah: string) => Promise<boolean>;
@@ -34,6 +35,7 @@ export function ScheduleTableView({
   activeDayStartIndexes,
   monthScheduleGroups,
   conflictEntryIds,
+  conflictDetails,
   editingSlot,
   saving,
   onInlineSaveClass,
@@ -466,9 +468,16 @@ export function ScheduleTableView({
                 <div className="d-flex align-items-center gap-1.5">
                   <span
                     className="d-inline-block rounded shadow-xs"
-                    style={{ width: 14, height: 14, backgroundColor: "#fee2e2", border: "1.5px solid #ef4444", boxShadow: "0 0 6px rgba(239, 68, 68, 0.4)" }}
+                    style={{ width: 14, height: 14, backgroundColor: "#fee2e2", border: "2px solid #ef4444", boxShadow: "0 0 6px rgba(239, 68, 68, 0.4)" }}
                   />
-                  <span className="fw-semibold text-danger">Jadwal Bentrok Antar Cabang (Glow Merah)</span>
+                  <span className="fw-semibold text-danger">⚠️ Bentrok Jam Mengajar (Border Merah)</span>
+                </div>
+                <div className="d-flex align-items-center gap-1.5">
+                  <span
+                    className="d-inline-block rounded shadow-xs"
+                    style={{ width: 14, height: 14, backgroundColor: "#fff7ed", border: "2px solid #f97316", boxShadow: "0 0 6px rgba(249, 115, 22, 0.4)" }}
+                  />
+                  <span className="fw-semibold text-warning-emphasis">⚠️ Jeda Cabang &lt; 30 Menit (Border Oranye)</span>
                 </div>
                 <div className="d-flex align-items-center gap-1.5">
                   <span
@@ -780,6 +789,13 @@ export function ScheduleTableView({
                       {displayScheduleDates.map((slot, index) => {
                         const entries = group.entriesByDate[slot.date] ?? [];
                         const hasConflictInCell = entries.some((item) => conflictEntryIds.has(item.id));
+                        const cellConflicts = entries
+                          .filter((item) => conflictEntryIds.has(item.id))
+                          .map((item) => conflictDetails?.get(item.id))
+                          .filter(Boolean) as ScheduleConflictInfo[];
+
+                        const hasDirectOverlap = cellConflicts.some((c) => c.type === "overlap");
+                        const hasGapConflict = cellConflicts.some((c) => c.type === "gap");
                         const isEditingCell =
                           editingSlot?.cabang === group.cabang &&
                           editingSlot?.kelas === group.kelas &&
@@ -787,6 +803,16 @@ export function ScheduleTableView({
                           editingSlot?.tanggal === slot.date;
                         const holidayCell = isNationalHoliday(slot.date);
                         const isToday = slot.date === todayStr;
+
+                        const cellTooltip = !isAdmin && slot.date === todayStr
+                          ? "Terkunci: Tidak dapat menambah/mengubah jadwal hari ini"
+                          : cellConflicts.length > 0
+                          ? `⚠️ PERINGATAN KONFLIK JADWAL:\n${cellConflicts.map((c) => `• ${c.reason}`).join("\n")}\nKlik sel untuk memperbaiki sesi.`
+                          : hasConflictInCell
+                          ? "⚠️ Terdapat jadwal bentrok di sel ini! Klik untuk mengelola/memperbaiki sesi."
+                          : !readOnly
+                          ? "Klik untuk menambah / kelola jadwal sesi ini"
+                          : undefined;
 
                         return (
                           <td
@@ -800,26 +826,26 @@ export function ScheduleTableView({
                                 }
                               }
                             }}
-                            title={
-                              !isAdmin && slot.date === todayStr
-                                ? "Terkunci: Tidak dapat menambah/mengubah jadwal hari ini"
-                                : hasConflictInCell
-                                ? "⚠️ Terdapat jadwal bentrok di sel ini! Klik untuk mengelola/memperbaiki sesi."
-                                : !readOnly
-                                ? "Klik untuk menambah / kelola jadwal sesi ini"
-                                : undefined
-                            }
+                            title={cellTooltip}
                             className={`schedule-cell ${
                               !isJadwalTambahanMenu && displayDayStartIndexes.has(index) && index !== 0 ? "day-divider" : ""
                             } ${isEditingCell && !editingSlot?.entryId ? "is-editing" : ""} ${
-                              hasConflictInCell ? "schedule-cell-conflict" : ""
+                              hasConflictInCell ? (hasDirectOverlap ? "schedule-cell-conflict has-overlap-conflict" : "schedule-cell-conflict has-gap-only") : ""
                             } ${holidayCell ? "holiday-col" : ""} ${isToday ? "today-cell-col" : ""}`}
                           >
                             {hasConflictInCell && (
-                              <div className="schedule-cell-alert-bar d-flex align-items-center justify-content-center gap-1 mb-1 py-0.5 px-1 rounded text-white bg-danger shadow-xs">
-                                <i className="bi bi-exclamation-octagon-fill text-xxs animate-pulse" />
+                              <div
+                                className="schedule-cell-alert-bar d-flex align-items-center justify-content-center gap-1 mb-1 py-0.5 px-1 rounded text-white shadow-xs"
+                                style={{
+                                  background: hasDirectOverlap
+                                    ? "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
+                                    : "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)",
+                                }}
+                                title={cellConflicts.map((c) => c.reason).join("\n") || "Jadwal bentrok pada sel ini"}
+                              >
+                                <i className="bi bi-exclamation-triangle-fill text-xxs animate-pulse" />
                                 <span className="fw-bold" style={{ fontSize: "8px", letterSpacing: "0.3px" }}>
-                                  BENTROK
+                                  {hasDirectOverlap ? "BENTROK JAM" : "JEDA CABANG < 30M"}
                                 </span>
                               </div>
                             )}
@@ -842,6 +868,8 @@ export function ScheduleTableView({
                                   const displayKode = getMapelKode(rawMapel) || rawMapel;
                                   const tagStyle = getTagStyle(displayKode, "mapel");
                                   const isConflict = conflictEntryIds.has(item.id);
+                                  const conflictInfo = conflictDetails?.get(item.id);
+                                  const isGapConflict = conflictInfo?.type === "gap";
 
                                   return (
                                     <button
@@ -849,7 +877,13 @@ export function ScheduleTableView({
                                       type="button"
                                       className={`btn text-start p-1.5 schedule-entry-btn rounded-2 shadow-xs ${
                                         isEditingEntry ? "active" : ""
-                                      } ${isConflict ? "is-conflict" : ""}`}
+                                      } ${
+                                        isConflict
+                                          ? isGapConflict
+                                            ? "is-conflict is-conflict-gap"
+                                            : "is-conflict is-conflict-overlap"
+                                          : ""
+                                      }`}
                                       onClick={(event) => {
                                         event.stopPropagation();
                                         if (!readOnly) {
@@ -865,7 +899,7 @@ export function ScheduleTableView({
                                         !isAdmin && slot.date === todayStr
                                           ? "Terkunci: Tidak dapat mengubah/hapus jadwal hari ini"
                                           : isConflict
-                                          ? `⚠️ BENTROK: Pengajar ${item.pengajar || ""} terjadwal di cabang lain pada jam ${item.waktu || ""}. Klik untuk memperbaiki jadwal!`
+                                          ? `⚠️ ${conflictInfo?.label || "BENTROK"}: ${conflictInfo?.reason || `Pengajar ${item.pengajar || ""} bentrok jadwal.`} Klik untuk memperbaiki jadwal!`
                                           : undefined
                                       }
                                     >
@@ -884,12 +918,21 @@ export function ScheduleTableView({
                                         </span>
                                         {isConflict && (
                                           <span
-                                            className="badge bg-danger text-white border border-danger-subtle d-inline-flex align-items-center gap-0.5 px-1.5 py-0.5 rounded-pill shadow-xs animate-pulse"
+                                            className={`badge border d-inline-flex align-items-center gap-0.5 px-1.5 py-0.5 rounded-pill shadow-xs animate-pulse ${
+                                              isGapConflict
+                                                ? "bg-warning text-dark border-warning-subtle"
+                                                : "bg-danger text-white border-danger-subtle"
+                                            }`}
                                             style={{ fontSize: "7.5px", letterSpacing: "0.2px" }}
-                                            title="Pengajar bentrok pada jam ini! Klik untuk perbaiki."
+                                            title={conflictInfo?.reason || "Pengajar bentrok pada jam ini! Klik untuk perbaiki."}
                                           >
-                                            <i className="bi bi-exclamation-triangle-fill" style={{ fontSize: "7.5px" }} />
-                                            <span>BENTROK</span>
+                                            <i
+                                              className={`bi ${
+                                                isGapConflict ? "bi-clock-history" : "bi-exclamation-triangle-fill text-warning"
+                                              }`}
+                                              style={{ fontSize: "7.5px" }}
+                                            />
+                                            <span className="fw-bold">{conflictInfo?.label || (isGapConflict ? "JEDA < 30M" : "BENTROK")}</span>
                                           </span>
                                         )}
                                         {isToday && !isAdmin && !isConflict && (
@@ -909,8 +952,12 @@ export function ScheduleTableView({
                                       <div className="mt-1 d-flex align-items-center gap-1">
                                         {item.pengajar ? (
                                           <span
-                                            className={`name-chip fw-semibold text-xxs ${
-                                              isConflict ? "border-danger text-danger bg-danger-subtle" : ""
+                                            className={`name-chip fw-semibold text-xxs d-inline-flex align-items-center gap-1 ${
+                                              isConflict
+                                                ? isGapConflict
+                                                  ? "border-warning text-warning-emphasis bg-warning-subtle"
+                                                  : "border-danger text-danger bg-danger-subtle"
+                                                : ""
                                             }`}
                                             style={{
                                               ...(!isConflict ? getTagStyle(item.pengajar, "pengajar") : {}),
@@ -918,7 +965,13 @@ export function ScheduleTableView({
                                               padding: "1px 5px",
                                             }}
                                           >
-                                            {item.pengajar}
+                                            {isConflict && (
+                                              <i
+                                                className={`bi ${isGapConflict ? "bi-geo-alt-fill text-warning" : "bi-person-x-fill text-danger"}`}
+                                                style={{ fontSize: "8.5px" }}
+                                              />
+                                            )}
+                                            <span>{item.pengajar}</span>
                                           </span>
                                         ) : (
                                           <span className="text-muted text-xxs">-</span>
@@ -928,19 +981,58 @@ export function ScheduleTableView({
                                       {/* Waktu Jam */}
                                       <div
                                         className={`text-xxs mt-1 font-monospace d-flex align-items-center justify-content-between gap-1 ${
-                                          isConflict ? "text-danger fw-bold" : "text-muted"
+                                          isConflict
+                                            ? isGapConflict
+                                              ? "text-warning-emphasis fw-bold"
+                                              : "text-danger fw-bold"
+                                            : "text-muted"
                                         }`}
                                       >
                                         <div className="d-flex align-items-center gap-1">
-                                          <i className={`bi bi-clock ${isConflict ? "text-danger" : "text-primary opacity-75"}`} />
+                                          <i
+                                            className={`bi ${
+                                              isConflict
+                                                ? isGapConflict
+                                                  ? "bi-clock-history text-warning"
+                                                  : "bi-exclamation-octagon-fill text-danger"
+                                                : "bi-clock text-primary opacity-75"
+                                            }`}
+                                          />
                                           <span>{item.waktu || "-"}</span>
                                         </div>
                                         {isConflict && !readOnly && slot.date !== todayStr && (
-                                          <span className="badge bg-danger-subtle text-danger border border-danger-subtle text-xxs px-1 py-0" title="Klik untuk perbaiki">
+                                          <span
+                                            className={`badge border text-xxs px-1 py-0 ${
+                                              isGapConflict
+                                                ? "bg-warning-subtle text-dark border-warning"
+                                                : "bg-danger-subtle text-danger border-danger-subtle"
+                                            }`}
+                                            title="Klik untuk perbaiki"
+                                          >
                                             Perbaiki
                                           </span>
                                         )}
                                       </div>
+
+                                      {/* Conflict Reason Ribbon */}
+                                      {isConflict && conflictInfo && (
+                                        <div
+                                          className={`schedule-conflict-note mt-1 text-xxs px-1.5 py-0.5 rounded d-flex align-items-start gap-1 ${
+                                            isGapConflict
+                                              ? "bg-warning-subtle text-dark border border-warning"
+                                              : "bg-danger-subtle text-danger border border-danger-subtle"
+                                          }`}
+                                          style={{ fontSize: "8px", lineHeight: 1.25 }}
+                                          title={conflictInfo.reason}
+                                        >
+                                          <i className="bi bi-info-circle-fill flex-shrink-0 mt-0.5" style={{ fontSize: "8px" }} />
+                                          <span className="text-truncate">
+                                            {isGapConflict
+                                              ? `Jeda <30m dgn ${conflictInfo.otherCabang || "cabang lain"}`
+                                              : `Bentrok dgn ${conflictInfo.otherCabang || "cabang lain"}`}
+                                          </span>
+                                        </div>
+                                      )}
                                     </button>
                                   );
                                 })}
