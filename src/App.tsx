@@ -2305,26 +2305,17 @@ export function App() {
     let scheduleInfoNote = "";
 
     // Find any combined partner classes in same branch to display helpful note
-    const partnerClasses = allScheduleEntries
-      .filter((item) => {
-        if (!hasScheduleContent(item)) return false;
-        if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
-        if (normalizeText(item.cabang || "") !== currentCabangNorm) return false;
-        const kNorm = normalizeText(item.kelas || "");
-        if (kNorm === currentKelasNorm) return false;
-        const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
-        const isSelected = gabungClassKeys.some((k) => {
-          const nk = normalizeText(k);
-          return nk === normalizeText(itemKey) || nk === kNorm || nk.includes(`||${kNorm}||`);
-        });
-        const itemRef = normalizeText(item.gabungWith || "").includes(currentKelasNorm);
-        const itemIsGabungSameSlot = Boolean(item.isGabung) && item.waktu === [draft.waktuMulai, draft.waktuSelesai].filter(Boolean).join("-");
-        return isSelected || itemRef || itemIsGabungSameSlot;
-      })
-      .map((item) => item.kelas || "");
-    const uniquePartners = Array.from(new Set(partnerClasses.filter(Boolean)));
-    if (uniquePartners.length > 0) {
-      scheduleInfoNote = `🔗 Kelas ini tergabung dengan: ${uniquePartners.join(", ")}.`;
+    if (gabungEnabled && gabungClassKeys.length > 0) {
+      const partnerNames = gabungClassKeys
+        .map((k) => {
+          const parts = k.split("||");
+          return (parts.length >= 2 ? parts[1] : k).trim();
+        })
+        .filter(Boolean);
+      const uniquePartners = Array.from(new Set(partnerNames));
+      if (uniquePartners.length > 0) {
+        scheduleInfoNote = `🔗 Kelas ini tergabung dengan: ${uniquePartners.join(", ")}.`;
+      }
     }
 
     if (existingScheduleOnDate.length > 0) {
@@ -7436,8 +7427,9 @@ export function App() {
 
       const otherGabungWithNorm = normalizeText(other.gabungWith || "");
       const otherReferencesSelf =
-        otherGabungWithNorm.includes(currentClassNorm) ||
-        otherGabungWithNorm.includes(normalizeText(currentClassKey));
+        Boolean(otherGabungWithNorm) &&
+        (otherGabungWithNorm.includes(currentClassNorm) ||
+          otherGabungWithNorm.includes(normalizeText(currentClassKey)));
 
       const sameTeacher =
         Boolean(targetTeacher && resolvePengajarCode(other.pengajar || "") === targetTeacher);
@@ -7445,7 +7437,8 @@ export function App() {
         Boolean(targetEntry?.mapel &&
         normalizeText(other.mapel || "") === normalizeText(targetEntry.mapel));
 
-      if (otherReferencesSelf || (other.isGabung && sameTeacher) || (sameTeacher && sameMapel)) {
+      const targetIsGabung = Boolean(targetEntry?.isGabung) || directKeys.length > 0;
+      if (otherReferencesSelf || (targetIsGabung && other.isGabung && sameTeacher && sameMapel)) {
         const matchedOpt = options.find((opt) => opt.value === otherClassKey);
         const optValue = matchedOpt ? matchedOpt.value : otherClassKey;
         if (!partnerKeys.includes(optValue)) {
