@@ -2501,7 +2501,11 @@ export function App() {
   }, [mapelRecords, query]);
 
   const filteredPengajarRecords = useMemo(() => {
-    const source = pengajarRecords;
+    const source = restrictedCabang
+      ? pengajarRecords.filter(
+          (record) => normalizeText(record["Domisili"] || record["domisili"] || "") === normalizeText(restrictedCabang)
+        )
+      : pengajarRecords;
 
     if (!query.trim()) {
       return source;
@@ -2511,7 +2515,7 @@ export function App() {
     return source.filter((record) =>
       Object.values(record).some((value) => String(value).toLowerCase().includes(lowered))
     );
-  }, [pengajarRecords, query]);
+  }, [pengajarRecords, query, restrictedCabang]);
 
   const filteredPenempatanRecords = useMemo(() => {
     const source = restrictedCabang
