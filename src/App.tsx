@@ -483,62 +483,6 @@ export function App() {
     };
   }, []);
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem("app_auto_sync_enabled");
-      return saved === "true"; // Default: false (manual sync only, to prevent interruption while typing or scrolling)
-    } catch {
-      return false;
-    }
-  });
-
-  const lastUserActivityTimestampRef = useRef<number>(Date.now());
-
-  // Pantau aktivitas pengguna (scroll, ketik, gerak kursor, touch) agar sinkronisasi tidak pernah berjalan saat user sedang aktif
-  useEffect(() => {
-    const markActivity = () => {
-      lastUserActivityTimestampRef.current = Date.now();
-    };
-
-    window.addEventListener("scroll", markActivity, { passive: true });
-    window.addEventListener("wheel", markActivity, { passive: true });
-    window.addEventListener("mousemove", markActivity, { passive: true });
-    window.addEventListener("keydown", markActivity, { passive: true });
-    window.addEventListener("mousedown", markActivity, { passive: true });
-    window.addEventListener("touchstart", markActivity, { passive: true });
-
-    return () => {
-      window.removeEventListener("scroll", markActivity);
-      window.removeEventListener("wheel", markActivity);
-      window.removeEventListener("mousemove", markActivity);
-      window.removeEventListener("keydown", markActivity);
-      window.removeEventListener("mousedown", markActivity);
-      window.removeEventListener("touchstart", markActivity);
-    };
-  }, []);
-
-  const toggleAutoSync = () => {
-    setAutoSyncEnabled((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("app_auto_sync_enabled", String(next));
-      } catch {
-        // ignore
-      }
-      if (next) {
-        pushToast(
-          "Auto-Sync diaktifkan (hanya sinkron saat santai/idle dan tidak akan mengganggu saat mengetik atau scroll).",
-          "info"
-        );
-      } else {
-        pushToast(
-          "Auto-Sync dinonaktifkan. Data hanya disinkronkan saat tombol Refresh ditekan.",
-          "info"
-        );
-      }
-      return next;
-    });
-  };
   const [isImporting, setIsImporting] = useState(false);
   const [isExportClassModalOpen, setIsExportClassModalOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -4996,25 +4940,15 @@ export function App() {
     await refreshAllData(true, true, false);
   };
 
-  // Background Sync:
-  // 1. Hanya aktif jika opsi autoSyncEnabled bernilai true (default: nonaktif agar tidak mengganggu)
-  // 2. Skip jika user belum login / sesi tidak aktif
-  // 3. Skip jika tab browser sedang di-minimize/hidden
-  // 4. Skip jika user sedang aktif mengetik, scroll, menggerakkan kursor, atau klik dalam 60 detik terakhir
-  // 5. Skip jika user sedang membuka modal form (tambah/edit jadwal, pengajar, mapel, izin, penempatan, donasi, dsb)
-  // 6. Menggunakan interval 2 menit yang tenang dan tidak melakukan bypass cache secara agresif
+  // Background Safety Sync (30 menit sekali sebagai cadangan):
+  // 1. Setiap aksi user (pindah halaman, simpan/tambah, edit, hapus) sudah secara otomatis mengambil & mengsinkronkan data langsung dari DB.
+  // 2. Interval 30 menit ini hanya sebagai safety fallback hening (silent) di latar belakang saat idle.
+  // 3. Skip jika user belum login, tab browser sedang hidden/minimize, atau sedang membuka modal/form.
   useEffect(() => {
-    if (!authSession || !autoSyncEnabled) return;
+    if (!authSession) return;
 
     const shouldSkipBackgroundSync = () => {
-      if (!autoSyncEnabled) return true;
       if (document.hidden) return true;
-
-      // Cek apakah pengguna baru saja berinteraksi (scroll, ketik, klik, mouse) dalam 60 detik terakhir
-      const timeSinceLastActivity = Date.now() - lastUserActivityTimestampRef.current;
-      if (timeSinceLastActivity < 60 * 1000) {
-        return true;
-      }
 
       const isAnyModalOpen = Boolean(
         editingSlot ||
@@ -5050,22 +4984,20 @@ export function App() {
       return false;
     };
 
-    const TWO_MINUTES_MS = 2 * 60 * 1000;
+    const THIRTY_MINUTES_MS = 30 * 60 * 1000;
 
     const intervalId = window.setInterval(() => {
       if (shouldSkipBackgroundSync()) {
         return;
       }
-      // Jalankan sinkronisasi hening (silent) di latar belakang hanya jika user benar-benar sedang idle
       void refreshAllData(false, false, true);
-    }, TWO_MINUTES_MS);
+    }, THIRTY_MINUTES_MS);
 
     return () => {
       window.clearInterval(intervalId);
     };
   }, [
     authSession,
-    autoSyncEnabled,
     editingSlot,
     isClassModalOpen,
     isMapelModalOpen,
@@ -8343,30 +8275,8 @@ export function App() {
                     </button>
                     <button
                       type="button"
-                      className={`btn btn-sm d-flex align-items-center gap-1.5 ${
-                        autoSyncEnabled ? "btn-outline-primary" : "btn-outline-secondary"
-                      }`}
-                      title={
-                        autoSyncEnabled
-                          ? "Auto-Sync: Aktif (hanya berjalan otomatis saat Anda santai/idle). Klik untuk mematikan."
-                          : "Auto-Sync: Nonaktif (data hanya di-refresh saat tombol Refresh ditekan). Klik untuk mengaktifkan."
-                      }
-                      aria-label="Toggle Auto-Sync"
-                      onClick={toggleAutoSync}
-                    >
-                      <i
-                        className={`bi ${
-                          autoSyncEnabled ? "bi-arrow-repeat text-primary" : "bi-pause-circle text-muted"
-                        }`}
-                      />
-                      <span className="d-none d-lg-inline" style={{ fontSize: "0.8rem" }}>
-                        Auto-Sync: {autoSyncEnabled ? "Aktif" : "Mati"}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
                       className="btn btn-outline-secondary btn-sm"
-                      title="Refresh semua data secara manual"
+                      title="Refresh semua data"
                       aria-label="Refresh semua data"
                       onClick={() => {
                         void handleRefreshAllData();
