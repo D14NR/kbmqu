@@ -531,7 +531,8 @@ export function ScheduleTableView({
               {displayScheduleDates.map((slot, index) => {
                 const [year, month, day] = slot.date.split("-").map(Number);
                 const slotDate = new Date(year, month - 1, day);
-                const weekday = slotDate.toLocaleDateString("id-ID", { weekday: "long" });
+                const weekdayFull = slotDate.toLocaleDateString("id-ID", { weekday: "long" });
+                const weekdayShort = slotDate.toLocaleDateString("id-ID", { weekday: "short" });
                 const dateLabel = formatScheduleLabel(slotDate);
                 const holiday = isNationalHoliday(slot.date);
                 const holidayName = holiday ? getNationalHolidayName(slot.date) : null;
@@ -546,7 +547,10 @@ export function ScheduleTableView({
                     title={holidayName ? `Libur Nasional: ${holidayName}` : isToday ? "Hari Ini" : undefined}
                   >
                     <div className="d-flex flex-column align-items-center py-1">
-                      <div className="schedule-header-weekday text-nowrap fw-bold">{weekday}</div>
+                      <div className="schedule-header-weekday text-nowrap fw-bold">
+                        <span className="d-none d-sm-inline">{weekdayFull}</span>
+                        <span className="d-sm-none">{weekdayShort}</span>
+                      </div>
                       <div className="d-flex align-items-center gap-1 mt-0.5">
                         <span
                           className={`schedule-header-date text-nowrap badge ${
@@ -562,7 +566,7 @@ export function ScheduleTableView({
                         </span>
                         {isToday && (
                           <span
-                            className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs"
+                            className="badge bg-primary-subtle text-primary border border-primary-subtle text-xxs d-none d-md-inline"
                             style={{ fontSize: "8px", padding: "1px 4px" }}
                           >
                             Hari Ini

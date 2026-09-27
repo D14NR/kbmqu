@@ -1353,10 +1353,132 @@ body {
   }
 }
 
+/* ==========================================================================
+   Mobile Responsive Optimizations for Schedule Table (< 768px & < 576px)
+   ========================================================================== */
+@media (max-width: 767.98px) {
+  /* 1. Padatkan layout tabel jadwal di layar mobile */
+  .schedule-table {
+    font-size: 0.72rem;
+  }
+
+  .schedule-table th,
+  .schedule-table td {
+    padding: 0.2rem 0.18rem !important;
+    min-width: 76px !important;
+  }
+
+  /* 2. Optimasi Kolom Aksi di Mobile (Hemat Ruang Horizontal) */
+  .schedule-table .col-aksi,
+  .schedule-table thead .sticky-col-aksi {
+    min-width: 32px !important;
+    width: 32px !important;
+    max-width: 34px !important;
+    padding: 0.15rem 0.05rem !important;
+  }
+
+  .schedule-table .col-aksi .btn {
+    width: 22px !important;
+    height: 20px !important;
+    font-size: 10px !important;
+    border-radius: 4px !important;
+    padding: 0 !important;
+  }
+
+  /* 3. Optimasi Kolom Kelas di Mobile */
+  .schedule-table .col-kelas,
+  .schedule-table thead .sticky-col-kelas {
+    min-width: 88px !important;
+    width: 92px !important;
+    max-width: 105px !important;
+    padding: 0.2rem 0.3rem !important;
+  }
+
+  .schedule-table .schedule-class-main {
+    font-size: 11px !important;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  /* Sembunyikan nama sekolah sekunder di mobile agar tinggi baris tidak menggelembung */
+  .schedule-table .schedule-class-sub {
+    display: none !important;
+  }
+
+  .schedule-table .class-edit-icon {
+    display: none !important;
+  }
+
+  /* 4. Optimasi Header Tanggal di Mobile */
+  .schedule-table .schedule-header-cell {
+    padding: 0.2rem 0.1rem !important;
+    min-width: 74px !important;
+  }
+
+  .schedule-table .schedule-header-weekday {
+    font-size: 10px !important;
+    line-height: 1.1;
+  }
+
+  .schedule-table .schedule-header-date {
+    font-size: 8.5px !important;
+    padding: 1px 3px !important;
+  }
+
+  /* 5. Optimasi Sel Jadwal & Kartu Sesi Mengajar */
+  .schedule-cell {
+    padding: 0.18rem !important;
+  }
+
+  .schedule-table .schedule-empty-slot {
+    min-height: 30px !important;
+  }
+
+  .schedule-table .schedule-entry-btn {
+    padding: 0.18rem 0.25rem !important;
+    border-radius: 4px !important;
+    margin-bottom: 2px !important;
+    line-height: 1.15 !important;
+    gap: 1px !important;
+  }
+
+  .schedule-table .schedule-entry-btn .name-chip {
+    font-size: 8px !important;
+    padding: 0px 3px !important;
+    border-radius: 3px !important;
+    line-height: 1.3 !important;
+  }
+
+  .schedule-table .schedule-entry-btn .text-xxs {
+    font-size: 7.5px !important;
+  }
+
+  .schedule-table .schedule-entry-btn i {
+    font-size: 8px !important;
+  }
+
+  /* Peringatan Bentrok & Jeda Ramping di Mobile */
+  .schedule-cell-alert-bar {
+    padding: 1px 2px !important;
+    margin-bottom: 1px !important;
+    border-radius: 3px !important;
+  }
+
+  .schedule-cell-alert-bar span {
+    font-size: 7px !important;
+  }
+
+  .schedule-conflict-note {
+    font-size: 7px !important;
+    padding: 1px 2px !important;
+    line-height: 1.15 !important;
+  }
+}
+
 @media (max-width: 575.98px) {
   .app-shell .container-fluid {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
   }
 
   .app-header-card .h4 {
@@ -1364,7 +1486,19 @@ body {
   }
 
   .table-sticky-wrapper {
-    max-height: calc(100vh - 265px);
+    max-height: calc(100vh - 230px);
+  }
+
+  .schedule-table .col-kelas,
+  .schedule-table thead .sticky-col-kelas {
+    min-width: 82px !important;
+    width: 85px !important;
+    max-width: 95px !important;
+  }
+
+  .schedule-table th,
+  .schedule-table td {
+    min-width: 70px !important;
   }
 }
 

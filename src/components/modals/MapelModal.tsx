@@ -178,6 +178,12 @@ export function MapelModal({
                   ? `Mengubah rincian mata pelajaran: ${editingMapelOldName}`
                   : "Daftarkan mata pelajaran, kode singkatan, dan kategori"}
               </p>
+              {isEditing && (
+                <div className="mt-1 d-inline-flex align-items-center gap-1 text-primary fw-medium text-xxs bg-primary-subtle px-2 py-0.5 rounded-pill border border-primary-subtle">
+                  <i className="bi bi-arrow-repeat" />
+                  <span>Jadwal & Pengajar terkait akan otomatis terupdate serentak</span>
+                </div>
+              )}
             </div>
           </div>
 

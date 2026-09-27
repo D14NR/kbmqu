@@ -319,6 +319,7 @@ export function App() {
   const [gabungClassKeys, setGabungClassKeys] = useState<string[]>([]);
   const [gabungOptions, setGabungOptions] = useState<{ value: string; label: string }[]>([]);
   const [editingMapelOldName, setEditingMapelOldName] = useState<string | null>(null);
+  const [editingMapelOldKode, setEditingMapelOldKode] = useState<string | null>(null);
   const [mapelError, setMapelError] = useState("");
   
   const [isPengajarModalOpen, setIsPengajarModalOpen] = useState(false);
@@ -3207,9 +3208,11 @@ export function App() {
         Kategori: record.Kategori || record.kategori || record.kategory || "UMUM",
       });
       setEditingMapelOldName(record.Mapel || "");
+      setEditingMapelOldKode(record.Kode_Mapel || "");
     } else {
       setMapelDraft({ Mapel: "", Kode_Mapel: "", Kategori: "UMUM" });
       setEditingMapelOldName(null);
+      setEditingMapelOldKode(null);
     }
     setMapelError("");
     setIsMapelModalOpen(true);
@@ -3224,13 +3227,25 @@ export function App() {
       return;
     }
 
+    const oldName = (editingMapelOldName || "").trim();
+    const oldKode = (editingMapelOldKode || "").trim();
+    const isEditing = Boolean(oldName || oldKode);
+    const hasChanged =
+      isEditing &&
+      (normalizeValueKey(oldName) !== normalizeValueKey(mapel) ||
+        (oldKode && normalizeValueKey(oldKode) !== normalizeValueKey(kode)));
+
     setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
     try {
       const bucket = dataBucket["Mata Pelajaran"];
       const rows = await listRows(bucket);
       const existing = rows.find((row) => {
         const value = row.data.Mapel || "";
-        return normalizeValueKey(value) === normalizeValueKey(editingMapelOldName || mapel);
+        const rowKode = row.data.Kode_Mapel || row.data.Singkatan || "";
+        return (
+          normalizeValueKey(value) === normalizeValueKey(oldName || mapel) ||
+          (oldKode && normalizeValueKey(rowKode) === normalizeValueKey(oldKode))
+        );
       });
 
       if (existing) {
@@ -3239,14 +3254,156 @@ export function App() {
         await insertRow(bucket, { Mapel: mapel, Kode_Mapel: kode, Kategori: kategori });
       }
 
+      // Cascade Update Otomatis jika nama atau singkatan mata pelajaran diubah
+      if (hasChanged) {
+        const oldKeys = [oldName, oldKode].filter(Boolean).map((k) => normalizeText(k));
+
+        // Helper untuk memeriksa apakah nilai lama cocok dengan nama atau kode mapel lama
+        const matchesOldMapel = (val?: string) => {
+          if (!val) return false;
+          const norm = normalizeText(val);
+          return oldKeys.some((old) => norm === old || norm.includes(`||${old}||`));
+        };
+
+        // 1. Cascade Update ke Jadwal Bulan ini (Jadwal Reguler)
+        try {
+          const jadwalRows = await listRows(dataBucket["Jadwal Bulan ini"]);
+          const scheduleUpdates: Promise<unknown>[] = [];
+          jadwalRows.forEach((row) => {
+            const rowMapel = row.data.mapel || row.data.Mapel || "";
+            if (matchesOldMapel(rowMapel)) {
+              scheduleUpdates.push(
+                updateRow(row.id, {
+                  ...row.data,
+                  mapel: mapel,
+                  Mapel: mapel,
+                })
+              );
+            }
+          });
+          if (scheduleUpdates.length > 0) {
+            await Promise.all(scheduleUpdates);
+          }
+        } catch (err) {
+          console.error("Cascade update error on Jadwal Bulan ini:", err);
+        }
+
+        // 2. Cascade Update ke Jadwal Khusus (Jadwal Tambahan & Pelayanan)
+        try {
+          const khususRows = await listRows(dataBucket["Jadwal Khusus"]);
+          const khususUpdates: Promise<unknown>[] = [];
+          khususRows.forEach((row) => {
+            const rowMapel = row.data.mapel || row.data.Mapel || "";
+            if (matchesOldMapel(rowMapel)) {
+              khususUpdates.push(
+                updateRow(row.id, {
+                  ...row.data,
+                  mapel: mapel,
+                  Mapel: mapel,
+                })
+              );
+            }
+          });
+          if (khususUpdates.length > 0) {
+            await Promise.all(khususUpdates);
+          }
+        } catch (err) {
+          console.error("Cascade update error on Jadwal Khusus:", err);
+        }
+
+        // 3. Cascade Update ke Data Pengajar (Bidang Studi)
+        try {
+          const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
+          const pengajarUpdates: Promise<unknown>[] = [];
+          pengajarRows.forEach((row) => {
+            const bidangStudi = String(row.data["Bidang Studi"] || row.data.bidang_studi || "");
+            if (bidangStudi) {
+              const delimiters = /[,;/]+/;
+              const parts = bidangStudi.split(delimiters).map((p) => p.trim()).filter(Boolean);
+              let changed = false;
+              const newParts = parts.map((part) => {
+                if (matchesOldMapel(part)) {
+                  changed = true;
+                  return mapel;
+                }
+                return part;
+              });
+
+              if (changed) {
+                const updatedBidangStudi = Array.from(new Set(newParts)).join(", ");
+                pengajarUpdates.push(
+                  updateRow(row.id, {
+                    ...row.data,
+                    "Bidang Studi": updatedBidangStudi,
+                    bidang_studi: updatedBidangStudi,
+                  })
+                );
+              }
+            }
+          });
+          if (pengajarUpdates.length > 0) {
+            await Promise.all(pengajarUpdates);
+          }
+        } catch (err) {
+          console.error("Cascade update error on Data Pengajar:", err);
+        }
+
+        // 4. Update state di memori secara instan (Optimistic UI)
+        setRecords((prev) => {
+          const nextState: Record<string, RecordItem[]> = {};
+          Object.keys(prev).forEach((k) => {
+            nextState[k] = (prev[k] || []).map((item) => {
+              if (matchesOldMapel(item.mapel)) {
+                return { ...item, mapel: mapel };
+              }
+              return item;
+            });
+          });
+          return nextState;
+        });
+
+        setPengajarRecords((prev) =>
+          prev.map((p) => {
+            const bidang = p["Bidang Studi"] || "";
+            if (bidang) {
+              const parts = bidang.split(/[,;/]+/).map((x) => x.trim()).filter(Boolean);
+              let changed = false;
+              const newParts = parts.map((part) => {
+                if (matchesOldMapel(part)) {
+                  changed = true;
+                  return mapel;
+                }
+                return part;
+              });
+              if (changed) {
+                return {
+                  ...p,
+                  "Bidang Studi": Array.from(new Set(newParts)).join(", "),
+                };
+              }
+            }
+            return p;
+          })
+        );
+
+        // Muat ulang data terbaru secara hening di latar belakang
+        void handleLoadFromSheet({ silent: true });
+        void handleLoadPengajar({ silent: true });
+      }
+
       setIsMapelModalOpen(false);
       handleLoadMapel({ silent: true });
-      pushToast("Data mata pelajaran berhasil disimpan.", "success");
+      pushToast(
+        hasChanged
+          ? "Data mata pelajaran & seluruh jadwal dan data pengajar terkait berhasil diperbarui otomatis (Cascade Update)."
+          : "Data mata pelajaran berhasil disimpan.",
+        "success"
+      );
     } catch (error) {
       setMapelStatus((prev) => ({
         ...prev,
         loading: false,
-        error: "Gagal menyimpan mata pelajaran."
+        error: "Gagal menyimpan mata pelajaran.",
       }));
       pushToast("Gagal menyimpan mata pelajaran.", "error");
     }
