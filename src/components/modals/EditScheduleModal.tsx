@@ -20,6 +20,7 @@ type EditScheduleModalProps = {
   pengajarAvailableDateLabels: string[];
   conflictError: string;
   saving: boolean;
+  syncQueueCount?: number;
   isAdmin?: boolean;
   onClose: () => void;
   onDraftChange: (field: "mapel" | "pengajar" | "waktuMulai" | "waktuSelesai", value: string) => void;
@@ -97,6 +98,7 @@ export function EditScheduleModal({
   pengajarAvailableDateLabels,
   conflictError,
   saving,
+  syncQueueCount = 0,
   isAdmin = false,
   onClose,
   onDraftChange,
@@ -622,7 +624,13 @@ export function EditScheduleModal({
               ) : (
                 <i className="bi bi-check2-circle" />
               )}
-              <span>{editingSlot.entryId ? "Simpan Perubahan" : "Simpan Sesi"}</span>
+              <span>
+                {isSavingActive || syncQueueCount > 0
+                  ? "Sinkronisasi tertunda..."
+                  : editingSlot.entryId
+                  ? "Simpan Perubahan"
+                  : "Simpan Sesi"}
+              </span>
             </button>
           </div>
         </div>

@@ -54,6 +54,7 @@ import { ConfirmDialog } from "./components/feedback/ConfirmDialog";
 import { ToastStack } from "./components/feedback/ToastStack";
 import { RouteProgressBar } from "./components/feedback/RouteProgressBar";
 import { MenuTransitionLoader } from "./components/feedback/MenuTransitionLoader";
+import { syncWorkerClient } from "./utils/syncWorkerClient";
 import { authStorageKey, loginAccounts } from "./config/auth";
 import type {
   AppToast,
@@ -8034,9 +8035,17 @@ export function App() {
     setSheetStatus((prev) => ({ ...prev, saving: false }));
     pushToast("Data berhasil disimpan.", "success");
 
-    // 2. Perform database save and sync in the background non-blockingly (fire-and-forget)
+    // 2. Perform delta computation in Web Worker and database save non-blockingly (fire-and-forget)
     void (async () => {
       try {
+        const bucket = dataBucket[scheduleSheetByKey[activeScheduleKey]];
+        const serverRows = await listRows(bucket, true);
+        const localItems = records[activeScheduleKey] ?? [];
+        
+        // Compute delta via Web Worker (non-blocking background thread)
+        const delta = await syncWorkerClient.computeDelta(localItems, serverRows);
+        console.info("Delta-update computed via Web Worker:", delta);
+
         if (entryId) {
           await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
           if (copiedSheetRecords.length > 0) {
