@@ -6585,7 +6585,7 @@ export function App() {
       bulanIni: restrictedCabang || "",
       jadwalTambahanPelayanan: restrictedCabang || "",
     });
-    void refreshAllData(false, false, true);
+    void refreshAllData(false, false, false);
   }, [authSession?.username, authSession?.roll, restrictedCabang]);
 
   useEffect(() => {
@@ -8344,6 +8344,16 @@ export function App() {
   return (
     <div className="min-vh-100 app-font-10 app-shell">
       <DatabaseMaintenanceBanner />
+      {isRefreshingAll && (
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-75 backdrop-blur"
+          style={{ zIndex: 9999 }}
+        >
+          <div className="spinner-border text-primary mb-3" role="status" style={{ width: "3rem", height: "3rem" }} />
+          <h5 className="fw-bold text-dark mb-1">Memuat Data Sistem...</h5>
+          <p className="text-muted small">Menyinkronkan jadwal, pengajar, dan data terbaru dari server.</p>
+        </div>
+      )}
       <div className="container-fluid py-3 px-3">
         <div className="row g-2">
           <div className="d-none d-lg-flex col-auto">
