@@ -5050,7 +5050,7 @@ export function App() {
     // data tidak perlu diambil ulang dari D1.
     if (!bypassCache && lastRefreshAllTimestampRef.current > 0 && elapsed < REALTIME_SYNC_TTL_MS) {
       if (showToast) {
-        pushToast("Data disajikan dari memori (sinkronisasi < 25 detik yang lalu).", "info");
+        pushToast("Data sudah yang paling baru (sinkronisasi < 25 detik yang lalu).", "info");
       }
       return;
     }
@@ -5078,7 +5078,12 @@ export function App() {
       ]);
       lastRefreshAllTimestampRef.current = Date.now();
       if (showToast) {
-        pushToast("Semua data berhasil direfresh.", "success");
+        pushToast("✅ Sinkronisasi selesai! Seluruh data terbaru berhasil dimuat dan diperbarui.", "success");
+      }
+    } catch (err: any) {
+      console.error("Refresh all data error:", err);
+      if (showToast) {
+        pushToast("❌ Gagal menyinkronkan data: " + (err?.message || "Terjadi kendala jaringan."), "error");
       }
     } finally {
       isSyncingRef.current = false;
@@ -5089,6 +5094,7 @@ export function App() {
   };
 
   const handleRefreshAllData = async () => {
+    pushToast("Sedang menyinkronkan seluruh data terbaru dari server...", "info");
     await refreshAllData(true, true, false);
   };
 
