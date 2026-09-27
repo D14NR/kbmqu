@@ -3630,11 +3630,9 @@ export function App() {
   const handleLoadSuratTugas = async (options?: { silent?: boolean }) => {
     if (!options?.silent) {
       setSuratTugasStatus((prev) => ({ ...prev, loading: true, error: "" }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
     try {
-      // Data is now computed automatically from jadwal_reguler and jadwal_khusus
-      // No need to load from database, just update the sync status
-      await new Promise((resolve) => setTimeout(resolve, 100)); // Simulate async
       setSuratTugasStatus({
         loading: false,
         error: "",
@@ -8031,6 +8029,7 @@ export function App() {
       );
     }
 
+    setSheetStatus((prev) => ({ ...prev, saving: true }));
     try {
       if (entryId) {
         await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
@@ -8051,13 +8050,14 @@ export function App() {
       }
 
       // 3. Sinkronisasi Data (Jadwal & Surat Tugas)
-      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
-      await handleLoadSuratTugas({ silent: true });
+      await Promise.all([
+        handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true }),
+        handleLoadSuratTugas({ silent: true }),
+      ]);
 
-      // 4. Tutup modal, tunggu sejenak, baru tampilkan Notifikasi Berhasil
+      // 4. Proses 100% selesai: Tutup modal & Tampilkan Notifikasi Berhasil
       clearEditing();
       setSheetStatus((prev) => ({ ...prev, saving: false }));
-      await new Promise((resolve) => setTimeout(resolve, 600));
       pushToast("Data berhasil disimpan dan seluruh jadwal serta Surat Tugas telah disinkronkan.", "success");
     } catch (err: any) {
       console.error("Gagal menyimpan jadwal ke database:", err);
@@ -8080,7 +8080,6 @@ export function App() {
       clearEditing();
       return;
     }
-    setSheetStatus((prev) => ({ ...prev, saving: true }));
     const deletingId = editingSlot.entryId;
     const existingEntry = (records[activeScheduleKey] ?? []).find((item) => item.id === deletingId);
     const sheetRecord = buildSheetRecord(
@@ -8099,18 +8098,21 @@ export function App() {
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== deletingId),
     }));
+
+    setSheetStatus((prev) => ({ ...prev, saving: true }));
     try {
       // 2. Menyimpan Data (Delete) ke Database
       await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
       
       // 3. Sinkronisasi Data (Jadwal & Surat Tugas)
-      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
-      await handleLoadSuratTugas({ silent: true });
+      await Promise.all([
+        handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true }),
+        handleLoadSuratTugas({ silent: true }),
+      ]);
 
-      // 4. Tutup modal, tunggu sejenak, baru tampilkan Notifikasi Berhasil
+      // 4. Proses 100% selesai: Tutup modal & Tampilkan Notifikasi Berhasil
       clearEditing();
       setSheetStatus((prev) => ({ ...prev, saving: false }));
-      await new Promise((resolve) => setTimeout(resolve, 600));
       pushToast("Data berhasil dihapus dan seluruh jadwal serta Surat Tugas telah disinkronkan.", "success");
     } catch (err: any) {
       console.error("Gagal menghapus jadwal dari database:", err);
