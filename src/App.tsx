@@ -8029,12 +8029,12 @@ export function App() {
       );
     }
 
-    // 1. Instantly update UI, close modal, stop loading, and show success toast
+    // 1. Instantly update UI, close modal, and show success toast (0 wait time)
     clearEditing();
     setSheetStatus((prev) => ({ ...prev, saving: false }));
-    pushToast("Data berhasil disimpan ke database.", "success");
+    pushToast("Data berhasil disimpan.", "success");
 
-    // 2. Perform database write and background sync non-blockingly (fire-and-forget)
+    // 2. Perform database save and sync in the background non-blockingly (fire-and-forget)
     void (async () => {
       try {
         if (entryId) {
@@ -8054,11 +8054,6 @@ export function App() {
         if (partnerSheetRecordsToAppend.length > 0) {
           await postToSheet({ action: "appendMany", records: partnerSheetRecordsToAppend });
         }
-
-        void Promise.all([
-          handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true }),
-          handleLoadSuratTugas({ silent: true }),
-        ]);
       } catch (err: any) {
         console.error("Gagal menyinkronkan perubahan ke database di background:", err);
         pushToast("Gagal menyimpan perubahan ke database.", "error");
@@ -8093,23 +8088,19 @@ export function App() {
       getScheduleJenis(activeScheduleKey)
     );
 
-    // 1. Instantly update UI, close modal, stop loading, and show success toast
+    // 1. Instantly update UI, close modal, and show success toast (0 wait time)
     setRecords((prev) => ({
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== deletingId),
     }));
     clearEditing();
     setSheetStatus((prev) => ({ ...prev, saving: false }));
-    pushToast("Data berhasil dihapus dari database.", "success");
+    pushToast("Data berhasil dihapus.", "success");
 
-    // 2. Perform database delete and background sync non-blockingly (fire-and-forget)
+    // 2. Perform database delete and sync in the background non-blockingly (fire-and-forget)
     void (async () => {
       try {
         await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
-        void Promise.all([
-          handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true }),
-          handleLoadSuratTugas({ silent: true }),
-        ]);
       } catch (err: any) {
         console.error("Gagal menghapus jadwal dari database di background:", err);
         pushToast("Gagal menghapus sesi jadwal dari database.", "error");
