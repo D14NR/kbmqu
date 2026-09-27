@@ -1202,8 +1202,7 @@ body {
 }
 
 .app-toast {
-  pointer-events: auto !important;
-  cursor: pointer;
+  pointer-events: none !important;
   border-radius: 12px;
   border: 1px solid transparent;
   box-shadow: 0 10px 25px -3px rgba(15, 23, 42, 0.18), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
@@ -1214,14 +1213,16 @@ body {
   gap: 0.6rem;
   padding: 0.65rem 0.85rem;
   font-size: 0.82rem;
-  min-width: 280px;
-  max-width: 440px;
+  min-width: 260px;
+  max-width: 420px;
   animation: slide-in 0.18s ease-out;
   transition: transform 0.15s ease, opacity 0.15s ease;
+  user-select: none;
 }
 
-.app-toast:hover {
-  transform: translateY(-2px);
+.app-toast .btn-close {
+  pointer-events: auto !important;
+  cursor: pointer;
 }
 
 .app-toast-success {

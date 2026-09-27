@@ -30,8 +30,7 @@ export function ToastStack({ toasts, onClose }: ToastStackProps) {
             exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
             transition={{ type: "spring", stiffness: 400, damping: 25 }}
             className={`app-toast app-toast-${toast.type} d-flex align-items-center gap-2.5 shadow-lg`}
-            onClick={() => onClose(toast.id)}
-            title="Klik untuk menutup notifikasi"
+            style={{ pointerEvents: "none" }}
           >
             {getIcon(toast.type)}
             <div className="app-toast-body fw-semibold">{toast.message}</div>
@@ -39,6 +38,7 @@ export function ToastStack({ toasts, onClose }: ToastStackProps) {
               type="button"
               className="btn-close btn-close-sm ms-2"
               aria-label="Tutup notifikasi"
+              style={{ pointerEvents: "auto" }}
               onClick={(e) => {
                 e.stopPropagation();
                 onClose(toast.id);

@@ -124,17 +124,12 @@ export function SuratTugasView({
           return !targetKode || kode === targetKode;
         });
 
-        // Collect and merge raw sessions for this date
+        // Collect and list raw sessions independently for this date
         const rawValues = dateRecords.flatMap((record) =>
           sesiHeaders.map((h) => (record[h] || "").trim()).filter(Boolean)
         );
 
-        const mergedMap = new Map<
-          string,
-          { waktu: string; mapel: string; kelasSet: Set<string>; cabang: string; tail?: string }
-        >();
-
-        rawValues.forEach((v) => {
+        rawValues.forEach((v, idx) => {
           const parts = (v || "").split("/").map((p) => p.trim());
           const waktuPart = parts[0] || "";
           const second = parts[1] || "";
@@ -146,36 +141,24 @@ export function SuratTugasView({
           const cabangMatch = cabangTail.match(/^(.*?)(?:\s+Update-.*)?$/);
           const cabangPart = cabangMatch ? cabangMatch[1].trim() : cabangTail;
 
-          const key = `${waktuPart}||${mapelPart}||${cabangPart}`;
-          const entry = mergedMap.get(key);
-          if (!entry) {
-            const kelasSet = new Set<string>();
-            if (kelasPart) kelasSet.add(kelasPart);
-            mergedMap.set(key, { waktu: waktuPart, mapel: mapelPart, kelasSet, cabang: cabangPart, tail: cabangTail });
-          } else {
-            if (kelasPart) entry.kelasSet.add(kelasPart);
-          }
-        });
-
-        Array.from(mergedMap.values()).forEach((e) => {
-          const timeMatch = (e.waktu || "").match(/\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}/);
+          const timeMatch = (waktuPart || "").match(/\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}/);
           const range = parseRangeFromString(timeMatch ? timeMatch[0] : "");
           const startTime = range?.start ?? 9999;
-          const kelasCombined = Array.from(e.kelasSet).filter(Boolean).join(" . ");
+          const kelasCombined = kelasPart || "Kelas Belum Ditentukan";
 
           result.push({
-            id: `${slot.date}-${e.waktu}-${e.mapel}-${kelasCombined}`,
+            id: `${slot.date}-${waktuPart}-${mapelPart}-${kelasCombined}-${idx}`,
             date: slot.date,
             dateLabel: slot.label,
             dayLabel: row.dayLabel,
-            waktu: e.waktu,
+            waktu: waktuPart,
             startTime,
-            mapel: e.mapel,
-            mapelFull: getSubjectFullName(e.mapel),
-            kelas: kelasCombined || "Kelas Belum Ditentukan",
-            cabang: e.cabang || userCabang || "Neutron",
-            updateLabel: e.tail,
-            rawText: `${e.waktu}/${e.mapel}-${kelasCombined}/${e.cabang}`,
+            mapel: mapelPart,
+            mapelFull: getSubjectFullName(mapelPart),
+            kelas: kelasCombined,
+            cabang: cabangPart || userCabang || "Neutron",
+            updateLabel: cabangTail,
+            rawText: v,
           });
         });
       });

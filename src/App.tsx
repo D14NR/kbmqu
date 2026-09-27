@@ -715,15 +715,20 @@ export function App() {
   const toastTimeoutsRef = useRef<Record<string, number>>({});
 
   const pushToast = (message: string, type: ToastType = "info") => {
-    const id = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts((prev) => {
+      // Prevent stacking duplicate messages
+      if (prev.some((t) => t.message === message)) {
+        return prev;
+      }
+      const id = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
+      const timeoutId = window.setTimeout(() => {
+        setToasts((curr) => curr.filter((toast) => toast.id !== id));
+        delete toastTimeoutsRef.current[id];
+      }, 1800);
 
-    const timeoutId = window.setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-      delete toastTimeoutsRef.current[id];
-    }, 2000);
-
-    toastTimeoutsRef.current[id] = timeoutId;
+      toastTimeoutsRef.current[id] = timeoutId;
+      return [...prev, { id, message, type }];
+    });
   };
 
   const dismissToast = (id: string) => {
@@ -2278,6 +2283,7 @@ export function App() {
         }
         // If both have identical schedule time and same subject in same branch
         if (
+          gabungEnabled &&
           item.waktu &&
           draft.waktuMulai &&
           draft.waktuSelesai &&
@@ -2290,7 +2296,7 @@ export function App() {
           const endMin = parseTimeValue(draft.waktuSelesai);
           if (itemRange && startMin !== null && endMin !== null) {
             if (itemRange.start === startMin && itemRange.end === endMin) {
-              return false; // Exactly same time and mapel in same branch -> Gabung class!
+              return false; // Exactly same time and mapel in same branch with gabungEnabled -> Gabung class!
             }
           }
         }
@@ -3392,7 +3398,7 @@ export function App() {
       }
 
       setIsMapelModalOpen(false);
-      handleLoadMapel({ silent: true });
+      void handleLoadMapel({ silent: true });
       pushToast(
         hasChanged
           ? "Data mata pelajaran & seluruh jadwal dan data pengajar terkait berhasil diperbarui otomatis (Cascade Update)."
@@ -3402,10 +3408,11 @@ export function App() {
     } catch (error) {
       setMapelStatus((prev) => ({
         ...prev,
-        loading: false,
         error: "Gagal menyimpan mata pelajaran.",
       }));
       pushToast("Gagal menyimpan mata pelajaran.", "error");
+    } finally {
+      setMapelStatus((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -3421,15 +3428,16 @@ export function App() {
             .map((row) => row.id);
           await deleteRowsByIds(targetIds);
 
-          handleLoadMapel({ silent: true });
+          void handleLoadMapel({ silent: true });
           pushToast("Data mata pelajaran berhasil dihapus.", "success");
         } catch (error) {
           setMapelStatus((prev) => ({
             ...prev,
-            loading: false,
             error: "Gagal menghapus mata pelajaran."
           }));
           pushToast("Gagal menghapus mata pelajaran.", "error");
+        } finally {
+          setMapelStatus((prev) => ({ ...prev, loading: false }));
         }
       },
       { title: "Hapus Mata Pelajaran", confirmLabel: "Hapus" }
@@ -3912,8 +3920,8 @@ export function App() {
       setEditingPengajarOldKode(null);
       setEditingPengajarOldNama(null);
 
-      // Reload all datasets in state
-      await Promise.all([
+      // Reload all datasets in state silently in background
+      void Promise.all([
         handleLoadPengajar({ silent: true }),
         handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
         handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
@@ -3927,10 +3935,11 @@ export function App() {
     } catch (error) {
       setPengajarStatus((prev) => ({
         ...prev,
-        loading: false,
         error: "Gagal menyimpan pengajar.",
       }));
       pushToast("Gagal menyimpan data pengajar.", "error");
+    } finally {
+      setPengajarStatus((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -3950,7 +3959,7 @@ export function App() {
             .map((row) => row.id);
           await deleteRowsByIds(targetIds);
 
-          await Promise.all([
+          void Promise.all([
             handleLoadPengajar({ silent: true }),
             handleLoadPenempatanPengajar({ silent: true }),
             handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
@@ -3960,10 +3969,11 @@ export function App() {
         } catch (error) {
           setPengajarStatus((prev) => ({
             ...prev,
-            loading: false,
             error: "Gagal menghapus pengajar.",
           }));
           pushToast("Gagal menghapus data pengajar.", "error");
+        } finally {
+          setPengajarStatus((prev) => ({ ...prev, loading: false }));
         }
       },
       { title: "Hapus Pengajar", confirmLabel: "Hapus" }
@@ -4280,15 +4290,16 @@ export function App() {
       
       setIsPenempatanModalOpen(false);
       setPenempatanError("");
-      await handleLoadPenempatanPengajar({ silent: true });
+      void handleLoadPenempatanPengajar({ silent: true });
       pushToast("Penempatan pengajar berhasil disimpan.", "success");
     } catch (error) {
       setPenempatanStatus((prev) => ({
         ...prev,
-        loading: false,
         error: "Gagal menyimpan penempatan pengajar.",
       }));
       pushToast("Gagal menyimpan penempatan pengajar.", "error");
+    } finally {
+      setPenempatanStatus((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -4497,15 +4508,16 @@ export function App() {
       }
       setIsIzinModalOpen(false);
       setIzinError("");
-      await handleLoadIzinPengajar({ silent: true });
+      void handleLoadIzinPengajar({ silent: true });
       pushToast("Izin pengajar berhasil disimpan.", "success");
     } catch (error) {
       setIzinStatus((prev) => ({
         ...prev,
-        loading: false,
         error: "Gagal menyimpan izin pengajar.",
       }));
       pushToast("Gagal menyimpan izin pengajar.", "error");
+    } finally {
+      setIzinStatus((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -4523,15 +4535,16 @@ export function App() {
           if (targetId) {
             await deleteRowsByIds([targetId]);
           }
-          await handleLoadIzinPengajar({ silent: true });
+          void handleLoadIzinPengajar({ silent: true });
           pushToast("Izin pengajar berhasil dihapus.", "success");
         } catch (error) {
           setIzinStatus((prev) => ({
             ...prev,
-            loading: false,
             error: "Gagal menghapus izin pengajar.",
           }));
           pushToast("Gagal menghapus izin pengajar.", "error");
+        } finally {
+          setIzinStatus((prev) => ({ ...prev, loading: false }));
         }
       },
       { title: "Hapus Izin", confirmLabel: "Hapus" }
@@ -6016,7 +6029,7 @@ export function App() {
       }
       setIsPermintaanModalOpen(false);
       setPermintaanError("");
-      await handleLoadPermintaanPengajar({ silent: true });
+      void handleLoadPermintaanPengajar({ silent: true });
       pushToast(
         existingRequest
           ? "Permintaan sebelumnya untuk pengajar ini diperbarui otomatis."
@@ -6026,10 +6039,11 @@ export function App() {
     } catch (error) {
       setPermintaanStatus((prev) => ({
         ...prev,
-        loading: false,
         error: "Gagal menyimpan permintaan pengajar.",
       }));
       pushToast("Gagal menyimpan permintaan pengajar.", "error");
+    } finally {
+      setPermintaanStatus((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -6053,7 +6067,7 @@ export function App() {
             .filter((row) => normalizeValueKey(row.data.ID) === normalizeValueKey(record.ID))
             .map((row) => row.id);
           await deleteRowsByIds(targetIds);
-          await Promise.all([
+          void Promise.all([
             handleLoadPermintaanPengajar({ silent: true }),
             handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
             handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
@@ -6063,10 +6077,11 @@ export function App() {
         } catch (error) {
           setPermintaanStatus((prev) => ({
             ...prev,
-            loading: false,
             error: "Gagal menghapus permintaan pengajar.",
           }));
           pushToast("Gagal menghapus permintaan pengajar.", "error");
+        } finally {
+          setPermintaanStatus((prev) => ({ ...prev, loading: false }));
         }
       },
       { title: "Hapus Permintaan", confirmLabel: "Hapus" }
@@ -6111,7 +6126,7 @@ export function App() {
         Status: status,
       });
 
-      await Promise.all([
+      void Promise.all([
         handleLoadPermintaanPengajar({ silent: true }),
         handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
         handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
@@ -6121,10 +6136,11 @@ export function App() {
     } catch (error) {
       setPermintaanStatus((prev) => ({
         ...prev,
-        loading: false,
         error: "Gagal memperbarui status permintaan.",
       }));
       pushToast("Gagal memperbarui status permintaan.", "error");
+    } finally {
+      setPermintaanStatus((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -7404,7 +7420,6 @@ export function App() {
       }));
       // Keep Surat Tugas view in sync right after any jadwal save/delete.
       handleLoadSuratTugas({ silent: true });
-      pushToast("Perubahan jadwal berhasil disimpan.", "success");
       return true;
     };
 
@@ -8171,11 +8186,12 @@ export function App() {
         await postToSheet({ action: "appendMany", records: partnerSheetRecordsToAppend });
       }
       pushToast("Jadwal berhasil disimpan.", "success");
-      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      setSheetStatus((prev) => ({ ...prev, saving: false }));
+      void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     } catch (err: any) {
       console.error("Gagal menyimpan jadwal ke database:", err);
       pushToast("Gagal menyimpan perubahan ke database.", "error");
-      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     } finally {
       setSheetStatus((prev) => ({ ...prev, saving: false }));
     }
@@ -8216,11 +8232,12 @@ export function App() {
     try {
       await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
       pushToast("Sesi jadwal berhasil dihapus.", "success");
-      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      setSheetStatus((prev) => ({ ...prev, saving: false }));
+      void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     } catch (err: any) {
       console.error("Gagal menghapus jadwal dari database:", err);
       pushToast("Gagal menghapus sesi jadwal dari database.", "error");
-      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     } finally {
       setSheetStatus((prev) => ({ ...prev, saving: false }));
     }
