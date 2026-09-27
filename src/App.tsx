@@ -8029,43 +8029,41 @@ export function App() {
       );
     }
 
-    setSheetStatus((prev) => ({ ...prev, saving: true }));
-    try {
-      if (entryId) {
-        await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
-        if (copiedSheetRecords.length > 0) {
-          await postToSheet({ action: "appendMany", records: copiedSheetRecords });
+    // 1. Instantly update UI, close modal, stop loading, and show success toast
+    clearEditing();
+    setSheetStatus((prev) => ({ ...prev, saving: false }));
+    pushToast("Data berhasil disimpan ke database.", "success");
+
+    // 2. Perform database write and background sync non-blockingly (fire-and-forget)
+    void (async () => {
+      try {
+        if (entryId) {
+          await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
+          if (copiedSheetRecords.length > 0) {
+            await postToSheet({ action: "appendMany", records: copiedSheetRecords });
+          }
+        } else if (copiedSheetRecords.length > 0) {
+          await postToSheet({ action: "appendMany", records: [sheetRecord, ...copiedSheetRecords] });
+        } else {
+          await postToSheet({ action: "append", record: sheetRecord });
         }
-      } else if (copiedSheetRecords.length > 0) {
-        await postToSheet({ action: "appendMany", records: [sheetRecord, ...copiedSheetRecords] });
-      } else {
-        await postToSheet({ action: "append", record: sheetRecord });
-      }
 
-      for (const pUpsert of partnerSheetRecordsToUpsert) {
-        await postToSheet({ action: "upsert", record: pUpsert.record, entryId: pUpsert.entryId });
-      }
-      if (partnerSheetRecordsToAppend.length > 0) {
-        await postToSheet({ action: "appendMany", records: partnerSheetRecordsToAppend });
-      }
+        for (const pUpsert of partnerSheetRecordsToUpsert) {
+          await postToSheet({ action: "upsert", record: pUpsert.record, entryId: pUpsert.entryId });
+        }
+        if (partnerSheetRecordsToAppend.length > 0) {
+          await postToSheet({ action: "appendMany", records: partnerSheetRecordsToAppend });
+        }
 
-      // 3. Sinkronisasi Data (Jadwal & Surat Tugas)
-      await Promise.all([
-        handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true }),
-        handleLoadSuratTugas({ silent: true }),
-      ]);
-
-      // 4. Proses 100% selesai: Tutup modal & Tampilkan Notifikasi Berhasil
-      clearEditing();
-      setSheetStatus((prev) => ({ ...prev, saving: false }));
-      pushToast("Data berhasil disimpan dan seluruh jadwal serta Surat Tugas telah disinkronkan.", "success");
-    } catch (err: any) {
-      console.error("Gagal menyimpan jadwal ke database:", err);
-      pushToast("Gagal menyimpan perubahan ke database.", "error");
-      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
-    } finally {
-      setSheetStatus((prev) => ({ ...prev, saving: false }));
-    }
+        void Promise.all([
+          handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true }),
+          handleLoadSuratTugas({ silent: true }),
+        ]);
+      } catch (err: any) {
+        console.error("Gagal menyinkronkan perubahan ke database di background:", err);
+        pushToast("Gagal menyimpan perubahan ke database.", "error");
+      }
+    })();
   };
 
   const handleDeleteSlot = async () => {
@@ -8094,33 +8092,29 @@ export function App() {
       existingEntry?.classOrder || "",
       getScheduleJenis(activeScheduleKey)
     );
+
+    // 1. Instantly update UI, close modal, stop loading, and show success toast
     setRecords((prev) => ({
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== deletingId),
     }));
+    clearEditing();
+    setSheetStatus((prev) => ({ ...prev, saving: false }));
+    pushToast("Data berhasil dihapus dari database.", "success");
 
-    setSheetStatus((prev) => ({ ...prev, saving: true }));
-    try {
-      // 2. Menyimpan Data (Delete) ke Database
-      await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
-      
-      // 3. Sinkronisasi Data (Jadwal & Surat Tugas)
-      await Promise.all([
-        handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true }),
-        handleLoadSuratTugas({ silent: true }),
-      ]);
-
-      // 4. Proses 100% selesai: Tutup modal & Tampilkan Notifikasi Berhasil
-      clearEditing();
-      setSheetStatus((prev) => ({ ...prev, saving: false }));
-      pushToast("Data berhasil dihapus dan seluruh jadwal serta Surat Tugas telah disinkronkan.", "success");
-    } catch (err: any) {
-      console.error("Gagal menghapus jadwal dari database:", err);
-      pushToast("Gagal menghapus sesi jadwal dari database.", "error");
-      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
-    } finally {
-      setSheetStatus((prev) => ({ ...prev, saving: false }));
-    }
+    // 2. Perform database delete and background sync non-blockingly (fire-and-forget)
+    void (async () => {
+      try {
+        await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
+        void Promise.all([
+          handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true }),
+          handleLoadSuratTugas({ silent: true }),
+        ]);
+      } catch (err: any) {
+        console.error("Gagal menghapus jadwal dari database di background:", err);
+        pushToast("Gagal menghapus sesi jadwal dari database.", "error");
+      }
+    })();
   };
 
   const isBusy = isImporting;
