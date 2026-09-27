@@ -7660,154 +7660,29 @@ export function App() {
       waktu: waktuValue,
     };
 
-    if (nextValues.pengajar && pengajarAvailabilityInfo.warning) {
-      setConflictError(pengajarAvailabilityInfo.warning);
-      setSheetStatus((prev) => ({ ...prev, saving: false }));
-      return;
-    }
-    if (nextValues.pengajar) {
-      const izinMatch = getPengajarIzinOnDate(nextValues.pengajar, tanggal);
-      if (izinMatch) {
-        const startLabel = izinMatch["Tanggal Mulai"] || "";
-        const endLabel = izinMatch["Tanggal Selesai"] || "";
-        const reason = (izinMatch.Keterangan || "").trim();
-        setConflictError(
-          `Pengajar sedang izin pada rentang ${startLabel} s.d. ${endLabel}${reason ? ` (${reason})` : ""}.`
-        );
-        setSheetStatus((prev) => ({ ...prev, saving: false }));
-        return;
-      }
-    }
-    const pengajarKey = nextValues.pengajar.toLowerCase();
     const startTime = parseTimeValue(waktuMulai);
     const endTime = parseTimeValue(waktuSelesai);
     const targetTeacherCode = nextValues.pengajar ? resolvePengajarCode(nextValues.pengajar) : "";
     const targetCanonicalDate = resolveCanonicalDate(tanggal);
-
-    const selectedGabungKeySet = new Set(gabungClassKeys);
-    const keptGabungLabelSet = new Set(
-      gabungOptions
-        .filter((opt) => gabungClassKeys.includes(opt.value))
-        .map((opt) => normalizeText(opt.label))
-    );
-    const currentClassKey = buildClassGroupKey(cabang, kelas, sekolahValue);
-    const currentClassLabel = normalizeText(`${kelas}${sekolahValue ? ` • ${sekolahValue}` : ""}`);
-    const ignoreClassKeySet = new Set([...selectedGabungKeySet, currentClassKey]);
-    const ignoreLabelSet = new Set([...keptGabungLabelSet, currentClassLabel]);
-
-    if (nextValues.pengajar && startTime !== null && endTime !== null) {
-      if (startTime >= endTime) {
-        setConflictError("Jam mulai harus lebih awal daripada jam selesai.");
-        setSheetStatus((prev) => ({ ...prev, saving: false }));
-        return;
-      }
-
-      // Check conflict directly against in-memory allScheduleEntries (instantaneous, 0ms)
-      const otherEntries = allScheduleEntries.filter((item) => {
-        const isSelf =
-          (entryId && item.id === entryId) ||
-          (entryId && decodeId(item.id).id === decodeId(entryId).id) ||
-          (normalizeText(item.cabang || "") === normalizeText(cabang || "") &&
-            normalizeText(item.kelas || "") === normalizeText(kelas || "") &&
-            normalizeText(item.sekolah || "") === normalizeText(sekolahValue || "") &&
-            resolveCanonicalDate(item.tanggal || "") === targetCanonicalDate);
-        if (isSelf) return false;
-        if (resolveCanonicalDate(item.tanggal || "") !== targetCanonicalDate) return false;
-        if (resolvePengajarCode(item.pengajar || "") !== targetTeacherCode) return false;
-
-        const isSameBranch = normalizeText(item.cabang || "") === normalizeText(cabang || "");
-        const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
-        const itemLabel = normalizeText(`${item.kelas || ""}${item.sekolah ? ` • ${item.sekolah}` : ""}`);
-
-        // If saving with gabung enabled, ignore selected gabung classes
-        if (gabungEnabled && ignoreClassKeySet.size > 0) {
-          if (ignoreClassKeySet.has(itemKey)) return false;
-          const itemGabungParts = String(item.gabungWith || "")
-            .split(";")
-            .map((value) => normalizeText(value))
-            .filter(Boolean);
-          if (
-            itemGabungParts.some(
-              (value) => ignoreClassKeySet.has(value) || ignoreLabelSet.has(value)
-            )
-          ) {
-            return false;
-          }
-        }
-
-        // If existing item is marked as gabung with this class or vice versa in same branch
-        if (isSameBranch && (item.isGabung || item.gabungWith)) {
-          const itemGabungParts = String(item.gabungWith || "")
-            .split(";")
-            .map((value) => normalizeText(value))
-            .filter(Boolean);
-          if (
-            itemGabungParts.some(
-              (p) =>
-                p === normalizeText(currentClassKey) ||
-                p === currentClassLabel ||
-                p === normalizeText(kelas) ||
-                p.includes(`||${normalizeText(kelas)}||`) ||
-                normalizeText(currentClassKey).includes(`||${p}||`)
-            ) ||
-            item.isGabung
-          ) {
-            return false;
-          }
-        }
-
-        // Same branch, same time, and same mapel -> combined class
-        if (
-          isSameBranch &&
-          normalizeText(item.waktu || "") === normalizeText(waktuValue) &&
-          normalizeText(item.mapel || "") === normalizeText(draft.mapel)
-        ) {
-          return false;
-        }
-
-        return true;
-      });
-
-      for (const entry of otherEntries) {
-        if (!entry.waktu) {
-          continue;
-        }
-        const range = parseRangeFromString(entry.waktu);
-        if (!range) {
-          continue;
-        }
-        const overlap = startTime < range.end && endTime > range.start;
-        if (overlap) {
-          const tanggalLabel = getSlotLabelByDate(entry.tanggal ?? tanggal);
-          const cabangLabel = entry.cabang || "Cabang tidak diketahui";
-          const kelasLabel = entry.kelas || "Kelas tidak diketahui";
-          const waktuLabel = entry.waktu || "jam tidak diketahui";
-          setConflictError(
-            `Pengajar sudah mengajar di ${cabangLabel} (${kelasLabel}) pada ${tanggalLabel} pukul ${waktuLabel}.`
-          );
-          setSheetStatus((prev) => ({ ...prev, saving: false }));
-          return;
-        }
-        if (normalizeText(entry.cabang || "") !== normalizeText(cabang || "")) {
-          const hasGap = startTime >= range.end + INTER_BRANCH_MIN_GAP_MINUTES || range.start >= endTime + INTER_BRANCH_MIN_GAP_MINUTES;
-          if (!hasGap) {
-            const tanggalLabel = getSlotLabelByDate(entry.tanggal ?? tanggal);
-            const cabangLabel = entry.cabang || "Cabang tidak diketahui";
-            const kelasLabel = entry.kelas || "Kelas tidak diketahui";
-            const waktuLabel = entry.waktu || "jam tidak diketahui";
-            setConflictError(
-              `Pengajar sudah mengajar di ${cabangLabel} (${kelasLabel}) pada ${tanggalLabel} pukul ${waktuLabel}. Antar cabang wajib jeda minimal ${INTER_BRANCH_MIN_GAP_MINUTES} menit.`
-            );
-            setSheetStatus((prev) => ({ ...prev, saving: false }));
-            return;
-          }
-        }
-      }
+    if (startTime !== null && endTime !== null && startTime >= endTime) {
+      setConflictError("Jam mulai harus lebih awal daripada jam selesai.");
+      setSheetStatus((prev) => ({ ...prev, saving: false }));
+      return;
     }
 
     const existingEntry = entryId
       ? (records[activeScheduleKey] ?? []).find((item) => item.id === entryId)
       : undefined;
+    const currentEntries = records[activeScheduleKey] ?? [];
+    const sheetJenjang =
+      existingEntry?.jenjang ||
+      currentEntries.find(
+        (item) =>
+          item.cabang === cabang &&
+          item.kelas === kelas &&
+          (item.sekolah || "") === sekolahValue
+      )?.jenjang ||
+      "";
 
     const targetClassKey = buildClassGroupKey(cabang, kelas, sekolahValue);
     const existingGroup = monthScheduleGroupsAll.find(
@@ -7829,17 +7704,6 @@ export function App() {
         ? String(resolvedClassOrderNum)
         : (existingEntry?.classOrder && existingEntry.classOrder.trim()) || "";
 
-    const dateLabelByKey = new Map(activeScheduleDates.map((slot) => [slot.date, slot.label]));
-    const currentEntries = records[activeScheduleKey] ?? [];
-    const sheetJenjang =
-      existingEntry?.jenjang ||
-      currentEntries.find(
-        (item) =>
-          item.cabang === cabang &&
-          item.kelas === kelas &&
-          (item.sekolah || "") === sekolahValue
-      )?.jenjang ||
-      "";
     const nextPengajarKode = nextValues.pengajar.trim();
     const nextPengajarNama =
       nextPengajarKode && pengajarByKode[normalizeText(nextPengajarKode)]
@@ -7849,6 +7713,7 @@ export function App() {
             pengajarByKode[normalizeText(nextPengajarKode)]["nama_pengajar"] ||
             ""
         : "";
+    const dateLabelByKey = new Map(activeScheduleDates.map((slot) => [slot.date, slot.label]));
     const sanitizedCopyDates = Array.from(
       new Set(
         copyTargetDates.filter(
@@ -8166,7 +8031,6 @@ export function App() {
       );
     }
 
-    clearEditing();
     try {
       if (entryId) {
         await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
@@ -8185,13 +8049,20 @@ export function App() {
       if (partnerSheetRecordsToAppend.length > 0) {
         await postToSheet({ action: "appendMany", records: partnerSheetRecordsToAppend });
       }
-      pushToast("Jadwal berhasil disimpan.", "success");
+
+      // 3. Sinkronisasi Data (Jadwal & Surat Tugas)
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      await handleLoadSuratTugas({ silent: true });
+
+      // 4. Tutup modal, tunggu sejenak, baru tampilkan Notifikasi Berhasil
+      clearEditing();
       setSheetStatus((prev) => ({ ...prev, saving: false }));
-      void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      pushToast("Data berhasil disimpan dan seluruh jadwal serta Surat Tugas telah disinkronkan.", "success");
     } catch (err: any) {
       console.error("Gagal menyimpan jadwal ke database:", err);
       pushToast("Gagal menyimpan perubahan ke database.", "error");
-      void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     } finally {
       setSheetStatus((prev) => ({ ...prev, saving: false }));
     }
@@ -8228,16 +8099,23 @@ export function App() {
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== deletingId),
     }));
-    clearEditing();
     try {
+      // 2. Menyimpan Data (Delete) ke Database
       await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
-      pushToast("Sesi jadwal berhasil dihapus.", "success");
+      
+      // 3. Sinkronisasi Data (Jadwal & Surat Tugas)
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      await handleLoadSuratTugas({ silent: true });
+
+      // 4. Tutup modal, tunggu sejenak, baru tampilkan Notifikasi Berhasil
+      clearEditing();
       setSheetStatus((prev) => ({ ...prev, saving: false }));
-      void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      pushToast("Data berhasil dihapus dan seluruh jadwal serta Surat Tugas telah disinkronkan.", "success");
     } catch (err: any) {
       console.error("Gagal menghapus jadwal dari database:", err);
       pushToast("Gagal menghapus sesi jadwal dari database.", "error");
-      void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
     } finally {
       setSheetStatus((prev) => ({ ...prev, saving: false }));
     }
