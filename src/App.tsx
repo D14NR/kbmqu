@@ -5586,7 +5586,12 @@ export function App() {
   };
 
   const getFilteredExportScheduleRows = useCallback(
-    (selectedKey: string, selectedMonth: string = "all", includeAdditional: boolean = true) => {
+    (
+      selectedKey: string,
+      selectedMonth: string = "all",
+      includeAdditional: boolean = true,
+      dateRange?: { startDate?: string; endDate?: string }
+    ) => {
       let scheduleRows: Record<string, any>[] = [];
       if (includeAdditional) {
         const reguler = records.bulanIni ?? [];
@@ -5612,35 +5617,43 @@ export function App() {
         );
       }
 
-      const matchesMonth = (row: any, targetMonth: string) => {
-        if (!targetMonth || targetMonth === "all") return true;
+      const getCanonicalDateStr = (row: any) => {
         const rawDate = String(
           row.tanggal || row.Tanggal || row.tanggalSheet || row.Bulan || row.bulan || ""
         ).trim();
-        if (!rawDate) return false;
-
-        // 1. Direct startsWith or includes
-        if (rawDate.startsWith(targetMonth)) return true;
-
-        // 2. Canonical date resolution
+        if (!rawDate) return "";
         const canonical = resolveCanonicalDate(rawDate);
-        if (canonical && canonical.length >= 7 && canonical.slice(0, 7) === targetMonth) {
-          return true;
-        }
-
-        // 3. Flexible date parse
+        if (canonical && canonical.length === 10) return canonical;
         const parsed = parseFlexibleDate(rawDate);
         if (parsed) {
           const y = parsed.getFullYear();
           const m = String(parsed.getMonth() + 1).padStart(2, "0");
-          if (`${y}-${m}` === targetMonth) return true;
+          const d = String(parsed.getDate()).padStart(2, "0");
+          return `${y}-${m}-${d}`;
         }
-
-        return false;
+        return canonical || "";
       };
 
-      if (selectedMonth !== "all") {
-        scheduleRows = scheduleRows.filter((row) => matchesMonth(row, selectedMonth));
+      if (dateRange && (dateRange.startDate || dateRange.endDate)) {
+        const { startDate, endDate } = dateRange;
+        scheduleRows = scheduleRows.filter((row) => {
+          const canonical = getCanonicalDateStr(row);
+          if (!canonical) return false;
+          if (startDate && canonical < startDate) return false;
+          if (endDate && canonical > endDate) return false;
+          return true;
+        });
+      } else if (selectedMonth !== "all") {
+        scheduleRows = scheduleRows.filter((row) => {
+          const canonical = getCanonicalDateStr(row);
+          if (canonical && canonical.length >= 7) {
+            return canonical.slice(0, 7) === selectedMonth;
+          }
+          const rawDate = String(
+            row.tanggal || row.Tanggal || row.tanggalSheet || row.Bulan || row.bulan || ""
+          ).trim();
+          return rawDate.startsWith(selectedMonth);
+        });
       }
 
       return scheduleRows;
@@ -5649,16 +5662,26 @@ export function App() {
   );
 
   const getExportClassRecordCount = useCallback(
-    (selectedKey: string, selectedMonth: string = "all", includeAdditional: boolean = true) => {
-      return getFilteredExportScheduleRows(selectedKey, selectedMonth, includeAdditional).length;
+    (
+      selectedKey: string,
+      selectedMonth: string = "all",
+      includeAdditional: boolean = true,
+      dateRange?: { startDate?: string; endDate?: string }
+    ) => {
+      return getFilteredExportScheduleRows(selectedKey, selectedMonth, includeAdditional, dateRange).length;
     },
     [getFilteredExportScheduleRows]
   );
 
-  const handleConfirmExportClass = (selectedKey: string, selectedMonth: string = "all", includeAdditional: boolean = false) => {
+  const handleConfirmExportClass = (
+    selectedKey: string,
+    selectedMonth: string = "all",
+    includeAdditional: boolean = false,
+    dateRange?: { startDate?: string; endDate?: string }
+  ) => {
     setIsExportClassModalOpen(false);
 
-    let scheduleRows = [...getFilteredExportScheduleRows(selectedKey, selectedMonth, includeAdditional)];
+    let scheduleRows = [...getFilteredExportScheduleRows(selectedKey, selectedMonth, includeAdditional, dateRange)];
 
     if (scheduleRows.length === 0) {
       pushToast("Tidak ada data jadwal yang sesuai dengan filter yang dipilih.", "info");
@@ -5690,136 +5713,66 @@ export function App() {
       return waktuA.localeCompare(waktuB);
     });
 
-    // 1. Sheet "Detail Sesi" (Full data rows)
-    const detailRows = scheduleRows.map((row, index) => {
+    // Generate only the 9 requested columns: Cabang, Kelas, Jenjang Studi, Tanggal, Mapel, Pengajar, NIP, Waktu, Jenis KBM
+    const rows = scheduleRows.map((row) => {
       const rawDate = String(row.tanggal ?? row.Tanggal ?? row.tanggalSheet ?? "").trim();
       const resolvedTanggal = resolveCanonicalDate(rawDate) || rawDate;
-      const parsedDate = parseFlexibleDate(resolvedTanggal);
-      const hari = parsedDate ? parsedDate.toLocaleDateString("id-ID", { weekday: "long" }) : "";
 
       const rawMapel = String(row.mapel ?? row.Mapel ?? "").trim();
       const mapelNama = mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
-      const mapelKode = mapelKodeByName[normalizeText(rawMapel)] || rawMapel;
 
       const rawPengajar = String(row.pengajar ?? row.Pengajar ?? row["Kode Pengajar"] ?? "").trim();
       const matchedPengajar = rawPengajar ? pengajarByKode[normalizeText(rawPengajar)] : null;
       const pengajarNama = matchedPengajar
         ? (matchedPengajar["Nama"] || matchedPengajar["Nama Pengajar"] || matchedPengajar["nama_pengajar"] || rawPengajar)
         : (String(row["Nama Pengajar"] || row.namaPengajar || rawPengajar));
-      const pengajarKode = matchedPengajar
-        ? (matchedPengajar["Kode Pengajar"] || matchedPengajar["Kode"] || rawPengajar)
-        : rawPengajar;
       const pengajarNip = matchedPengajar
         ? (matchedPengajar["NIP"] || matchedPengajar["nip"] || "")
         : String(row.nip || row.NIP || "");
 
-      const isGabungVal = row.isGabung ?? row.IsGabung ?? row.is_gabung;
-      const isGabungText = ["true", "1", "ya", "yes", true].includes(isGabungVal) ? "Ya" : "Tidak";
+      const jenisKbm = String(
+        row["Jenis KBM"] ?? row.jenis_kbm ?? (activeScheduleKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler")
+      ).trim();
 
       return {
-        "No": index + 1,
-        "Cabang": String(row.cabang ?? row.Cabang ?? ""),
-        "Kelas": String(row.kelas ?? row.Kelas ?? ""),
-        "Sekolah": String(row.sekolah ?? row.Sekolah ?? ""),
-        "Jenjang Studi": String(row.jenjang ?? row["Jenjang Studi"] ?? row.jenjang_studi ?? ""),
+        "Cabang": String(row.cabang ?? row.Cabang ?? "").trim(),
+        "Kelas": String(row.kelas ?? row.Kelas ?? "").trim(),
+        "Jenjang Studi": String(row.jenjang ?? row["Jenjang Studi"] ?? row.jenjang_studi ?? "").trim(),
         "Tanggal": resolvedTanggal,
-        "Hari": hari,
-        "Waktu": String(row.waktu ?? row.Waktu ?? ""),
-        "Mata Pelajaran": mapelNama,
-        "Kode Mapel": mapelKode,
+        "Mapel": mapelNama,
         "Pengajar": pengajarNama,
-        "Kode Pengajar": pengajarKode,
         "NIP": pengajarNip,
-        "Urutan Kelas": String(row["Urutan Kelas"] ?? row.classOrder ?? row.class_order ?? ""),
-        "Jenis KBM": String(row["Jenis KBM"] ?? row.jenis_kbm ?? (activeScheduleKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler")),
-        "Status Gabung": isGabungText,
-        "Gabung Dengan": String(row.gabungWith ?? row.Gabung ?? row.gabung ?? ""),
+        "Waktu": String(row.waktu ?? row.Waktu ?? "").trim(),
+        "Jenis KBM": jenisKbm,
       };
     });
 
-    // 2. Sheet "Matriks Jadwal" (Calendar Grid table like on screen)
-    const uniqueDates = Array.from(
-      new Set(
-        scheduleRows
-          .map((r) => resolveCanonicalDate(String(r.tanggal || r.Tanggal || r.tanggalSheet || "")))
-          .filter((d): d is string => Boolean(d && d.length === 10))
-      )
-    ).sort();
-
-    const classMap = new Map<string, { cabang: string; kelas: string; sekolah: string; jenjang: string; order: number; entriesByDate: Record<string, string[]> }>();
-    scheduleRows.forEach((r) => {
-      const cabang = String(r.cabang || r.Cabang || "").trim();
-      const kelas = String(r.kelas || r.Kelas || "").trim();
-      const sekolah = String(r.sekolah || r.Sekolah || "").trim();
-      const jenjang = String(r.jenjang || r["Jenjang Studi"] || r.jenjang_studi || "").trim();
-      const order = parseClassOrder(r.classOrder ?? r["Urutan Kelas"]) ?? 999;
-      const key = `${cabang}||${kelas}||${sekolah}`;
-
-      if (!classMap.has(key)) {
-        classMap.set(key, { cabang, kelas, sekolah, jenjang, order, entriesByDate: {} });
-      }
-      const grp = classMap.get(key)!;
-      if (jenjang && !grp.jenjang) grp.jenjang = jenjang;
-
-      const dateKey = resolveCanonicalDate(String(r.tanggal || r.Tanggal || r.tanggalSheet || ""));
-      if (dateKey) {
-        if (!grp.entriesByDate[dateKey]) {
-          grp.entriesByDate[dateKey] = [];
-        }
-        const rawMapel = String(r.mapel || r.Mapel || "").trim();
-        const mapelLabel = mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
-        const rawPengajar = String(r.pengajar || r.Pengajar || "").trim();
-        const pengajarLabel = pengajarByKode[normalizeText(rawPengajar)]?.["Nama"] || rawPengajar;
-        const waktuLabel = String(r.waktu || r.Waktu || "").trim();
-
-        const sessionSummary = [waktuLabel, mapelLabel, pengajarLabel].filter(Boolean).join(" - ");
-        if (sessionSummary) {
-          grp.entriesByDate[dateKey].push(sessionSummary);
-        }
-      }
-    });
-
-    const sortedClasses = Array.from(classMap.values()).sort((a, b) => {
-      const cmpC = a.cabang.localeCompare(b.cabang, "id");
-      if (cmpC !== 0) return cmpC;
-      if (a.order !== b.order) return a.order - b.order;
-      return a.kelas.localeCompare(b.kelas, "id", { numeric: true });
-    });
-
-    const matrixRows = sortedClasses.map((cls, idx) => {
-      const rowObj: Record<string, any> = {
-        "No": idx + 1,
-        "Cabang": cls.cabang,
-        "Kelas": cls.kelas,
-        "Sekolah": cls.sekolah,
-        "Jenjang": cls.jenjang,
-      };
-      uniqueDates.forEach((d) => {
-        const parsedD = parseFlexibleDate(d);
-        const colHeader = parsedD
-          ? `${String(parsedD.getDate()).padStart(2, "0")} ${parsedD.toLocaleDateString("id-ID", { month: "short" })} (${parsedD.toLocaleDateString("id-ID", { weekday: "short" })})`
-          : d;
-        const sessions = cls.entriesByDate[d] || [];
-        rowObj[colHeader] = sessions.join("\n");
-      });
-      return rowObj;
-    });
+    const headers = [
+      "Cabang",
+      "Kelas",
+      "Jenjang Studi",
+      "Tanggal",
+      "Mapel",
+      "Pengajar",
+      "NIP",
+      "Waktu",
+      "Jenis KBM",
+    ];
 
     const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Jadwal");
 
-    // 1. Add Matriks sheet first if matrixRows exist
-    if (matrixRows.length > 0 && uniqueDates.length > 0) {
-      const matrixWorksheet = XLSX.utils.json_to_sheet(matrixRows);
-      XLSX.utils.book_append_sheet(workbook, matrixWorksheet, "Matriks Jadwal");
-    }
-
-    // 2. Add Detail Sesi sheet
-    const detailWorksheet = XLSX.utils.json_to_sheet(detailRows);
-    XLSX.utils.book_append_sheet(workbook, detailWorksheet, "Detail Sesi");
-
+    const dateRangePart = dateRange?.startDate && dateRange?.endDate
+      ? `-${dateRange.startDate}_sd_${dateRange.endDate}`
+      : dateRange?.startDate
+      ? `-dari_${dateRange.startDate}`
+      : dateRange?.endDate
+      ? `-sampai_${dateRange.endDate}`
+      : "";
     const monthPart = selectedMonth !== "all" ? `-${selectedMonth}` : "";
     const keyPart = selectedKey !== "all" ? `-${selectedKey.replace(/\|\|/g, "-")}` : "";
-    const filename = `Jadwal-KBM${monthPart}${keyPart}.xlsx`;
+    const filename = `Jadwal-KBM${dateRangePart || monthPart}${keyPart}.xlsx`;
 
     XLSX.writeFile(workbook, filename);
     pushToast(`Data jadwal berhasil diekspor (${scheduleRows.length} sesi).`, "success");
@@ -5847,32 +5800,39 @@ export function App() {
         const scheduleRows = activeKey === "monitoringKelas"
             ? monitoringRows
             : (records.bulanIni ?? []).concat(records.jadwalTambahanPelayanan ?? []);
-        rows = scheduleRows.map((row) => ({
-          Cabang: (row as any).cabang ?? (row as any).Cabang ?? "",
-          Kelas: (row as any).kelas ?? (row as any).Kelas ?? "",
-          Sekolah: (row as any).sekolah ?? (row as any).Sekolah ?? "",
-          "Jenjang Studi": (row as any).jenjang ?? (row as any)["Jenjang Studi"] ?? "",
-          Tanggal: (row as any).tanggal ?? (row as any).Tanggal ?? "",
-          Mapel: (row as any).mapel ?? (row as any).Mapel ?? "",
-          Pengajar: (row as any).pengajar ?? (row as any).Pengajar ?? "",
-          NIP: (() => {
-            const directNip = (row as any).nip ?? (row as any).NIP ?? "";
-            if (directNip) return directNip;
-            const rawPengajar = (row as any).pengajar ?? (row as any).Pengajar ?? "";
-            const kode = normalizeText(rawPengajar);
-            const pengajarRecord = pengajarByKode[kode];
-            if (pengajarRecord) {
-              return pengajarRecord["NIP"] || pengajarRecord["nip"] || "";
-            }
-            return "";
-          })(),
-          Waktu: (row as any).waktu ?? (row as any).Waktu ?? "",
-          "Urutan Kelas": (row as any)["Urutan Kelas"] ?? (row as any).classOrder ?? (row as any).class_order ?? "",
-          "Jenis KBM": (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
-          IsGabung: (row as any).isGabung ?? (row as any).is_gabung ?? "false",
-          Gabung: (row as any).gabungWith ?? (row as any).gabung ?? "",
-        }));
-        headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
+        rows = scheduleRows.map((row) => {
+          const rawDate = String((row as any).tanggal ?? (row as any).Tanggal ?? (row as any).tanggalSheet ?? "").trim();
+          const resolvedTanggal = resolveCanonicalDate(rawDate) || rawDate;
+
+          const rawMapel = String((row as any).mapel ?? (row as any).Mapel ?? "").trim();
+          const mapelNama = mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
+
+          const rawPengajar = String((row as any).pengajar ?? (row as any).Pengajar ?? (row as any)["Kode Pengajar"] ?? "").trim();
+          const matchedPengajar = rawPengajar ? pengajarByKode[normalizeText(rawPengajar)] : null;
+          const pengajarNama = matchedPengajar
+            ? (matchedPengajar["Nama"] || matchedPengajar["Nama Pengajar"] || matchedPengajar["nama_pengajar"] || rawPengajar)
+            : (String((row as any)["Nama Pengajar"] || (row as any).namaPengajar || rawPengajar));
+          const pengajarNip = matchedPengajar
+            ? (matchedPengajar["NIP"] || matchedPengajar["nip"] || "")
+            : String((row as any).nip || (row as any).NIP || "");
+
+          const jenisKbm = String(
+            (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler")
+          ).trim();
+
+          return {
+            Cabang: String((row as any).cabang ?? (row as any).Cabang ?? "").trim(),
+            Kelas: String((row as any).kelas ?? (row as any).Kelas ?? "").trim(),
+            "Jenjang Studi": String((row as any).jenjang ?? (row as any)["Jenjang Studi"] ?? (row as any).jenjang_studi ?? "").trim(),
+            Tanggal: resolvedTanggal,
+            Mapel: mapelNama,
+            Pengajar: pengajarNama,
+            NIP: pengajarNip,
+            Waktu: String((row as any).waktu ?? (row as any).Waktu ?? "").trim(),
+            "Jenis KBM": jenisKbm,
+          };
+        });
+        headers = ["Cabang", "Kelas", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Jenis KBM"];
         filename = `${activeKey}-data.xlsx`;
         break;
       }

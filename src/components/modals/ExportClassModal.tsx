@@ -11,9 +11,19 @@ type ExportClassModalProps = {
   onClose: () => void;
   classes: ClassGroup[];
   months: { value: string; label: string }[];
-  onExport: (selectedGroupKey: string | "all", selectedMonth: string | "all", includeAdditional: boolean) => void;
+  onExport: (
+    selectedGroupKey: string | "all",
+    selectedMonth: string | "all",
+    includeAdditional: boolean,
+    dateRange?: { startDate?: string; endDate?: string }
+  ) => void;
   isAdmin: boolean;
-  getRecordCount?: (selectedGroupKey: string | "all", selectedMonth: string | "all", includeAdditional: boolean) => number;
+  getRecordCount?: (
+    selectedGroupKey: string | "all",
+    selectedMonth: string | "all",
+    includeAdditional: boolean,
+    dateRange?: { startDate?: string; endDate?: string }
+  ) => number;
 };
 
 export const ExportClassModal: React.FC<ExportClassModalProps> = ({
@@ -28,23 +38,31 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
   const [selectedKey, setSelectedKey] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [includeAdditional, setIncludeAdditional] = useState<boolean>(true);
+  const [filterMode, setFilterMode] = useState<"month" | "dateRange">("month");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
 
   useEffect(() => {
     if (isOpen) {
       setSelectedKey("all");
       setSelectedMonth("all");
       setIncludeAdditional(true);
+      setFilterMode("month");
+      setStartDate("");
+      setEndDate("");
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
+  const activeDateRange = filterMode === "dateRange" ? { startDate, endDate } : undefined;
+
   const recordCount = getRecordCount
-    ? getRecordCount(selectedKey, selectedMonth, includeAdditional)
+    ? getRecordCount(selectedKey, selectedMonth, includeAdditional, activeDateRange)
     : undefined;
 
   const handleExport = () => {
-    onExport(selectedKey, selectedMonth, includeAdditional);
+    onExport(selectedKey, selectedMonth, includeAdditional, activeDateRange);
   };
 
   return (
@@ -78,19 +96,105 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
                 })}
               </select>
 
-              <label className="form-label fw-medium text-dark small">Pilih Bulan</label>
-              <select
-                className="form-select bg-light border-0 shadow-none px-3 py-2 text-sm"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-              >
-                <option value="all">-- Semua Bulan --</option>
-                {months.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
+              {/* Filter Mode Selector */}
+              <label className="form-label fw-medium text-dark small mb-1.5 d-block">
+                Filter Waktu / Tanggal
+              </label>
+              <div className="btn-group w-100 mb-2.5 p-1 bg-light rounded-3 border" role="group">
+                <button
+                  type="button"
+                  className={`btn btn-sm rounded-2 fw-medium transition-all ${
+                    filterMode === "month"
+                      ? "btn-white bg-white text-dark shadow-xs border"
+                      : "btn-light text-muted border-0"
+                  }`}
+                  onClick={() => setFilterMode("month")}
+                >
+                  <i className="bi bi-calendar-month me-1.5 text-success" />
+                  Berdasarkan Bulan
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm rounded-2 fw-medium transition-all ${
+                    filterMode === "dateRange"
+                      ? "btn-white bg-white text-dark shadow-xs border"
+                      : "btn-light text-muted border-0"
+                  }`}
+                  onClick={() => setFilterMode("dateRange")}
+                >
+                  <i className="bi bi-calendar-range me-1.5 text-success" />
+                  Rentang Tanggal Tertentu
+                </button>
+              </div>
+
+              {/* View according to Filter Mode */}
+              {filterMode === "month" ? (
+                <div>
+                  <select
+                    className="form-select bg-light border-0 shadow-none px-3 py-2 text-sm"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                  >
+                    <option value="all">-- Semua Bulan --</option>
+                    {months.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="p-3 bg-light rounded-3 border">
+                  <div className="row g-2">
+                    <div className="col-6">
+                      <label className="form-label text-muted small fw-medium mb-1">
+                        Dari Tanggal
+                      </label>
+                      <input
+                        type="date"
+                        className="form-control form-control-sm bg-white border shadow-none"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="col-6">
+                      <label className="form-label text-muted small fw-medium mb-1">
+                        Sampai Tanggal
+                      </label>
+                      <input
+                        type="date"
+                        className="form-control form-control-sm bg-white border shadow-none"
+                        value={endDate}
+                        min={startDate || undefined}
+                        onChange={(e) => setEndDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  {(startDate || endDate) && (
+                    <div className="d-flex justify-content-between align-items-center mt-2.5 pt-1 border-top">
+                      <span className="small text-muted" style={{ fontSize: "0.78rem" }}>
+                        {startDate && endDate
+                          ? `Rentang: ${startDate} s/d ${endDate}`
+                          : startDate
+                          ? `Mulai dari: ${startDate}`
+                          : `Hingga: ${endDate}`}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-link text-decoration-none text-danger p-0 small"
+                        style={{ fontSize: "0.78rem" }}
+                        onClick={() => {
+                          setStartDate("");
+                          setEndDate("");
+                        }}
+                      >
+                        <i className="bi bi-x-circle me-1" />
+                        Reset
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="form-check mt-3 bg-light p-2.5 rounded-3 border">
                 <input
