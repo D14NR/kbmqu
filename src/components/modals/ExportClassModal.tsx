@@ -27,6 +27,14 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [includeAdditional, setIncludeAdditional] = useState<boolean>(true);
 
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedKey("all");
+      setSelectedMonth("all");
+      setIncludeAdditional(true);
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleExport = () => {

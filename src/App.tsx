@@ -158,7 +158,8 @@ export function App() {
     scheduleKey === "bulanIni" ? "Reguler" : "Khusus";
 
   const isMatchingScheduleJenis = (row: DbRow, scheduleKey: ScheduleMenuKey) => {
-    const jenis = String(row.data["Jenis KBM"] || row.data.jenis_kbm || "");
+    const rawJenis = String(row.data["Jenis KBM"] || row.data.jenis_kbm || "").trim();
+    const jenis = rawJenis || (scheduleKey === "bulanIni" ? "Reguler" : "");
     return normalizeValueKey(jenis) === normalizeValueKey(getScheduleJenis(scheduleKey));
   };
 
@@ -1863,6 +1864,29 @@ export function App() {
   const tambahanPrintGroups = useMemo(() => {
     return buildScheduleGroups(records.jadwalTambahanPelayanan ?? [], restrictedCabang, "");
   }, [records.jadwalTambahanPelayanan, restrictedCabang]);
+
+  const allExportClasses = useMemo(() => {
+    const combined = [...(records.bulanIni ?? []), ...(records.jadwalTambahanPelayanan ?? [])];
+    const map = new Map<string, { cabang: string; kelas: string; sekolah: string }>();
+    combined.forEach((item) => {
+      const cabang = String(item.cabang || "").trim();
+      const kelas = String(item.kelas || "").trim();
+      const sekolah = String(item.sekolah || "").trim();
+      if (!kelas) return;
+      if (!isAdmin && restrictedCabang && normalizeText(cabang) !== normalizeText(restrictedCabang)) {
+        return;
+      }
+      const key = `${cabang}||${kelas}||${sekolah}`;
+      if (!map.has(key)) {
+        map.set(key, { cabang, kelas, sekolah });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const cabangCmp = a.cabang.localeCompare(b.cabang, "id");
+      if (cabangCmp !== 0) return cabangCmp;
+      return a.kelas.localeCompare(b.kelas, "id", { numeric: true });
+    });
+  }, [records.bulanIni, records.jadwalTambahanPelayanan, isAdmin, restrictedCabang]);
 
   // allScheduleEntries and resolveCanonicalDate are initialized above
 
@@ -5570,76 +5594,219 @@ export function App() {
       const tambahan = records.jadwalTambahanPelayanan ?? [];
       scheduleRows = [...reguler, ...tambahan];
     } else {
-      scheduleRows = records[activeKey as "bulanIni" | "jadwalTambahanPelayanan"] ?? [];
+      const targetScheduleKey = activeScheduleKey === "jadwalTambahanPelayanan" ? "jadwalTambahanPelayanan" : "bulanIni";
+      scheduleRows = records[targetScheduleKey] ?? [];
     }
 
     if (!isAdmin && restrictedCabang) {
       scheduleRows = scheduleRows.filter((row) => 
-        normalizeText(row.cabang || "") === normalizeText(restrictedCabang)
+        normalizeText(row.cabang || row.Cabang || "") === normalizeText(restrictedCabang)
       );
     }
 
     if (selectedKey !== "all") {
       const [cCabang, cKelas, cSekolah] = selectedKey.split("||");
       scheduleRows = scheduleRows.filter((row) => 
-        normalizeText(row.cabang || "") === normalizeText(cCabang) &&
-        normalizeText(row.kelas || "") === normalizeText(cKelas) &&
-        normalizeText(row.sekolah || "") === normalizeText(cSekolah)
+        normalizeText(row.cabang || row.Cabang || "") === normalizeText(cCabang) &&
+        normalizeText(row.kelas || row.Kelas || "") === normalizeText(cKelas) &&
+        (cSekolah ? normalizeText(row.sekolah || row.Sekolah || "") === normalizeText(cSekolah) : true)
       );
     }
 
+    const matchesMonth = (row: any, targetMonth: string) => {
+      if (!targetMonth || targetMonth === "all") return true;
+      const rawDate = String(
+        row.tanggal || row.Tanggal || row.tanggalSheet || row.Bulan || row.bulan || ""
+      ).trim();
+      if (!rawDate) return false;
+
+      // 1. Direct startsWith or includes
+      if (rawDate.startsWith(targetMonth)) return true;
+
+      // 2. Canonical date resolution
+      const canonical = resolveCanonicalDate(rawDate);
+      if (canonical && canonical.length >= 7 && canonical.slice(0, 7) === targetMonth) {
+        return true;
+      }
+
+      // 3. Flexible date parse
+      const parsed = parseFlexibleDate(rawDate);
+      if (parsed) {
+        const y = parsed.getFullYear();
+        const m = String(parsed.getMonth() + 1).padStart(2, "0");
+        if (`${y}-${m}` === targetMonth) return true;
+      }
+
+      return false;
+    };
+
     if (selectedMonth !== "all") {
-      scheduleRows = scheduleRows.filter((row) => {
-        const rowDate = (row.tanggal || row.Tanggal || "").trim();
-        return rowDate.startsWith(selectedMonth);
-      });
+      scheduleRows = scheduleRows.filter((row) => matchesMonth(row, selectedMonth));
     }
 
-    const rows = scheduleRows.map((row) => ({
-      Cabang: (row as any).cabang ?? (row as any).Cabang ?? "",
-      Kelas: (row as any).kelas ?? (row as any).Kelas ?? "",
-      Sekolah: (row as any).sekolah ?? (row as any).Sekolah ?? "",
-      "Jenjang Studi": (row as any).jenjang ?? (row as any)["Jenjang Studi"] ?? "",
-      Tanggal: (row as any).tanggal ?? (row as any).Tanggal ?? "",
-      Mapel: (() => {
-        const rawMapel = (row as any).mapel ?? (row as any).Mapel ?? "";
-        return mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
-      })(),
-      Pengajar: (() => {
-        const rawPengajar = (row as any).pengajar ?? (row as any).Pengajar ?? "";
-        const kode = normalizeText(rawPengajar);
-        const pengajarRecord = pengajarByKode[kode];
-        if (pengajarRecord) {
-          return pengajarRecord["Nama"] || pengajarRecord["Nama Pengajar"] || pengajarRecord["nama_pengajar"] || rawPengajar;
-        }
-        return rawPengajar;
-      })(),
-      NIP: (() => {
-        const directNip = (row as any).nip ?? (row as any).NIP ?? "";
-        if (directNip) return directNip;
-        const rawPengajar = (row as any).pengajar ?? (row as any).Pengajar ?? "";
-        const kode = normalizeText(rawPengajar);
-        const pengajarRecord = pengajarByKode[kode];
-        if (pengajarRecord) {
-          return pengajarRecord["NIP"] || pengajarRecord["nip"] || "";
-        }
-        return "";
-      })(),
-      Waktu: (row as any).waktu ?? (row as any).Waktu ?? "",
-      "Urutan Kelas": (row as any)["Urutan Kelas"] ?? (row as any).classOrder ?? (row as any).class_order ?? "",
-      "Jenis KBM": (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
-      IsGabung: (row as any).isGabung ?? (row as any).is_gabung ?? "false",
-      Gabung: (row as any).gabungWith ?? (row as any).gabung ?? "",
-    }));
+    if (scheduleRows.length === 0) {
+      pushToast("Tidak ada data jadwal yang sesuai dengan filter yang dipilih.", "info");
+      return;
+    }
 
-    const headers = ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"];
-    const filename = `${activeKey}${selectedKey !== "all" ? `-${selectedKey.replace(/\|\|/g, "-")}` : ""}${selectedMonth !== "all" ? `-${selectedMonth}` : ""}-data.xlsx`;
+    // Sort chronologically by Date, Cabang, Kelas, Waktu
+    scheduleRows.sort((a, b) => {
+      const dateA = resolveCanonicalDate(String(a.tanggal || a.Tanggal || a.tanggalSheet || ""));
+      const dateB = resolveCanonicalDate(String(b.tanggal || b.Tanggal || b.tanggalSheet || ""));
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+      const cabangA = String(a.cabang || a.Cabang || "");
+      const cabangB = String(b.cabang || b.Cabang || "");
+      const cmpCabang = cabangA.localeCompare(cabangB, "id");
+      if (cmpCabang !== 0) return cmpCabang;
+
+      const orderA = parseClassOrder(a.classOrder ?? a["Urutan Kelas"]) ?? 999;
+      const orderB = parseClassOrder(b.classOrder ?? b["Urutan Kelas"]) ?? 999;
+      if (orderA !== orderB) return orderA - orderB;
+
+      const kelasA = String(a.kelas || a.Kelas || "");
+      const kelasB = String(b.kelas || b.Kelas || "");
+      const cmpKelas = kelasA.localeCompare(kelasB, "id", { numeric: true });
+      if (cmpKelas !== 0) return cmpKelas;
+
+      const waktuA = String(a.waktu || a.Waktu || "");
+      const waktuB = String(b.waktu || b.Waktu || "");
+      return waktuA.localeCompare(waktuB);
+    });
+
+    // 1. Sheet "Detail Sesi" (Full data rows)
+    const detailRows = scheduleRows.map((row, index) => {
+      const rawDate = String(row.tanggal ?? row.Tanggal ?? row.tanggalSheet ?? "").trim();
+      const resolvedTanggal = resolveCanonicalDate(rawDate) || rawDate;
+      const parsedDate = parseFlexibleDate(resolvedTanggal);
+      const hari = parsedDate ? parsedDate.toLocaleDateString("id-ID", { weekday: "long" }) : "";
+
+      const rawMapel = String(row.mapel ?? row.Mapel ?? "").trim();
+      const mapelNama = mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
+      const mapelKode = mapelKodeByName[normalizeText(rawMapel)] || rawMapel;
+
+      const rawPengajar = String(row.pengajar ?? row.Pengajar ?? row["Kode Pengajar"] ?? "").trim();
+      const matchedPengajar = rawPengajar ? pengajarByKode[normalizeText(rawPengajar)] : null;
+      const pengajarNama = matchedPengajar
+        ? (matchedPengajar["Nama"] || matchedPengajar["Nama Pengajar"] || matchedPengajar["nama_pengajar"] || rawPengajar)
+        : (String(row["Nama Pengajar"] || row.namaPengajar || rawPengajar));
+      const pengajarKode = matchedPengajar
+        ? (matchedPengajar["Kode Pengajar"] || matchedPengajar["Kode"] || rawPengajar)
+        : rawPengajar;
+      const pengajarNip = matchedPengajar
+        ? (matchedPengajar["NIP"] || matchedPengajar["nip"] || "")
+        : String(row.nip || row.NIP || "");
+
+      const isGabungVal = row.isGabung ?? row.IsGabung ?? row.is_gabung;
+      const isGabungText = ["true", "1", "ya", "yes", true].includes(isGabungVal) ? "Ya" : "Tidak";
+
+      return {
+        "No": index + 1,
+        "Cabang": String(row.cabang ?? row.Cabang ?? ""),
+        "Kelas": String(row.kelas ?? row.Kelas ?? ""),
+        "Sekolah": String(row.sekolah ?? row.Sekolah ?? ""),
+        "Jenjang Studi": String(row.jenjang ?? row["Jenjang Studi"] ?? row.jenjang_studi ?? ""),
+        "Tanggal": resolvedTanggal,
+        "Hari": hari,
+        "Waktu": String(row.waktu ?? row.Waktu ?? ""),
+        "Mata Pelajaran": mapelNama,
+        "Kode Mapel": mapelKode,
+        "Pengajar": pengajarNama,
+        "Kode Pengajar": pengajarKode,
+        "NIP": pengajarNip,
+        "Urutan Kelas": String(row["Urutan Kelas"] ?? row.classOrder ?? row.class_order ?? ""),
+        "Jenis KBM": String(row["Jenis KBM"] ?? row.jenis_kbm ?? (activeScheduleKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler")),
+        "Status Gabung": isGabungText,
+        "Gabung Dengan": String(row.gabungWith ?? row.Gabung ?? row.gabung ?? ""),
+      };
+    });
+
+    // 2. Sheet "Matriks Jadwal" (Calendar Grid table like on screen)
+    const uniqueDates = Array.from(
+      new Set(
+        scheduleRows
+          .map((r) => resolveCanonicalDate(String(r.tanggal || r.Tanggal || r.tanggalSheet || "")))
+          .filter((d): d is string => Boolean(d && d.length === 10))
+      )
+    ).sort();
+
+    const classMap = new Map<string, { cabang: string; kelas: string; sekolah: string; jenjang: string; order: number; entriesByDate: Record<string, string[]> }>();
+    scheduleRows.forEach((r) => {
+      const cabang = String(r.cabang || r.Cabang || "").trim();
+      const kelas = String(r.kelas || r.Kelas || "").trim();
+      const sekolah = String(r.sekolah || r.Sekolah || "").trim();
+      const jenjang = String(r.jenjang || r["Jenjang Studi"] || r.jenjang_studi || "").trim();
+      const order = parseClassOrder(r.classOrder ?? r["Urutan Kelas"]) ?? 999;
+      const key = `${cabang}||${kelas}||${sekolah}`;
+
+      if (!classMap.has(key)) {
+        classMap.set(key, { cabang, kelas, sekolah, jenjang, order, entriesByDate: {} });
+      }
+      const grp = classMap.get(key)!;
+      if (jenjang && !grp.jenjang) grp.jenjang = jenjang;
+
+      const dateKey = resolveCanonicalDate(String(r.tanggal || r.Tanggal || r.tanggalSheet || ""));
+      if (dateKey) {
+        if (!grp.entriesByDate[dateKey]) {
+          grp.entriesByDate[dateKey] = [];
+        }
+        const rawMapel = String(r.mapel || r.Mapel || "").trim();
+        const mapelLabel = mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
+        const rawPengajar = String(r.pengajar || r.Pengajar || "").trim();
+        const pengajarLabel = pengajarByKode[normalizeText(rawPengajar)]?.["Nama"] || rawPengajar;
+        const waktuLabel = String(r.waktu || r.Waktu || "").trim();
+
+        const sessionSummary = [waktuLabel, mapelLabel, pengajarLabel].filter(Boolean).join(" - ");
+        if (sessionSummary) {
+          grp.entriesByDate[dateKey].push(sessionSummary);
+        }
+      }
+    });
+
+    const sortedClasses = Array.from(classMap.values()).sort((a, b) => {
+      const cmpC = a.cabang.localeCompare(b.cabang, "id");
+      if (cmpC !== 0) return cmpC;
+      if (a.order !== b.order) return a.order - b.order;
+      return a.kelas.localeCompare(b.kelas, "id", { numeric: true });
+    });
+
+    const matrixRows = sortedClasses.map((cls, idx) => {
+      const rowObj: Record<string, any> = {
+        "No": idx + 1,
+        "Cabang": cls.cabang,
+        "Kelas": cls.kelas,
+        "Sekolah": cls.sekolah,
+        "Jenjang": cls.jenjang,
+      };
+      uniqueDates.forEach((d) => {
+        const parsedD = parseFlexibleDate(d);
+        const colHeader = parsedD
+          ? `${String(parsedD.getDate()).padStart(2, "0")} ${parsedD.toLocaleDateString("id-ID", { month: "short" })} (${parsedD.toLocaleDateString("id-ID", { weekday: "short" })})`
+          : d;
+        const sessions = cls.entriesByDate[d] || [];
+        rowObj[colHeader] = sessions.join("\n");
+      });
+      return rowObj;
+    });
 
     const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
-    XLSX.utils.book_append_sheet(workbook, worksheet, activeConfig.name.slice(0, 31));
+
+    // 1. Add Matriks sheet first if matrixRows exist
+    if (matrixRows.length > 0 && uniqueDates.length > 0) {
+      const matrixWorksheet = XLSX.utils.json_to_sheet(matrixRows);
+      XLSX.utils.book_append_sheet(workbook, matrixWorksheet, "Matriks Jadwal");
+    }
+
+    // 2. Add Detail Sesi sheet
+    const detailWorksheet = XLSX.utils.json_to_sheet(detailRows);
+    XLSX.utils.book_append_sheet(workbook, detailWorksheet, "Detail Sesi");
+
+    const monthPart = selectedMonth !== "all" ? `-${selectedMonth}` : "";
+    const keyPart = selectedKey !== "all" ? `-${selectedKey.replace(/\|\|/g, "-")}` : "";
+    const filename = `Jadwal-KBM${monthPart}${keyPart}.xlsx`;
+
     XLSX.writeFile(workbook, filename);
-    pushToast(`Data jadwal berhasil diekspor.`, "success");
+    pushToast(`Data jadwal berhasil diekspor (${scheduleRows.length} sesi).`, "success");
   };
 
   const handleExportCurrentMenuData = () => {
@@ -8660,13 +8827,7 @@ export function App() {
       <ExportClassModal
         isOpen={isExportClassModalOpen}
         onClose={() => setIsExportClassModalOpen(false)}
-        classes={monthScheduleGroupsAll
-          .filter((g) => !isAdmin && restrictedCabang ? normalizeText(g.cabang) === normalizeText(restrictedCabang) : true)
-          .map((g) => ({
-          cabang: g.cabang,
-          kelas: g.kelas,
-          sekolah: g.sekolah,
-        }))}
+        classes={allExportClasses}
         months={monthOptions}
         onExport={handleConfirmExportClass}
         isAdmin={isAdmin}
