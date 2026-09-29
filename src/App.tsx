@@ -5585,64 +5585,80 @@ export function App() {
     pushToast(`Template ${target.label} berhasil diunduh.`, "success");
   };
 
+  const getFilteredExportScheduleRows = useCallback(
+    (selectedKey: string, selectedMonth: string = "all", includeAdditional: boolean = true) => {
+      let scheduleRows: Record<string, any>[] = [];
+      if (includeAdditional) {
+        const reguler = records.bulanIni ?? [];
+        const tambahan = records.jadwalTambahanPelayanan ?? [];
+        scheduleRows = [...reguler, ...tambahan];
+      } else {
+        const targetScheduleKey = activeScheduleKey === "jadwalTambahanPelayanan" ? "jadwalTambahanPelayanan" : "bulanIni";
+        scheduleRows = records[targetScheduleKey] ?? [];
+      }
+
+      if (!isAdmin && restrictedCabang) {
+        scheduleRows = scheduleRows.filter((row) => 
+          normalizeText(row.cabang || row.Cabang || "") === normalizeText(restrictedCabang)
+        );
+      }
+
+      if (selectedKey !== "all") {
+        const [cCabang, cKelas, cSekolah] = selectedKey.split("||");
+        scheduleRows = scheduleRows.filter((row) => 
+          normalizeText(row.cabang || row.Cabang || "") === normalizeText(cCabang) &&
+          normalizeText(row.kelas || row.Kelas || "") === normalizeText(cKelas) &&
+          (cSekolah ? normalizeText(row.sekolah || row.Sekolah || "") === normalizeText(cSekolah) : true)
+        );
+      }
+
+      const matchesMonth = (row: any, targetMonth: string) => {
+        if (!targetMonth || targetMonth === "all") return true;
+        const rawDate = String(
+          row.tanggal || row.Tanggal || row.tanggalSheet || row.Bulan || row.bulan || ""
+        ).trim();
+        if (!rawDate) return false;
+
+        // 1. Direct startsWith or includes
+        if (rawDate.startsWith(targetMonth)) return true;
+
+        // 2. Canonical date resolution
+        const canonical = resolveCanonicalDate(rawDate);
+        if (canonical && canonical.length >= 7 && canonical.slice(0, 7) === targetMonth) {
+          return true;
+        }
+
+        // 3. Flexible date parse
+        const parsed = parseFlexibleDate(rawDate);
+        if (parsed) {
+          const y = parsed.getFullYear();
+          const m = String(parsed.getMonth() + 1).padStart(2, "0");
+          if (`${y}-${m}` === targetMonth) return true;
+        }
+
+        return false;
+      };
+
+      if (selectedMonth !== "all") {
+        scheduleRows = scheduleRows.filter((row) => matchesMonth(row, selectedMonth));
+      }
+
+      return scheduleRows;
+    },
+    [records, activeScheduleKey, isAdmin, restrictedCabang, resolveCanonicalDate]
+  );
+
+  const getExportClassRecordCount = useCallback(
+    (selectedKey: string, selectedMonth: string = "all", includeAdditional: boolean = true) => {
+      return getFilteredExportScheduleRows(selectedKey, selectedMonth, includeAdditional).length;
+    },
+    [getFilteredExportScheduleRows]
+  );
+
   const handleConfirmExportClass = (selectedKey: string, selectedMonth: string = "all", includeAdditional: boolean = false) => {
     setIsExportClassModalOpen(false);
 
-    let scheduleRows: Record<string, any>[] = [];
-    if (includeAdditional) {
-      const reguler = records.bulanIni ?? [];
-      const tambahan = records.jadwalTambahanPelayanan ?? [];
-      scheduleRows = [...reguler, ...tambahan];
-    } else {
-      const targetScheduleKey = activeScheduleKey === "jadwalTambahanPelayanan" ? "jadwalTambahanPelayanan" : "bulanIni";
-      scheduleRows = records[targetScheduleKey] ?? [];
-    }
-
-    if (!isAdmin && restrictedCabang) {
-      scheduleRows = scheduleRows.filter((row) => 
-        normalizeText(row.cabang || row.Cabang || "") === normalizeText(restrictedCabang)
-      );
-    }
-
-    if (selectedKey !== "all") {
-      const [cCabang, cKelas, cSekolah] = selectedKey.split("||");
-      scheduleRows = scheduleRows.filter((row) => 
-        normalizeText(row.cabang || row.Cabang || "") === normalizeText(cCabang) &&
-        normalizeText(row.kelas || row.Kelas || "") === normalizeText(cKelas) &&
-        (cSekolah ? normalizeText(row.sekolah || row.Sekolah || "") === normalizeText(cSekolah) : true)
-      );
-    }
-
-    const matchesMonth = (row: any, targetMonth: string) => {
-      if (!targetMonth || targetMonth === "all") return true;
-      const rawDate = String(
-        row.tanggal || row.Tanggal || row.tanggalSheet || row.Bulan || row.bulan || ""
-      ).trim();
-      if (!rawDate) return false;
-
-      // 1. Direct startsWith or includes
-      if (rawDate.startsWith(targetMonth)) return true;
-
-      // 2. Canonical date resolution
-      const canonical = resolveCanonicalDate(rawDate);
-      if (canonical && canonical.length >= 7 && canonical.slice(0, 7) === targetMonth) {
-        return true;
-      }
-
-      // 3. Flexible date parse
-      const parsed = parseFlexibleDate(rawDate);
-      if (parsed) {
-        const y = parsed.getFullYear();
-        const m = String(parsed.getMonth() + 1).padStart(2, "0");
-        if (`${y}-${m}` === targetMonth) return true;
-      }
-
-      return false;
-    };
-
-    if (selectedMonth !== "all") {
-      scheduleRows = scheduleRows.filter((row) => matchesMonth(row, selectedMonth));
-    }
+    let scheduleRows = [...getFilteredExportScheduleRows(selectedKey, selectedMonth, includeAdditional)];
 
     if (scheduleRows.length === 0) {
       pushToast("Tidak ada data jadwal yang sesuai dengan filter yang dipilih.", "info");
@@ -8831,6 +8847,7 @@ export function App() {
         months={monthOptions}
         onExport={handleConfirmExportClass}
         isAdmin={isAdmin}
+        getRecordCount={getExportClassRecordCount}
       />
 
       <ClassModal

@@ -13,6 +13,7 @@ type ExportClassModalProps = {
   months: { value: string; label: string }[];
   onExport: (selectedGroupKey: string | "all", selectedMonth: string | "all", includeAdditional: boolean) => void;
   isAdmin: boolean;
+  getRecordCount?: (selectedGroupKey: string | "all", selectedMonth: string | "all", includeAdditional: boolean) => number;
 };
 
 export const ExportClassModal: React.FC<ExportClassModalProps> = ({
@@ -22,6 +23,7 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
   months,
   onExport,
   isAdmin,
+  getRecordCount,
 }) => {
   const [selectedKey, setSelectedKey] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
@@ -36,6 +38,10 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const recordCount = getRecordCount
+    ? getRecordCount(selectedKey, selectedMonth, includeAdditional)
+    : undefined;
 
   const handleExport = () => {
     onExport(selectedKey, selectedMonth, includeAdditional);
@@ -98,6 +104,24 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
                   Gabungkan Jadwal Reguler & Jadwal Tambahan Pelayanan
                 </label>
               </div>
+
+              {recordCount !== undefined && (
+                <div className="d-flex align-items-center justify-content-between p-2.5 px-3 bg-light rounded-3 border mt-3">
+                  <div className="d-flex align-items-center gap-2 small text-muted">
+                    <i className="bi bi-file-earmark-bar-graph text-success" />
+                    <span>Jadwal yang akan diekspor:</span>
+                  </div>
+                  <span
+                    className={`badge rounded-pill px-2.5 py-1.5 fw-semibold ${
+                      recordCount > 0
+                        ? "bg-success text-white"
+                        : "bg-secondary text-white"
+                    }`}
+                  >
+                    {recordCount} sesi
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <div className="modal-footer border-0 pt-0">
@@ -106,11 +130,12 @@ export const ExportClassModal: React.FC<ExportClassModalProps> = ({
             </button>
             <button 
               type="button" 
-              className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2" 
+              className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm" 
               onClick={handleExport}
+              disabled={recordCount !== undefined && recordCount === 0}
             >
               <i className="bi bi-download" />
-              Export
+              Export {recordCount !== undefined && recordCount > 0 ? `(${recordCount})` : ""}
             </button>
           </div>
         </div>
