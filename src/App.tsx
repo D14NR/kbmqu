@@ -85,6 +85,7 @@ import {
   decodeId,
   deleteRowsByIds,
   insertRow,
+  invalidateReadCacheForBucket,
   listRows,
   replaceBucketRows,
   updateRow,
@@ -486,6 +487,7 @@ export function App() {
     };
   }, []);
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
+  const [isRefreshingCurrent, setIsRefreshingCurrent] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isExportClassModalOpen, setIsExportClassModalOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -3108,7 +3110,7 @@ export function App() {
 
   const handleLoadFromSheet = async (
     scheduleKey: ScheduleMenuKey = "bulanIni",
-    options?: { preserveUiState?: boolean; silent?: boolean }
+    options?: { preserveUiState?: boolean; silent?: boolean; forceFresh?: boolean }
   ) => {
     if (!options?.silent) {
       setSheetStatus((prev) => ({ ...prev, loading: true }));
@@ -3117,7 +3119,11 @@ export function App() {
     try {
       const targetSheet = scheduleSheetByKey[scheduleKey];
       const bucket = dataBucket[targetSheet];
-      const rows = (await listRows(bucket)).filter((row) => isMatchingScheduleJenis(row, scheduleKey));
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+        invalidateReadCacheForBucket("jadwal_kbm");
+      }
+      const rows = (await listRows(bucket, Boolean(options?.forceFresh))).filter((row) => isMatchingScheduleJenis(row, scheduleKey));
       const parsedRecords = rows.map((row, index) => {
         const item = parseScheduleDbRecords([toRecord(row)])[0];
         return {
@@ -3140,29 +3146,31 @@ export function App() {
         } as RecordItem & { updatedAt?: string; createdAt?: string };
       });
       setRecords((prev) => {
-        const currentList = prev[scheduleKey] ?? [];
-        if (
-          currentList.length === parsedRecords.length &&
-          currentList.every((curr, i) => {
-            const next = parsedRecords[i];
-            return (
-              next &&
-              curr.id === next.id &&
-              (curr.updatedAt || "") === (next.updatedAt || "") &&
-              curr.cabang === next.cabang &&
-              curr.kelas === next.kelas &&
-              curr.sekolah === next.sekolah &&
-              curr.tanggal === next.tanggal &&
-              curr.mapel === next.mapel &&
-              curr.pengajar === next.pengajar &&
-              curr.waktu === next.waktu &&
-              Boolean(curr.isGabung) === Boolean(next.isGabung) &&
-              (curr.gabungWith || "") === (next.gabungWith || "") &&
-              String(curr.classOrder || "") === String(next.classOrder || "")
-            );
-          })
-        ) {
-          return prev;
+        if (!options?.forceFresh) {
+          const currentList = prev[scheduleKey] ?? [];
+          if (
+            currentList.length === parsedRecords.length &&
+            currentList.every((curr, i) => {
+              const next = parsedRecords[i];
+              return (
+                next &&
+                curr.id === next.id &&
+                (curr.updatedAt || "") === (next.updatedAt || "") &&
+                curr.cabang === next.cabang &&
+                curr.kelas === next.kelas &&
+                curr.sekolah === next.sekolah &&
+                curr.tanggal === next.tanggal &&
+                curr.mapel === next.mapel &&
+                curr.pengajar === next.pengajar &&
+                curr.waktu === next.waktu &&
+                Boolean(curr.isGabung) === Boolean(next.isGabung) &&
+                (curr.gabungWith || "") === (next.gabungWith || "") &&
+                String(curr.classOrder || "") === String(next.classOrder || "")
+              );
+            })
+          ) {
+            return prev;
+          }
         }
         return {
           ...prev,
@@ -3190,17 +3198,22 @@ export function App() {
     }
   };
 
-  const handleLoadMapel = async (options?: { silent?: boolean }) => {
+  const handleLoadMapel = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
     if (!options?.silent) {
       setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
     try {
-      const rows = await listRows(dataBucket["Mata Pelajaran"]);
+      const bucket = dataBucket["Mata Pelajaran"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
       const parsed = rows.map((row) => toRecord(row));
       const normalized = parsed.map((row) => mapMapelRecord(row));
       setMapelHeaders(mapelHeadersExpected);
       setMapelRecords((prev) => {
         if (
+          !options?.forceFresh &&
           prev.length === normalized.length &&
           prev.every((curr, i) => {
             const next = normalized[i];
@@ -3469,12 +3482,16 @@ export function App() {
     );
   };
 
-  const handleLoadPengajar = async (options?: { silent?: boolean }) => {
+  const handleLoadPengajar = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
     if (!options?.silent) {
       setPengajarStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
     try {
-      const rows = await listRows(dataBucket["Data Pengajar"]);
+      const bucket = dataBucket["Data Pengajar"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
       const expectedHeaders = ["Kode Pengajar", "NIP", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
 
       const records = rows
@@ -4029,12 +4046,16 @@ export function App() {
     };
   };
 
-  const handleLoadPenempatanPengajar = async (options?: { silent?: boolean }) => {
+  const handleLoadPenempatanPengajar = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
     if (!options?.silent) {
       setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
     try {
-      const rows = await listRows(dataBucket["Penempatan Pengajar"]);
+      const bucket = dataBucket["Penempatan Pengajar"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
       
       // Display each database row as-is without merging
       const normalized = rows.map((row) => {
@@ -4361,12 +4382,16 @@ export function App() {
     };
   };
 
-  const handleLoadIzinPengajar = async (options?: { silent?: boolean }) => {
+  const handleLoadIzinPengajar = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
     if (!options?.silent) {
       setIzinStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
     try {
-      const rows = await listRows(dataBucket["Izin Pengajar"]);
+      const bucket = dataBucket["Izin Pengajar"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
       console.debug("[debug] loaded izin rows count:", rows.length);
       const normalized = rows
         .map((row) => ({ ...toRecord(row), _id: row.id }))
@@ -4596,12 +4621,16 @@ export function App() {
     };
   };
 
-  const handleLoadPermintaanPengajar = async (options?: { silent?: boolean }) => {
+  const handleLoadPermintaanPengajar = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
     if (!options?.silent) {
       setPermintaanStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
     try {
-      const rows = await listRows(dataBucket["Permintaan Pengajar Antar Cabang"]);
+      const bucket = dataBucket["Permintaan Pengajar Antar Cabang"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
       console.debug("[debug] loaded permintaan rows count:", rows.length);
       const normalized = rows
         .map((row) => toRecord(row))
@@ -4609,6 +4638,7 @@ export function App() {
       console.debug("[debug] normalized permintaan records count:", normalized.length, "restrictedCabang=", restrictedCabang);
       setPermintaanRecords((prev) => {
         if (
+          !options?.forceFresh &&
           prev.length === normalized.length &&
           prev.every((curr, i) => {
             const next = normalized[i];
@@ -4642,12 +4672,16 @@ export function App() {
     }
   };
 
-  const handleLoadAccountsCabang = async (options?: { silent?: boolean }) => {
+  const handleLoadAccountsCabang = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
     if (!options?.silent) {
       setAccountsCabangStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
     try {
-      const rows = await listRows(dataBucket["accounts_cabang"]);
+      const bucket = dataBucket["accounts_cabang"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
       const normalized = rows.map((row) => ({
         ...toRecord(row),
         id: row.id,
@@ -4786,14 +4820,18 @@ export function App() {
     );
   };
 
-  const handleLoadDonasi = async (options?: { silent?: boolean }) => {
+  const handleLoadDonasi = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
     if (!options?.silent) {
       setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
     try {
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(dataBucket["donasi"]);
+        invalidateReadCacheForBucket(dataBucket["donasi_transaksi"]);
+      }
       const [donasiRows, transaksiRows] = await Promise.all([
-        listRows(dataBucket["donasi"]),
-        listRows(dataBucket["donasi_transaksi"]).catch(() => []),
+        listRows(dataBucket["donasi"], Boolean(options?.forceFresh)),
+        listRows(dataBucket["donasi_transaksi"], Boolean(options?.forceFresh)).catch(() => []),
       ]);
 
       const normalizedDonasi: DonasiRecord[] = donasiRows.map((row) => ({
@@ -5099,10 +5137,10 @@ export function App() {
       setIsRefreshingAll(true);
     }
     try {
-      const opts = { silent: true };
+      const opts = { silent: true, forceFresh: bypassCache };
       await Promise.all([
-        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
-        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true, forceFresh: bypassCache }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: bypassCache }),
         handleLoadMapel(opts),
         handleLoadPengajar(opts),
         handleLoadSuratTugas(opts),
@@ -5134,10 +5172,76 @@ export function App() {
     await refreshAllData(true, true, false);
   };
 
-  // Background Safety Sync (30 menit sekali sebagai cadangan):
-  // 1. Setiap aksi user (pindah halaman, simpan/tambah, edit, hapus) sudah secara otomatis mengambil & mengsinkronkan data langsung dari DB.
-  // 2. Interval 30 menit ini hanya sebagai safety fallback hening (silent) di latar belakang saat idle.
-  // 3. Skip jika user belum login, tab browser sedang hidden/minimize, atau sedang membuka modal/form.
+  // Refresh hanya halaman yang sedang aktif dibuka oleh pengguna
+  const handleRefreshCurrentPage = async () => {
+    if (!authSession || isRefreshingCurrent || isSyncingRef.current) return;
+
+    setIsRefreshingCurrent(true);
+    const pageName = activeConfig?.name || "Halaman";
+    pushToast(`Memperbarui data ${pageName} langsung dari server...`, "info");
+
+    try {
+      switch (activeKey) {
+        case "bulanIni":
+          await handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: false, forceFresh: true });
+          break;
+        case "jadwalTambahanPelayanan":
+          await handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: false, forceFresh: true });
+          break;
+        case "monitoringKelas":
+        case "printJadwal":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: false, forceFresh: true }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: true }),
+            handleLoadPengajar({ silent: true, forceFresh: true }),
+          ]);
+          break;
+        case "mataPelajaran":
+          await handleLoadMapel({ silent: false, forceFresh: true });
+          break;
+        case "pengajar":
+          await handleLoadPengajar({ silent: false, forceFresh: true });
+          break;
+        case "penempatanPengajar":
+          await Promise.all([
+            handleLoadPenempatanPengajar({ silent: false, forceFresh: true }),
+            handleLoadPengajar({ silent: true, forceFresh: true }),
+          ]);
+          break;
+        case "izinPengajar":
+          await handleLoadIzinPengajar({ silent: false, forceFresh: true });
+          break;
+        case "permintaanPengajarAntarCabang":
+          await handleLoadPermintaanPengajar({ silent: false, forceFresh: true });
+          break;
+        case "suratTugasMengajar":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: false, forceFresh: true }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: true }),
+            handleLoadPengajar({ silent: true, forceFresh: true }),
+            handleLoadSuratTugas({ silent: false }),
+          ]);
+          break;
+        case "accountsCabang":
+          await handleLoadAccountsCabang({ silent: false, forceFresh: true });
+          break;
+        case "donasi":
+          await handleLoadDonasi({ silent: false, forceFresh: true });
+          break;
+        default:
+          await handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: false, forceFresh: true });
+          break;
+      }
+      pushToast(`✅ Data ${pageName} berhasil diperbarui.`, "success");
+    } catch (err: any) {
+      console.error("Gagal refresh halaman aktif:", err);
+      pushToast(`❌ Gagal memperbarui data ${pageName}: ${err?.message || "Terjadi kendala jaringan"}`, "error");
+    } finally {
+      setIsRefreshingCurrent(false);
+    }
+  };
+
+  // Background Periodic Sync (Otomatis setiap 15 menit sekali untuk seluruh data secara hening):
   useEffect(() => {
     if (!authSession) return;
 
@@ -5178,14 +5282,14 @@ export function App() {
       return false;
     };
 
-    const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+    const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
     const intervalId = window.setInterval(() => {
       if (shouldSkipBackgroundSync()) {
         return;
       }
-      void refreshAllData(false, false, true);
-    }, THIRTY_MINUTES_MS);
+      void refreshAllData(false, true, true);
+    }, FIFTEEN_MINUTES_MS);
 
     return () => {
       window.clearInterval(intervalId);
@@ -8480,14 +8584,14 @@ export function App() {
                     <button
                       type="button"
                       className="btn btn-outline-secondary btn-sm"
-                      title="Refresh semua data"
-                      aria-label="Refresh semua data"
+                      title={`Refresh data ${activeConfig?.name || "halaman ini"}`}
+                      aria-label={`Refresh data ${activeConfig?.name || "halaman ini"}`}
                       onClick={() => {
-                        void handleRefreshAllData();
+                        void handleRefreshCurrentPage();
                       }}
-                      disabled={isRefreshingAll || isBusy}
+                      disabled={isRefreshingCurrent || isRefreshingAll || isBusy}
                     >
-                      {isRefreshingAll ? (
+                      {isRefreshingCurrent || isRefreshingAll ? (
                         <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                       ) : (
                         <i className="bi bi-arrow-clockwise" />

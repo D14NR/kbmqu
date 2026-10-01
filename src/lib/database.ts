@@ -551,7 +551,7 @@ const persistCachedRows = (bucket: string, rows: DbRow[]) => {
   }
 };
 
-const invalidateReadCacheForBucket = (bucket: string) => {
+export const invalidateReadCacheForBucket = (bucket: string) => {
   for (const key of getVirtualBuckets(bucket)) {
     readCache.delete(key);
   }
@@ -614,7 +614,10 @@ export const listRows = async (bucket: string, forceFresh = false) => {
 
   const filteredRows =
     bucket === "jadwal_reguler"
-      ? rows.filter((row) => normalizeValueKey(row.data["Jenis KBM"] || row.data.jenis_kbm || "") === "reguler")
+      ? rows.filter((row) => {
+          const raw = normalizeValueKey(row.data["Jenis KBM"] || row.data.jenis_kbm || "");
+          return raw === "reguler" || raw === "";
+        })
       : bucket === "jadwal_khusus"
         ? rows.filter((row) => normalizeValueKey(row.data["Jenis KBM"] || row.data.jenis_kbm || "") === "khusus")
         : rows;
