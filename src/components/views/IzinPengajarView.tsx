@@ -322,11 +322,12 @@ export function IzinPengajarView({
               <thead className="table-light border-bottom">
                 <tr className="text-muted text-xxs text-uppercase fw-bold">
                   <th className="text-center py-3" style={{ width: 50 }}>#</th>
-                  <th className="py-3" style={{ minWidth: 200 }}>Profil Pengajar</th>
-                  <th className="py-3" style={{ minWidth: 200 }}>Waktu & Alasan</th>
-                  <th className="py-3" style={{ minWidth: 160 }}>Target Cabang</th>
-                  <th className="py-3" style={{ width: 140 }}>Status</th>
-                  <th className="text-center py-3" style={{ width: 100 }}>Aksi</th>
+                  <th className="py-3" style={{ minWidth: 190 }}>Profil Pengajar</th>
+                  <th className="py-3" style={{ minWidth: 180 }}>Waktu & Alasan</th>
+                  <th className="py-3" style={{ minWidth: 150 }}>Target Cabang</th>
+                  <th className="py-3" style={{ width: 130 }}>Status</th>
+                  <th className="py-3" style={{ minWidth: 180 }}>Keputusan Verifikasi</th>
+                  <th className="text-center py-3" style={{ width: 90 }}>Aksi</th>
                 </tr>
               </thead>
               <tbody>
@@ -339,6 +340,8 @@ export function IzinPengajarView({
                   const ket = record.Keterangan || record.keterangan || "-";
                   const status = record["Keterangan Status"] || record.keterangan_status || "Pending";
                   const cabTarget = record["Cabang Target"] || record.cabang_target || "-";
+                  const decidedBy = record["Diputuskan Oleh"] || record.diputuskan_oleh || "";
+                  const decidedAt = record["Diputuskan Pada"] || record.diputuskan_pada || "";
                   const canEdit = canManageRecord ? canManageRecord(record) : true;
                   
                   const targetList = cabTarget.split(",").map(c => c.trim()).filter(Boolean);
@@ -399,6 +402,31 @@ export function IzinPengajarView({
                       </td>
                       <td>
                         {getStatusBadge(status)}
+                      </td>
+                      <td>
+                        {decidedBy || decidedAt ? (
+                          <div className="d-flex flex-column gap-1">
+                            {decidedBy && (
+                              <div className="d-flex align-items-center gap-1.5 text-xs">
+                                <i className="bi bi-person-check-fill text-primary" />
+                                <span className="text-muted text-xxs">Oleh:</span>
+                                <strong className="text-dark">{decidedBy}</strong>
+                              </div>
+                            )}
+                            {decidedAt && (
+                              <div className="text-muted text-xxs d-flex align-items-center gap-1">
+                                <i className="bi bi-clock-history text-secondary" />
+                                <span>{decidedAt}</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted text-xxs fst-italic">
+                            {status.toLowerCase() === "menunggu" || status.toLowerCase() === "pending"
+                              ? "Menunggu verifikasi"
+                              : "-"}
+                          </span>
+                        )}
                       </td>
                       <td className="text-center">
                         <div className="d-flex justify-content-center align-items-center gap-1.5">

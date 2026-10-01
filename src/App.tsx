@@ -2687,6 +2687,7 @@ export function App() {
           id: record._id || `${record["Kode Pengajar"] || "izin"}-${index}`,
           namaPengajar: record["Nama Pengajar"] || "",
           domisili: record.Domisili || "",
+          cabangTarget: record["Cabang Target"] || record["cabang_target"] || "",
           tanggalMulai: record["Tanggal Mulai"] || "",
           tanggalSelesai: record["Tanggal Selesai"] || "",
           keterangan: record.Keterangan || "",
@@ -2703,9 +2704,18 @@ export function App() {
   }, [filteredIzinRecords]);
 
   const pendingIzinList = useMemo(() => {
-    return dashboardIzinRequests.filter(
-      (item) => normalizeText(item.status || "Menunggu") === "menunggu"
-    );
+    return dashboardIzinRequests
+      .filter((item) => normalizeText(item.status || "Menunggu") === "menunggu")
+      .map((item) => ({
+        id: item.id,
+        namaPengajar: item.namaPengajar,
+        domisili: item.domisili,
+        cabangTarget: item.cabangTarget,
+        tanggalMulai: item.tanggalMulai,
+        tanggalSelesai: item.tanggalSelesai,
+        keterangan: item.keterangan,
+        status: item.status,
+      }));
   }, [dashboardIzinRequests]);
 
   const pendingPermintaanList = useMemo(() => {
@@ -4458,7 +4468,7 @@ export function App() {
   const handleOpenIzinModal = (record?: Record<string, string>) => {
     if (record) {
       if (!canManageIzinRecord(record)) {
-        pushToast("Hanya cabang domisili yang dapat mengedit izin ini.", "error");
+        pushToast("Hanya cabang target, cabang asal, atau Admin yang dapat mengedit izin ini.", "error");
         return;
       }
       setIzinDraft({
@@ -4469,6 +4479,9 @@ export function App() {
         tanggalMulai: formatLocalDate(parseFlexibleDate(record["Tanggal Mulai"] || "") || new Date()),
         tanggalSelesai: formatLocalDate(parseFlexibleDate(record["Tanggal Selesai"] || "") || new Date()),
         keterangan: record.Keterangan || "",
+        status: record["Keterangan Status"] || record.Status || "Menunggu",
+        diputuskanOleh: record["Diputuskan Oleh"] || record.diputuskan_oleh || "",
+        diputuskanPada: record["Diputuskan Pada"] || record.diputuskan_pada || "",
       });
       setEditingIzinId(record._id || null);
     } else {
@@ -4571,7 +4584,7 @@ export function App() {
 
   const handleDeleteIzinPengajar = (record: Record<string, string>) => {
     if (!canManageIzinRecord(record)) {
-      pushToast("Hanya cabang domisili yang dapat menghapus izin ini.", "error");
+      pushToast("Hanya cabang target, cabang asal, atau Admin yang dapat menghapus izin ini.", "error");
       return;
     }
     openConfirmDialog(
@@ -5987,8 +6000,10 @@ export function App() {
           "Tanggal Selesai": row["Tanggal Selesai"] ?? "",
           Keterangan: row.Keterangan ?? "",
           "Keterangan Status": row["Keterangan Status"] ?? "",
+          "Diputuskan Oleh": row["Diputuskan Oleh"] ?? "",
+          "Diputuskan Pada": row["Diputuskan Pada"] ?? "",
         }));
-        headers = ["Kode Pengajar", "Nama Pengajar", "Domisili", "Cabang Target", "Tanggal Mulai", "Tanggal Selesai", "Keterangan", "Keterangan Status"];
+        headers = ["Kode Pengajar", "Nama Pengajar", "Domisili", "Cabang Target", "Tanggal Mulai", "Tanggal Selesai", "Keterangan", "Keterangan Status", "Diputuskan Oleh", "Diputuskan Pada"];
         filename = "izin-pengajar.xlsx";
         break;
       case "permintaanPengajarAntarCabang":

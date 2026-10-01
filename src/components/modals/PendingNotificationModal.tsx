@@ -4,6 +4,7 @@ export type PendingIzinItem = {
   id: string;
   namaPengajar: string;
   domisili: string;
+  cabangTarget?: string;
   tanggalMulai: string;
   tanggalSelesai: string;
   keterangan: string;
@@ -131,6 +132,11 @@ export function PendingNotificationModal({
                               <span>
                                 <i className="bi bi-geo-alt me-1 text-primary" />
                                 Domisili: <strong>{item.domisili || "-"}</strong>
+                              </span>
+                              <span>•</span>
+                              <span>
+                                <i className="bi bi-building-check me-1 text-success" />
+                                Target: <strong>{item.cabangTarget || "Semua Cabang"}</strong>
                               </span>
                               <span>•</span>
                               <span>

@@ -26,6 +26,7 @@ type DashboardIzinItem = {
   id: string;
   namaPengajar: string;
   domisili: string;
+  cabangTarget?: string;
   tanggalMulai: string;
   tanggalSelesai: string;
   keterangan: string;
@@ -581,7 +582,8 @@ export function DashboardView({
                 <thead className="table-light">
                   <tr>
                     <th className="ps-3">Nama Pengajar</th>
-                    <th>Domisili</th>
+                    <th>Domisili (Asal)</th>
+                    <th>Cabang Target</th>
                     <th>Periode Izin</th>
                     <th>Keterangan</th>
                     <th>Status</th>
@@ -591,8 +593,32 @@ export function DashboardView({
                 <tbody>
                   {waitingIzinRequests.map((item) => {
                     const normalizedStatus = normalizeText(item.status || "Menunggu");
-                    const isFromDomisili = isAdmin || !userCabang || normalizeText(userCabang) === normalizeText(item.domisili || "");
-                    const canShowAction = canManageIzin && normalizedStatus === "menunggu" && isFromDomisili;
+                    
+                    // Verifikasi diperbolehkan untuk: Admin, Cabang Asal (Domisili), dan Cabang Target
+                    const isAllowedToVerify = (() => {
+                      if (isAdmin || !userCabang) return true;
+                      const currentCabang = normalizeText(userCabang);
+                      const domisili = normalizeText(item.domisili || "");
+                      if (domisili && domisili === currentCabang) return true;
+
+                      const targetList = (item.cabangTarget || "")
+                        .split(",")
+                        .map((c) => normalizeText(c))
+                        .filter(Boolean);
+
+                      if (targetList.length === 0 || targetList.includes("semua cabang") || targetList.includes("semua")) {
+                        return true;
+                      }
+
+                      return targetList.includes(currentCabang);
+                    })();
+
+                    const canShowAction = canManageIzin && normalizedStatus === "menunggu" && isAllowedToVerify;
+
+                    const targetList = (item.cabangTarget || "")
+                      .split(",")
+                      .map((c) => c.trim())
+                      .filter(Boolean);
 
                     return (
                       <tr key={item.id}>
@@ -607,11 +633,30 @@ export function DashboardView({
                             <span className="fw-semibold text-dark">{item.namaPengajar || "-"}</span>
                           </div>
                         </td>
-                        <td>{item.domisili || "-"}</td>
+                        <td>
+                          <span className="badge bg-light text-dark border">
+                            {item.domisili || "-"}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="d-flex flex-wrap gap-1" style={{ maxWidth: 180 }}>
+                            {targetList.length === 0 ? (
+                              <span className="badge bg-secondary-subtle text-secondary border border-secondary-subtle">
+                                Semua Cabang
+                              </span>
+                            ) : (
+                              targetList.map((cab, cIdx) => (
+                                <span key={cIdx} className="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                  {cab}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </td>
                         <td>
                           {item.tanggalMulai} s.d. {item.tanggalSelesai}
                         </td>
-                        <td className="text-truncate" style={{ maxWidth: 220 }} title={item.keterangan}>
+                        <td className="text-truncate" style={{ maxWidth: 200 }} title={item.keterangan}>
                           {item.keterangan || "-"}
                         </td>
                         <td>
@@ -641,7 +686,7 @@ export function DashboardView({
                             </div>
                           ) : (
                             <span className="text-muted fst-italic small">
-                              {!isFromDomisili ? "Hanya cabang asal / Admin" : "Tidak diizinkan"}
+                              {!isAllowedToVerify ? "Hanya cabang target / asal / Admin" : "Tidak diizinkan"}
                             </span>
                           )}
                         </td>

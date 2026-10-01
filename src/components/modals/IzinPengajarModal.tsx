@@ -9,6 +9,9 @@ export type IzinPengajarDraft = {
   tanggalMulai: string;
   tanggalSelesai: string;
   keterangan: string;
+  status?: string;
+  diputuskanOleh?: string;
+  diputuskanPada?: string;
 };
 
 type IzinPengajarModalProps = {
@@ -146,6 +149,37 @@ export function IzinPengajarModal({
           ) : null}
 
           <div className="row g-4">
+             {isEditing && (draft.status || draft.diputuskanOleh || draft.diputuskanPada) && (
+               <div className="col-12">
+                 <div className="p-3 bg-light rounded-3 border d-flex flex-column gap-1 text-xs">
+                   <div className="d-flex justify-content-between align-items-center mb-1">
+                     <span className="text-muted fw-medium">Status Keputusan:</span>
+                     <span className={`badge ${
+                       draft.status?.toLowerCase().includes("setuju")
+                         ? "bg-success"
+                         : draft.status?.toLowerCase().includes("tolak")
+                         ? "bg-danger"
+                         : "bg-warning text-dark"
+                     }`}>
+                       {draft.status || "Menunggu"}
+                     </span>
+                   </div>
+                   {draft.diputuskanOleh && (
+                     <div className="d-flex justify-content-between align-items-center">
+                       <span className="text-muted">Diputuskan Oleh:</span>
+                       <strong className="text-dark">{draft.diputuskanOleh}</strong>
+                     </div>
+                   )}
+                   {draft.diputuskanPada && (
+                     <div className="d-flex justify-content-between align-items-center">
+                       <span className="text-muted">Diputuskan Pada:</span>
+                       <span className="text-dark font-monospace">{draft.diputuskanPada}</span>
+                     </div>
+                   )}
+                 </div>
+               </div>
+             )}
+
              <div className="col-12">
                 <label className="form-label small fw-semibold text-dark d-flex align-items-center gap-2">
                   <i className="bi bi-person-badge text-primary" />
