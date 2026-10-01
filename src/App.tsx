@@ -92,6 +92,7 @@ import {
   type DbRow,
 } from "./lib/database";
 import { checkDatabaseConnection } from "./lib/api";
+import { playNotificationSound } from "./utils/sound";
 
 export function App() {
   const getMonthKey = (date: Date) =>
@@ -2741,6 +2742,47 @@ export function App() {
       permintaanPengajarAntarCabang: pendingPermintaanList.length,
     };
   }, [pendingIzinList.length, pendingPermintaanList.length]);
+
+  // Audio & Toast notification when new pending Izin Pengajar arrives
+  const knownPendingIzinIdsRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    if (!authSession || izinStatus.loading) {
+      return;
+    }
+
+    const currentPendingIds = new Set(pendingIzinList.map((item) => item.id));
+
+    // First load: store baseline IDs without sound
+    if (knownPendingIzinIdsRef.current === null) {
+      knownPendingIzinIdsRef.current = currentPendingIds;
+      return;
+    }
+
+    // Detect newly arrived pending izin
+    const newItems = pendingIzinList.filter(
+      (item) => !knownPendingIzinIdsRef.current?.has(item.id)
+    );
+
+    if (newItems.length > 0) {
+      playNotificationSound();
+      const firstItem = newItems[0];
+      const teacherName = firstItem?.namaPengajar || "Pengajar";
+      if (newItems.length === 1) {
+        pushToast(
+          `🔔 Pengajuan Izin Baru: ${teacherName} menunggu verifikasi!`,
+          "info"
+        );
+      } else {
+        pushToast(
+          `🔔 Terdapat ${newItems.length} pengajuan Izin Pengajar baru menunggu verifikasi!`,
+          "info"
+        );
+      }
+    }
+
+    knownPendingIzinIdsRef.current = currentPendingIds;
+  }, [authSession, izinStatus.loading, pendingIzinList, pushToast]);
 
   useEffect(() => {
     if (!authSession || izinStatus.loading || permintaanStatus.loading) {

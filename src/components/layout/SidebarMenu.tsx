@@ -149,9 +149,11 @@ export function SidebarMenu({
                   <i className={`bi ${category.icon}`} />
                   {sidebarCollapsed && badgeCount > 0 && (
                     <span
-                      className="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle"
-                      style={{ transform: "translate(-30%, -30%)" }}
-                    />
+                      className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-white fw-bold shadow-sm"
+                      style={{ fontSize: "0.6rem", padding: "0.15em 0.38em", transform: "translate(-20%, -20%)" }}
+                    >
+                      {badgeCount}
+                    </span>
                   )}
                 </span>
                 <span className="sidebar-label">{category.name}</span>
@@ -161,7 +163,7 @@ export function SidebarMenu({
                     style={{ width: "12px", height: "12px", borderWidth: "1.5px" }}
                   />
                 ) : !sidebarCollapsed && badgeCount > 0 ? (
-                  <span className="badge rounded-pill bg-danger ms-auto text-xxs px-1.5 py-0.5">
+                  <span className="badge rounded-pill bg-danger ms-auto text-xxs px-2 py-0.5 shadow-xs fw-bold">
                     {badgeCount}
                   </span>
                 ) : null}
