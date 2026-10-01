@@ -4942,10 +4942,14 @@ export function App() {
   };
 
   const handleOpenTransaksiDonasiModal = (record?: DonasiTransaksiRecord) => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
     if (record) {
       setTransaksiDonasiDraft({
         nama_pengirim: record.nama_pengirim || "",
-        tanggal: record.tanggal || new Date().toISOString().slice(0, 10),
+        tanggal: record.tanggal || currentDateTime,
         jumlah_transaksi_masuk: record.jumlah_transaksi_masuk || 0,
         jumlah_transaksi_keluar: record.jumlah_transaksi_keluar || 0,
         keterangan: record.keterangan || "donasi masuk",
@@ -4955,7 +4959,7 @@ export function App() {
     } else {
       setTransaksiDonasiDraft({
         nama_pengirim: "",
-        tanggal: new Date().toISOString().slice(0, 10),
+        tanggal: currentDateTime,
         jumlah_transaksi_masuk: 0,
         jumlah_transaksi_keluar: 0,
         keterangan: "donasi masuk",

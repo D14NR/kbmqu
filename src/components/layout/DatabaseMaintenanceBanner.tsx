@@ -308,19 +308,45 @@ export function DatabaseMaintenanceBanner() {
     }).format(val);
   };
 
-  const formatDateDisplay = (dateStr?: string) => {
-    if (!dateStr) return "-";
+  const formatDateTimeDisplay = (dateStr?: string, createdAtStr?: string) => {
+    if (!dateStr && !createdAtStr) return { date: "-", time: "" };
+
+    const raw = dateStr || createdAtStr || "";
     try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
-      return d.toLocaleDateString("id-ID", {
+      const d = new Date(raw);
+      if (isNaN(d.getTime())) {
+        return { date: raw, time: "" };
+      }
+
+      const datePart = d.toLocaleDateString("id-ID", {
         day: "numeric",
         month: "short",
         year: "numeric",
       });
+
+      // Extract time if raw contains time info or fallback to createdAtStr
+      let timePart = "";
+      if (raw.includes("T") || raw.includes(":") || (raw.length > 10 && !/^\d{4}-\d{2}-\d{2}$/.test(raw))) {
+        const hours = String(d.getHours()).padStart(2, "0");
+        const minutes = String(d.getMinutes()).padStart(2, "0");
+        timePart = `${hours}:${minutes}`;
+      } else if (createdAtStr) {
+        const cDate = new Date(createdAtStr);
+        if (!isNaN(cDate.getTime())) {
+          const hours = String(cDate.getHours()).padStart(2, "0");
+          const minutes = String(cDate.getMinutes()).padStart(2, "0");
+          timePart = `${hours}:${minutes}`;
+        }
+      }
+
+      return { date: datePart, time: timePart };
     } catch {
-      return dateStr;
+      return { date: raw, time: "" };
     }
+  };
+
+  const formatDateDisplay = (dateStr?: string) => {
+    return formatDateTimeDisplay(dateStr).date;
   };
 
   const formatMonthName = (yearMonthStr: string) => {
@@ -1013,8 +1039,8 @@ export function DatabaseMaintenanceBanner() {
                           <th className="text-center px-2.5 py-2 text-muted text-xxs fw-bold text-uppercase" style={{ width: 45 }}>
                             No
                           </th>
-                          <th className="text-center px-2.5 py-2 text-muted text-xxs fw-bold text-uppercase" style={{ width: 105 }}>
-                            Tanggal
+                          <th className="text-center px-2.5 py-2 text-muted text-xxs fw-bold text-uppercase" style={{ width: 130 }}>
+                            Tanggal & Waktu
                           </th>
                           <th className="px-2.5 py-2 text-muted text-xxs fw-bold text-uppercase">
                             Pengirim / Pihak
@@ -1058,6 +1084,7 @@ export function DatabaseMaintenanceBanner() {
                           filteredTransaksiList.map((item, idx) => {
                             const masuk = Number(item.jumlah_transaksi_masuk) || 0;
                             const keluar = Number(item.jumlah_transaksi_keluar) || 0;
+                            const { date, time } = formatDateTimeDisplay(item.tanggal, item.created_at);
 
                             return (
                               <tr key={item.id}>
@@ -1065,9 +1092,17 @@ export function DatabaseMaintenanceBanner() {
                                   {idx + 1}
                                 </td>
                                 <td className="text-center text-dark fw-semibold px-2.5 py-2">
-                                  <span className="badge bg-light text-secondary border rounded-pill px-2 py-0.5 text-xxs font-monospace">
-                                    {formatDateDisplay(item.tanggal)}
-                                  </span>
+                                  <div className="d-flex flex-column align-items-center justify-content-center gap-0.5">
+                                    <span className="badge bg-light text-secondary border rounded-pill px-2 py-0.5 text-xxs font-monospace">
+                                      {date}
+                                    </span>
+                                    {time ? (
+                                      <span className="text-muted text-xxs d-inline-flex align-items-center gap-1 font-monospace" style={{ fontSize: "0.68rem" }}>
+                                        <i className="bi bi-clock text-primary" style={{ fontSize: "0.65rem" }} />
+                                        {time} WIB
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </td>
                                 <td className="px-2.5 py-2">
                                   <div className="d-flex align-items-center gap-1.5">

@@ -20,6 +20,24 @@ const KETERANGAN_PRESETS = [
   "pemeliharaan sistem & backup",
 ];
 
+const formatForDateTimeInput = (dateStr?: string) => {
+  if (!dateStr) return "";
+  if (dateStr.includes("T") && dateStr.length >= 16) {
+    return dateStr.slice(0, 16);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return `${dateStr}T12:00`;
+  }
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return dateStr;
+  }
+};
+
 export function TransaksiDonasiModal({
   isOpen,
   isEditing,
@@ -146,15 +164,15 @@ export function TransaksiDonasiModal({
             </div>
           </div>
 
-          {/* Tanggal */}
+          {/* Tanggal & Waktu */}
           <div>
             <label className="form-label text-xs fw-bold text-dark mb-1 d-flex align-items-center gap-1.5">
               <i className="bi bi-calendar-event text-primary" />
-              Tanggal Transaksi (tanggal) <span className="text-danger">*</span>
+              Tanggal & Jam Transaksi (tanggal) <span className="text-danger">*</span>
             </label>
             <input
-              type="date"
-              value={draft.tanggal}
+              type="datetime-local"
+              value={formatForDateTimeInput(draft.tanggal)}
               onChange={(event) => onChange("tanggal", event.target.value)}
               className="form-control form-control-sm rounded-3 py-2"
             />
