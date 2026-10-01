@@ -33,27 +33,91 @@ export function DonasiView({
   const [filterType, setFilterType] = useState<"all" | "masuk" | "keluar">("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  const getCurrentMonthKey = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getCurrentMonthKey());
+
+  const formatMonthLabel = (yearMonthStr: string) => {
+    if (yearMonthStr === "all") return "Semua Periode";
+    try {
+      const [year, month] = yearMonthStr.split("-");
+      const d = new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1);
+      if (isNaN(d.getTime())) return yearMonthStr;
+      return d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+    } catch {
+      return yearMonthStr;
+    }
+  };
+
+  // Generate list of distinct months from transaksiRecords + current month
+  const availableMonths = useMemo(() => {
+    const monthsSet = new Set<string>();
+    const current = getCurrentMonthKey();
+    monthsSet.add(current);
+
+    transaksiRecords.forEach((t) => {
+      const raw = t.tanggal || t.created_at || "";
+      if (raw) {
+        try {
+          const d = new Date(raw);
+          if (!isNaN(d.getTime())) {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            monthsSet.add(`${year}-${month}`);
+          }
+        } catch {}
+      }
+    });
+
+    return Array.from(monthsSet).sort().reverse();
+  }, [transaksiRecords]);
+
+  // Filter Transaksi Berdasarkan Bulan Terpilih
+  const monthTransaksiRecords = useMemo(() => {
+    if (selectedMonth === "all") {
+      return transaksiRecords;
+    }
+    return transaksiRecords.filter((t) => {
+      const raw = t.tanggal || t.created_at || "";
+      if (!raw) return false;
+      try {
+        const d = new Date(raw);
+        if (isNaN(d.getTime())) {
+          return raw.startsWith(selectedMonth);
+        }
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        return `${year}-${month}` === selectedMonth;
+      } catch {
+        return raw.startsWith(selectedMonth);
+      }
+    });
+  }, [transaksiRecords, selectedMonth]);
+
   // Perhitungan Statistik Rekening
   const totalRekening = records.length;
 
-  // Perhitungan Statistik Transaksi (dari tabel donasi_transaksi)
+  // Perhitungan Statistik Transaksi Bulanan (dari tabel donasi_transaksi berdasarkan bulan yang dipilih)
   const totalNominalMasuk = useMemo(() => {
-    return transaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_masuk) || 0), 0);
-  }, [transaksiRecords]);
+    return monthTransaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_masuk) || 0), 0);
+  }, [monthTransaksiRecords]);
 
   const totalNominalKeluar = useMemo(() => {
-    return transaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_keluar) || 0), 0);
-  }, [transaksiRecords]);
+    return monthTransaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_keluar) || 0), 0);
+  }, [monthTransaksiRecords]);
 
   const saldoBersih = totalNominalMasuk - totalNominalKeluar;
 
   const countMasuk = useMemo(() => {
-    return transaksiRecords.filter((t) => Number(t.jumlah_transaksi_masuk) > 0).length;
-  }, [transaksiRecords]);
+    return monthTransaksiRecords.filter((t) => Number(t.jumlah_transaksi_masuk) > 0).length;
+  }, [monthTransaksiRecords]);
 
   const countKeluar = useMemo(() => {
-    return transaksiRecords.filter((t) => Number(t.jumlah_transaksi_keluar) > 0).length;
-  }, [transaksiRecords]);
+    return monthTransaksiRecords.filter((t) => Number(t.jumlah_transaksi_keluar) > 0).length;
+  }, [monthTransaksiRecords]);
 
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat("id-ID", {
@@ -77,7 +141,7 @@ export function DonasiView({
 
   // Filter Transaksi
   const filteredTransaksi = useMemo(() => {
-    let result = transaksiRecords;
+    let result = monthTransaksiRecords;
 
     if (filterType === "masuk") {
       result = result.filter((t) => Number(t.jumlah_transaksi_masuk) > 0);
@@ -106,7 +170,7 @@ export function DonasiView({
       }
       return Number(b.id || 0) - Number(a.id || 0);
     });
-  }, [transaksiRecords, filterType, searchQuery]);
+  }, [monthTransaksiRecords, filterType, searchQuery]);
 
   const handleCopy = (text: string, id: string) => {
     if (navigator.clipboard && window.isSecureContext) {
@@ -203,9 +267,31 @@ export function DonasiView({
               <i className="bi bi-heart-fill text-danger" />
               Kelola Donasi Database
             </h4>
-            <p className="text-muted text-xs mb-0">
+            <p className="text-muted text-xs mb-2">
               Pengelolaan rekening donasi publik dan pencatatan transaksi masuk/keluar dari skema tabel <code className="text-dark fw-bold">donasi_transaksi</code>.
             </p>
+            {/* Filter Periode Bulan */}
+            <div className="d-flex align-items-center gap-2 flex-wrap">
+              <span className="text-xxs fw-bold text-muted text-uppercase d-flex align-items-center gap-1">
+                <i className="bi bi-calendar3 text-primary" />
+                Periode Hitung:
+              </span>
+              <select
+                className="form-select form-select-sm rounded-pill text-xs fw-semibold border bg-white shadow-xs"
+                style={{ width: "auto", minWidth: 160 }}
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+              >
+                <option value={getCurrentMonthKey()}>Bulan Ini ({formatMonthLabel(getCurrentMonthKey())})</option>
+                <option disabled>──────────</option>
+                {availableMonths.map((mKey) => (
+                  <option key={mKey} value={mKey}>
+                    {formatMonthLabel(mKey)}
+                  </option>
+                ))}
+                <option value="all">Semua Periode (Akumulasi)</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -222,14 +308,17 @@ export function DonasiView({
                   <i className="bi bi-wallet2 fs-5" />
                 </div>
                 <div className="min-w-0 flex-grow-1">
-                  <div className="text-xxs text-muted fw-bold text-uppercase">
-                    Saldo Bersih
+                  <div className="text-xxs text-muted fw-bold text-uppercase d-flex align-items-center justify-content-between">
+                    <span>Saldo Bersih</span>
+                    <span className="badge bg-light text-secondary border font-monospace" style={{ fontSize: "0.62rem" }}>
+                      {selectedMonth === "all" ? "Semua" : formatMonthLabel(selectedMonth).slice(0, 8)}
+                    </span>
                   </div>
                   <div className={`text-base fw-bold ${saldoBersih >= 0 ? "text-success" : "text-danger"} text-truncate`}>
                     {formatRupiah(saldoBersih)}
                   </div>
                   <div className="text-xxs text-muted">
-                    {transaksiRecords.length} Total Transaksi
+                    {monthTransaksiRecords.length} Total Transaksi
                   </div>
                 </div>
               </div>
