@@ -6,6 +6,7 @@ import { getTagStyle } from "../../utils/tagColor";
 import type { EditingSlot, RecordItem, ScheduleConflictInfo, ScheduleDayGroup, ScheduleGroup, ScheduleSlotDate } from "../../types/app";
 
 type ScheduleTableViewProps = {
+  loading?: boolean;
   isJadwalTambahanMenu: boolean;
   readOnly: boolean;
   isAdmin?: boolean;
@@ -27,6 +28,7 @@ type ScheduleTableViewProps = {
 };
 
 export function ScheduleTableView({
+  loading = false,
   isJadwalTambahanMenu,
   readOnly,
   isAdmin = false,
@@ -515,11 +517,37 @@ export function ScheduleTableView({
       </div>
 
       {/* 2. Main Interactive Schedule Table */}
-      <div
-        ref={scrollContainerRef}
-        className="table-responsive border rounded-3 bg-white shadow-sm table-sticky-wrapper"
-      >
-        <table className="table table-bordered align-middle schedule-table mb-0 table-sticky">
+      {loading && monthScheduleGroups.length === 0 ? (
+        <div className="card border-0 shadow-sm rounded-4 bg-white p-5 text-center my-3">
+          <div
+            className="spinner-border text-primary mx-auto mb-3"
+            style={{ width: 42, height: 42, borderWidth: 3 }}
+            role="status"
+          />
+          <h6 className="fw-bold text-dark mb-1">Memuat Data Jadwal KBM...</h6>
+          <p className="text-muted text-xs mb-0">Menghubungkan ke database server</p>
+        </div>
+      ) : (
+        <div
+          ref={scrollContainerRef}
+          className="table-responsive border rounded-3 bg-white shadow-sm table-sticky-wrapper position-relative"
+        >
+          {loading && (
+            <div
+              className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+              style={{
+                backgroundColor: "rgba(255, 255, 255, 0.65)",
+                backdropFilter: "blur(1.5px)",
+                zIndex: 20,
+              }}
+            >
+              <div className="bg-white rounded-pill px-3.5 py-2 shadow-sm border d-flex align-items-center gap-2">
+                <div className="spinner-border spinner-border-sm text-primary" role="status" />
+                <span className="text-xs fw-semibold text-dark">Memperbarui data jadwal...</span>
+              </div>
+            </div>
+          )}
+          <table className="table table-bordered align-middle schedule-table mb-0 table-sticky">
           <thead className="table-light">
             <tr>
               <th className="text-center col-aksi sticky-col-aksi">
@@ -1089,6 +1117,7 @@ export function ScheduleTableView({
           )}
         </table>
       </div>
+      )}
 
       {/* 3. Conflict Alert Banner */}
       {hasVisibleConflict && (

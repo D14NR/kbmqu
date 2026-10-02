@@ -5231,6 +5231,109 @@ export function App() {
     await refreshAllData(true, true, false);
   };
 
+  // Muat data spesifik untuk menu tertentu langsung dari server
+  const handleLoadMenuData = async (
+    menuKey: string,
+    options: { forceFresh?: boolean; silent?: boolean } = { forceFresh: true, silent: true }
+  ) => {
+    try {
+      switch (menuKey) {
+        case "dashboard":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadIzinPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadPermintaanPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "bulanIni":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "jadwalTambahanPelayanan":
+          await Promise.all([
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "monitoringKelas":
+        case "printJadwal":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "hapusJadwal":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "mataPelajaran":
+          await handleLoadMapel({ silent: options.silent, forceFresh: options.forceFresh });
+          break;
+        case "pengajar":
+          await Promise.all([
+            handleLoadPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "penempatanPengajar":
+          await Promise.all([
+            handleLoadPenempatanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "izinPengajar":
+          await Promise.all([
+            handleLoadIzinPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "permintaanPengajarAntarCabang":
+          await Promise.all([
+            handleLoadPermintaanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "suratTugasMengajar":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadSuratTugas({ silent: options.silent }),
+          ]);
+          break;
+        case "accounts_cabang":
+        case "accountsCabang":
+          await handleLoadAccountsCabang({ silent: options.silent, forceFresh: options.forceFresh });
+          break;
+        case "donasi":
+          if (isAdmin) {
+            await handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh });
+          }
+          break;
+        default:
+          await handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh });
+          break;
+      }
+    } catch (err: any) {
+      console.warn(`[Auto-Sync] Gagal memuat data menu ${menuKey}:`, err);
+    }
+  };
+
+  // Otomatis memperbarui data menu saat menu baru dibuka / berpindah menu
+  useEffect(() => {
+    if (!authSession) return;
+    void handleLoadMenuData(activeKey, { forceFresh: true, silent: false });
+  }, [activeKey, authSession]);
+
   // Refresh hanya halaman yang sedang aktif dibuka oleh pengguna
   const handleRefreshCurrentPage = async () => {
     if (!authSession || isRefreshingCurrent || isSyncingRef.current) return;
@@ -5240,57 +5343,7 @@ export function App() {
     pushToast(`Memperbarui data ${pageName} langsung dari server...`, "info");
 
     try {
-      switch (activeKey) {
-        case "bulanIni":
-          await handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: false, forceFresh: true });
-          break;
-        case "jadwalTambahanPelayanan":
-          await handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: false, forceFresh: true });
-          break;
-        case "monitoringKelas":
-        case "printJadwal":
-          await Promise.all([
-            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: false, forceFresh: true }),
-            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: true }),
-            handleLoadPengajar({ silent: true, forceFresh: true }),
-          ]);
-          break;
-        case "mataPelajaran":
-          await handleLoadMapel({ silent: false, forceFresh: true });
-          break;
-        case "pengajar":
-          await handleLoadPengajar({ silent: false, forceFresh: true });
-          break;
-        case "penempatanPengajar":
-          await Promise.all([
-            handleLoadPenempatanPengajar({ silent: false, forceFresh: true }),
-            handleLoadPengajar({ silent: true, forceFresh: true }),
-          ]);
-          break;
-        case "izinPengajar":
-          await handleLoadIzinPengajar({ silent: false, forceFresh: true });
-          break;
-        case "permintaanPengajarAntarCabang":
-          await handleLoadPermintaanPengajar({ silent: false, forceFresh: true });
-          break;
-        case "suratTugasMengajar":
-          await Promise.all([
-            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: false, forceFresh: true }),
-            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: true }),
-            handleLoadPengajar({ silent: true, forceFresh: true }),
-            handleLoadSuratTugas({ silent: false }),
-          ]);
-          break;
-        case "accountsCabang":
-          await handleLoadAccountsCabang({ silent: false, forceFresh: true });
-          break;
-        case "donasi":
-          await handleLoadDonasi({ silent: false, forceFresh: true });
-          break;
-        default:
-          await handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: false, forceFresh: true });
-          break;
-      }
+      await handleLoadMenuData(activeKey, { forceFresh: true, silent: false });
       pushToast(`✅ Data ${pageName} berhasil diperbarui.`, "success");
     } catch (err: any) {
       console.error("Gagal refresh halaman aktif:", err);
@@ -5350,8 +5403,24 @@ export function App() {
       void refreshAllData(false, true, true);
     }, FIFTEEN_MINUTES_MS);
 
+    const handleVisibilityOrFocus = () => {
+      if (document.hidden) return;
+      const now = Date.now();
+      const elapsed = now - lastRefreshAllTimestampRef.current;
+      if (lastRefreshAllTimestampRef.current > 0 && elapsed >= FIFTEEN_MINUTES_MS) {
+        if (!shouldSkipBackgroundSync()) {
+          void refreshAllData(false, true, true);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+
     return () => {
       window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
     };
   }, [
     authSession,
@@ -8788,6 +8857,7 @@ export function App() {
                       />
                     ) : activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan" ? (
                       <ScheduleTableView
+                        loading={sheetStatus.loading}
                         isJadwalTambahanMenu={isJadwalTambahanMenu}
                         readOnly={isScheduleReadOnly}
                         isAdmin={isAdmin}
@@ -9183,7 +9253,22 @@ export function App() {
         }}
       />
 
-      <RouteProgressBar isNavigating={isMenuTransitioning} />
+      <RouteProgressBar
+        isNavigating={
+          isMenuTransitioning ||
+          isRefreshingCurrent ||
+          isRefreshingAll ||
+          sheetStatus.loading ||
+          mapelStatus.loading ||
+          pengajarStatus.loading ||
+          penempatanStatus.loading ||
+          izinStatus.loading ||
+          permintaanStatus.loading ||
+          donasiStatus.loading ||
+          accountsCabangStatus.loading ||
+          suratTugasStatus.loading
+        }
+      />
       <LoadingOverlay show={isBusy} message={busyMessage} />
       <ToastStack toasts={toasts} onClose={dismissToast} />
 
