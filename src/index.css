@@ -811,7 +811,7 @@ body {
   box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.06), 0 4px 6px -2px rgba(15, 23, 42, 0.02);
   position: sticky;
   top: 1rem;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s ease;
+  overflow: hidden;
 }
 
 .sidebar-kaiadmin-inner {
@@ -1272,14 +1272,6 @@ body {
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1;
-}
-
-.sidebar-kaiadmin.is-collapsed .sidebar-label,
-.sidebar-kaiadmin.is-collapsed .sidebar-brand-text,
-.sidebar-kaiadmin.is-collapsed .sidebar-section-label,
-.sidebar-kaiadmin.is-collapsed .sidebar-user-card,
-.sidebar-kaiadmin.is-collapsed .sidebar-active-indicator {
-  display: none !important;
 }
 
 .sidebar-kaiadmin.is-collapsed .sidebar-nav-item {

@@ -382,7 +382,7 @@ export function App() {
   const isSyncingRef = useRef<boolean>(false);
 
   const [sidebarWidth, setSidebarWidth] = useState(240);
-  const sidebarCollapsed = sidebarWidth <= 220;
+  const sidebarCollapsed = sidebarWidth <= 140;
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [, setMonthAnchor] = useState(() => new Date());
   const [appTheme, setAppTheme] = useState<string>(() => {
@@ -3129,37 +3129,6 @@ export function App() {
     setConflictError("");
   };
 
-  const handleMenuSelect = (key: string) => {
-    if (key === activeKey) {
-      return;
-    }
-    const targetCategory = categories.find((c) => c.key === key);
-    const targetName = targetCategory?.name || "Halaman";
-
-    if (menuTransitionTimeoutRef.current) {
-      window.clearTimeout(menuTransitionTimeoutRef.current);
-    }
-
-    setNavigatingMenuKey(key);
-    setNavigatingMenuName(targetName);
-    setIsMenuTransitioning(true);
-
-    clearEditing();
-    setIsClassModalOpen(false);
-    setIsPenempatanModalOpen(false);
-    setIsIzinModalOpen(false);
-    setIsPermintaanModalOpen(false);
-
-    menuTransitionTimeoutRef.current = window.setTimeout(() => {
-      setActiveKey(key);
-      menuTransitionTimeoutRef.current = window.setTimeout(() => {
-        setIsMenuTransitioning(false);
-        setNavigatingMenuKey(undefined);
-        menuTransitionTimeoutRef.current = null;
-      }, 160);
-    }, 110);
-  };
-
   const handleLoadFromSheet = async (
     scheduleKey: ScheduleMenuKey = "bulanIni",
     options?: { preserveUiState?: boolean; silent?: boolean; forceFresh?: boolean }
@@ -3944,37 +3913,7 @@ export function App() {
           };
           cascadePromises.push(updatePermintaanRows());
 
-          // 5. Surat Tugas Pengajar (surat_tugas)
-          const updateSuratTugasRows = async () => {
-            try {
-              const stRows = await listRows(dataBucket["Surat Tugas Pengajar"]);
-              const updates: Promise<unknown>[] = [];
-              for (const row of stRows) {
-                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
-                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
-
-                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
-                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
-
-                if (matchesKode || matchesNama) {
-                  const updatedData: Record<string, string> = {
-                    ...row.data,
-                    "Kode Pengajar": newKode,
-                    kode_pengajar: newKode,
-                    "Nama Pengajar": newNama,
-                    nama_pengajar: newNama,
-                  };
-                  updates.push(updateRow(row.id, updatedData));
-                }
-              }
-              await Promise.all(updates);
-            } catch (err) {
-              console.error("Cascade update error on surat tugas rows:", err);
-            }
-          };
-          cascadePromises.push(updateSuratTugasRows());
-
-          // 6. Riwayat Notifikasi Pengajar (riwayat_notifikasi_pengajar)
+          // 5. Riwayat Notifikasi Pengajar (riwayat_notifikasi_pengajar)
           const updateNotifikasiRows = async () => {
             try {
               const notifRows = await listRows(dataBucket["Riwayat Notifikasi Pengajar"]);
@@ -5328,10 +5267,25 @@ export function App() {
     }
   };
 
-  // Otomatis memperbarui data menu saat menu baru dibuka / berpindah menu
+  const handleMenuSelect = (key: string) => {
+    if (key === activeKey) {
+      return;
+    }
+
+    clearEditing();
+    setIsClassModalOpen(false);
+    setIsPenempatanModalOpen(false);
+    setIsIzinModalOpen(false);
+    setIsPermintaanModalOpen(false);
+
+    // Buka menu langsung seketika
+    setActiveKey(key);
+  };
+
+  // Muat data menu dari cache lokal (tanpa freeze) saat berpindah menu
   useEffect(() => {
     if (!authSession) return;
-    void handleLoadMenuData(activeKey, { forceFresh: true, silent: false });
+    void handleLoadMenuData(activeKey, { forceFresh: false, silent: true });
   }, [activeKey, authSession]);
 
   // Refresh hanya halaman yang sedang aktif dibuka oleh pengguna
@@ -8607,8 +8561,19 @@ export function App() {
       )}
       <div className="container-fluid py-3 px-3">
         <div className="row g-2">
-          <div className="d-none d-lg-flex col-auto">
-            <div style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: 320 }}>
+          <motion.div
+            className="d-none d-lg-flex col-auto"
+            initial={false}
+            animate={{ width: sidebarCollapsed ? 76 : sidebarWidth }}
+            transition={{
+              type: "spring",
+              stiffness: 380,
+              damping: 32,
+              mass: 0.8,
+            }}
+            style={{ overflow: "visible" }}
+          >
+            <div style={{ width: "100%", maxWidth: 320 }}>
               <SidebarMenu
                 categories={visibleCategories}
                 activeKey={activeKey}
@@ -8617,14 +8582,14 @@ export function App() {
                 authSession={authSession}
                 badges={menuBadges}
                 onChangePassword={() => setIsChangePasswordModalOpen(true)}
-                onToggle={() => setSidebarWidth(sidebarCollapsed ? 240 : 80)}
-                onResize={(width) => setSidebarWidth(Math.max(80, Math.min(320, width)))}
+                onToggle={() => setSidebarWidth(sidebarCollapsed ? 240 : 76)}
+                onResize={(width) => setSidebarWidth(Math.max(76, Math.min(320, width)))}
                 onSelect={(key) => {
                   void handleMenuSelect(key);
                 }}
               />
             </div>
-          </div>
+          </motion.div>
 
           <div className="col d-flex flex-column">
             <div className="card shadow-sm surface-panel">
@@ -8830,17 +8795,14 @@ export function App() {
                 )}
 
                 <AnimatePresence mode="wait">
-                  {isMenuTransitioning ? (
-                    <MenuTransitionLoader key="menu-loader" menuName={navigatingMenuName} />
-                  ) : (
-                    <motion.div
-                      key={activeKey}
-                      initial={{ opacity: 0, y: 8, filter: "blur(3px)" }}
-                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, y: -6, filter: "blur(3px)" }}
-                      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                    >
-                    {activeKey === "dashboard" ? (
+                  <motion.div
+                    key={activeKey}
+                    initial={{ opacity: 0.88, y: 3 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0.88, y: -3 }}
+                    transition={{ duration: 0.12, ease: "easeOut" }}
+                  >
+                  {activeKey === "dashboard" ? (
                       <DashboardView
                         loading={sheetStatus.loading || permintaanStatus.loading || izinStatus.loading}
                         pendingRequests={dashboardPendingRequests}
@@ -9027,7 +8989,6 @@ export function App() {
                       />
                     ) : null}
                     </motion.div>
-                  )}
                 </AnimatePresence>
               </div>
             </div>
