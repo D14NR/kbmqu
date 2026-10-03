@@ -3783,19 +3783,22 @@ export function App() {
 
         if (shouldCascade) {
           const cascadePromises: Promise<unknown>[] = [];
+          const pengajarId = existing ? decodeId(existing.id).id : "";
 
-          // 1. Jadwal KBM (Reguler & Khusus)
+          // 1. Jadwal KBM (Reguler & Khusus) - Update all entries in jadwal_kbm
           const updateJadwalRows = async () => {
             try {
-              const scheduleRows = await listRows(dataBucket["Jadwal Bulan ini"]);
+              // Fetch from master bucket that contains both types
+              const scheduleRows = await listRows("jadwal_kbm");
               const updates: Promise<unknown>[] = [];
               for (const row of scheduleRows) {
                 const rowKode = (row.data.kode_pengajar || row.data["Kode Pengajar"] || row.data.Pengajar || "").trim().toLowerCase();
                 const rowNama = (row.data.nama_pengajar || row.data["Nama Pengajar"] || "").trim().toLowerCase();
 
+                // Match by Kode OR Nama OR ID if available
                 const matchesKode = Boolean(oldKode && (rowKode === oldKode));
-                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase() || rowKode === oldNama.toLowerCase()));
-
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+                
                 if (matchesKode || matchesNama) {
                   const updatedData: Record<string, string> = {
                     ...row.data,
@@ -3812,7 +3815,9 @@ export function App() {
                   updates.push(updateRow(row.id, updatedData));
                 }
               }
-              await Promise.all(updates);
+              if (updates.length > 0) {
+                await Promise.all(updates);
+              }
             } catch (err) {
               console.error("Cascade update error on schedule rows:", err);
             }
@@ -3827,11 +3832,13 @@ export function App() {
               for (const row of penempatanRows) {
                 const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
                 const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+                const rowParentId = String(row.data["__id_pengajar"] || row.data.id_pengajar || "").trim();
 
+                const matchesId = Boolean(pengajarId && rowParentId === pengajarId);
                 const matchesKode = Boolean(oldKode && (rowKode === oldKode));
                 const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
 
-                if (matchesKode || matchesNama) {
+                if (matchesId || matchesKode || matchesNama) {
                   const updatedData: Record<string, string> = {
                     ...row.data,
                     "Kode Pengajar": newKode,
@@ -3843,10 +3850,17 @@ export function App() {
                     updatedData["Domisili"] = newDomisili;
                     updatedData["domisili"] = newDomisili;
                   }
+                  // Ensure ID linkage is preserved
+                  if (pengajarId) {
+                    updatedData["__id_pengajar"] = pengajarId;
+                    updatedData["id_pengajar"] = pengajarId;
+                  }
                   updates.push(updateRow(row.id, updatedData));
                 }
               }
-              await Promise.all(updates);
+              if (updates.length > 0) {
+                await Promise.all(updates);
+              }
             } catch (err) {
               console.error("Cascade update error on penempatan rows:", err);
             }
@@ -7124,9 +7138,9 @@ export function App() {
     const sourceItems = records[activeScheduleKey] ?? [];
     const matchingItems = sourceItems.filter((item) => {
       const isSameClass =
-        item.cabang === group.cabang &&
-        item.kelas === group.kelas &&
-        (item.sekolah || "") === (group.sekolah || "");
+        normalizeValueKey(item.cabang) === normalizeValueKey(group.cabang) &&
+        normalizeValueKey(item.kelas) === normalizeValueKey(group.kelas) &&
+        normalizeValueKey(item.sekolah || "") === normalizeValueKey(group.sekolah || "");
       if (!isSameClass) return false;
       if (activeScheduleKey !== "jadwalTambahanPelayanan") {
         const itemMonth = ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7);
@@ -7135,7 +7149,7 @@ export function App() {
       return true;
     });
     if (matchingItems.length === 0) {
-      pushToast("Data kelas tidak ditemukan.", "error");
+      pushToast("Data kelas tidak ditemukan untuk diperbarui.", "error");
       return false;
     }
 
@@ -7144,16 +7158,19 @@ export function App() {
         ? String(nextClassOrderValue).trim()
         : undefined;
 
+    // Update local state first for immediate feedback
     setRecords((prev) => ({
       ...prev,
       [activeScheduleKey]: (prev[activeScheduleKey] ?? []).map((item) => {
-        const shouldUpdate =
-          item.cabang === group.cabang &&
-          item.kelas === group.kelas &&
-          (item.sekolah || "") === (group.sekolah || "") &&
-          (activeScheduleKey === "jadwalTambahanPelayanan" ||
-            ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7) === selectedMonthKey);
-        if (shouldUpdate) {
+        const isCurrentClass =
+          normalizeValueKey(item.cabang) === normalizeValueKey(group.cabang) &&
+          normalizeValueKey(item.kelas) === normalizeValueKey(group.kelas) &&
+          normalizeValueKey(item.sekolah || "") === normalizeValueKey(group.sekolah || "");
+        
+        const isMatchingMonth = activeScheduleKey === "jadwalTambahanPelayanan" ||
+          ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7) === selectedMonthKey;
+
+        if (isCurrentClass && isMatchingMonth) {
           return {
             ...item,
             cabang,
@@ -7167,8 +7184,9 @@ export function App() {
       }),
     }));
 
-    await Promise.all(
-      matchingItems.map((item) => {
+    try {
+      // Use sequential updates instead of Promise.all to avoid race conditions or DB lock issues
+      for (const item of matchingItems) {
         const oldTanggal = resolveSheetTanggal(item.tanggalSheet || "", item.tanggal || "");
         const scheduleJenis = getScheduleJenis(activeScheduleKey);
         const oldRecord = buildSheetRecord(
@@ -7197,14 +7215,19 @@ export function App() {
           newClassOrder,
           scheduleJenis
         );
-        return postToSheet({ action: "upsert", record: newRecord, oldRecord, entryId: item.id });
-      })
-    );
+        
+        // Ensure we pass the entryId and mark as upsert
+        await postToSheet({ action: "upsert", record: newRecord, oldRecord, entryId: item.id });
+      }
 
-    await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
-
-    pushToast("Detail kelas dan urutan berhasil diperbarui.", "success");
-    return true;
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      pushToast("Detail kelas berhasil diperbarui.", "success");
+      return true;
+    } catch (err) {
+      console.error("Gagal memperbarui detail kelas:", err);
+      pushToast("Gagal memperbarui detail kelas ke database.", "error");
+      return false;
+    }
   };
 
   const handleInlineSaveClass = async (
@@ -7578,8 +7601,13 @@ export function App() {
         try {
           await updateRow(entryId, record);
           return;
-        } catch (_e) {
-          // Fallback to searching rows below
+        } catch (e: any) {
+          // If it's a constraint error, we should NOT fall back to insert as it would just fail or cause duplicates
+          if (String(e.message).includes("CONSTRAINT") || String(e.message).includes("constraint")) {
+             console.error("Constraint error during direct updateRow:", e);
+             throw e;
+          }
+          // Fallback to searching rows below (e.g. if record was deleted or ID changed)
         }
       }
 
@@ -7604,12 +7632,17 @@ export function App() {
           target = rows.find((row) => matchByFields(row.data, oldRecord, sessionFields)) || null;
         }
         if (!target) {
-          target = rows.find((row) => matchByFields(row.data, record, ["Cabang", "Kelas", "Sekolah", "Tanggal"])) || null;
+          // Final attempt: search by unique class identifyers
+          target = rows.find((row) => matchByFields(row.data, oldRecord || record, ["Cabang", "Kelas", "Sekolah", "Tanggal"])) || null;
         }
         if (target) {
           await updateRow(target.id, record);
-        } else {
+        } else if (!entryId || isEphemeralId(entryId)) {
+          // Only insert if no specific ID was provided or if it's ephemeral
           await insertRow(bucket, record);
+        } else {
+          // If specific non-ephemeral ID was provided but not found, throw error instead of inserting new
+          throw new Error("Data tidak ditemukan untuk diperbarui (ID mismatch).");
         }
         return;
       }
