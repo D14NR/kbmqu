@@ -113,19 +113,99 @@ export function DatabaseMaintenanceBanner() {
   const currentMonthKey = getCurrentMonthKey();
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
 
-  const totalSaldoBersih = useMemo(() => {
-    const masuk = transaksiList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_masuk) || 0), 0);
-    const keluar = transaksiList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_keluar) || 0), 0);
+  const getTransactionMonthKey = (dateStr?: string, createdAt?: string): string => {
+    const raw = dateStr || createdAt || "";
+    if (!raw) return "";
+    if (/^\d{4}-\d{2}/.test(raw)) {
+      return raw.slice(0, 7);
+    }
+    try {
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        return `${year}-${month}`;
+      }
+    } catch {}
+    const parts = raw.split(/[\/\-]/);
+    if (parts.length === 3 && parts[2].length === 4) {
+      return `${parts[2]}-${parts[1].padStart(2, "0")}`;
+    }
+    return "";
+  };
+
+  const isDateInMonth = (dateStr?: string, monthKey?: string) => {
+    if (!dateStr || !monthKey) return false;
+    const mKey = getTransactionMonthKey(dateStr);
+    return mKey === monthKey;
+  };
+
+  const isDateUpToMonth = (dateStr?: string, monthKey?: string) => {
+    if (!monthKey) return true;
+    const mKey = getTransactionMonthKey(dateStr);
+    if (!mKey) return true;
+    return mKey <= monthKey;
+  };
+
+  // Transaksi khusus BULAN INI (berjalan)
+  const currentMonthTransaksiList = useMemo(() => {
+    return transaksiList.filter((item) => {
+      const dateStr = item.tanggal || item.created_at || "";
+      return isDateInMonth(dateStr, currentMonthKey);
+    });
+  }, [transaksiList, currentMonthKey]);
+
+  // Transaksi SEBELUM bulan ini (Sisa Kas Bulan Kemarin / Saldo Awal)
+  const priorMonthTransaksiList = useMemo(() => {
+    return transaksiList.filter((item) => {
+      const dateStr = item.tanggal || item.created_at || "";
+      const mKey = getTransactionMonthKey(dateStr);
+      return mKey && mKey < currentMonthKey;
+    });
+  }, [transaksiList, currentMonthKey]);
+
+  // Sisa Uang / Saldo Awal dari Bulan Kemarin
+  const saldoAwalBulanIni = useMemo(() => {
+    const masuk = priorMonthTransaksiList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_masuk) || 0), 0);
+    const keluar = priorMonthTransaksiList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_keluar) || 0), 0);
     return masuk - keluar;
-  }, [transaksiList]);
+  }, [priorMonthTransaksiList]);
+
+  // Statistik Donasi Masuk & Pengeluaran Khusus Bulan Ini
+  const currentMonthMasuk = useMemo(() => {
+    return currentMonthTransaksiList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_masuk) || 0), 0);
+  }, [currentMonthTransaksiList]);
+
+  const currentMonthKeluar = useMemo(() => {
+    return currentMonthTransaksiList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_keluar) || 0), 0);
+  }, [currentMonthTransaksiList]);
+
+  // Saldo Bersih Bulan Ini (Mutasi Bulan Ini) = Donasi Masuk Bulan Ini DIKURANGI Pengeluaran Bulan Ini
+  const saldoBersihBulanIni = currentMonthMasuk - currentMonthKeluar;
+
+  // Total Kas Tersedia Riil Saat Ini = Sisa Bulan Kemarin + Mutasi Bersih Bulan Ini
+  const totalKasTersediaSaatIni = saldoAwalBulanIni + saldoBersihBulanIni;
+
+  // Total Dana Himpunan & Kas yang Tersedia Bulan Ini (Sisa Kas Kemarin + Donasi Masuk Bulan Ini)
+  const totalDanaTersediaBulanIni = Math.max(0, saldoAwalBulanIni) + currentMonthMasuk;
 
   const TARGET_MONTHLY_USD = 15;
   const TARGET_MONTHLY_IDR = TARGET_MONTHLY_USD * usdRate;
-  // Ensure we don't have negative progress if balance is somehow negative
-  const effectiveSaldo = Math.max(0, totalSaldoBersih);
+
+  // Target tercapai jika:
+  // 1. Tagihan server bulan ini sudah dibayar lunas (currentMonthKeluar >= TARGET_MONTHLY_IDR)
+  // 2. Atau total dana yang dihimpun (sisa bulan kemarin + donasi bulan ini) mencapai target
+  // 3. Atau kas yang tersedia saat ini mencukupi target
+  const isTargetAchieved =
+    currentMonthKeluar >= TARGET_MONTHLY_IDR ||
+    totalDanaTersediaBulanIni >= TARGET_MONTHLY_IDR ||
+    totalKasTersediaSaatIni >= TARGET_MONTHLY_IDR;
+
+  const effectiveSaldo = isTargetAchieved
+    ? Math.max(TARGET_MONTHLY_IDR, totalDanaTersediaBulanIni)
+    : Math.max(0, totalDanaTersediaBulanIni);
   const progressPercent = Math.min(100, Math.round((effectiveSaldo / TARGET_MONTHLY_IDR) * 100));
-  const sisaTarget = Math.max(0, TARGET_MONTHLY_IDR - effectiveSaldo);
-  const isTargetAchieved = effectiveSaldo >= TARGET_MONTHLY_IDR;
+  const sisaTarget = isTargetAchieved ? 0 : Math.max(0, TARGET_MONTHLY_IDR - effectiveSaldo);
 
   const [timeLeft, setTimeLeft] = useState<number>(() => {
     try {
@@ -363,16 +443,33 @@ export function DatabaseMaintenanceBanner() {
 
   const isCurrentMonthSelected = selectedMonth === currentMonthKey;
 
-  // Filter Transaksi Khusus Bulan yang Dipilih (Default: Bulan Ini)
-  const monthTransaksiList = useMemo(() => {
-    if (!selectedMonth) return transaksiList;
+  // Transaksi SEBELUM bulan yang dipilih di modal (Sisa Kas / Saldo Awal dari Bulan Sebelumnya)
+  const selectedMonthPriorList = useMemo(() => {
+    const targetMonth = selectedMonth || currentMonthKey;
     return transaksiList.filter((item) => {
       const dateStr = item.tanggal || item.created_at || "";
-      return dateStr.startsWith(selectedMonth);
+      const mKey = getTransactionMonthKey(dateStr);
+      return mKey && mKey < targetMonth;
     });
-  }, [transaksiList, selectedMonth]);
+  }, [transaksiList, selectedMonth, currentMonthKey]);
 
-  // Kalkulasi Statistik Transaksi Khusus Bulan Ini
+  // Sisa Uang / Saldo Awal dari Bulan-Bulan Sebelumnya
+  const saldoAwalSelectedMonth = useMemo(() => {
+    const masuk = selectedMonthPriorList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_masuk) || 0), 0);
+    const keluar = selectedMonthPriorList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_keluar) || 0), 0);
+    return masuk - keluar;
+  }, [selectedMonthPriorList]);
+
+  // Filter Transaksi Khusus Bulan yang Dipilih di Modal (Default: Bulan Ini)
+  const monthTransaksiList = useMemo(() => {
+    if (!selectedMonth) return currentMonthTransaksiList;
+    return transaksiList.filter((item) => {
+      const dateStr = item.tanggal || item.created_at || "";
+      return isDateInMonth(dateStr, selectedMonth);
+    });
+  }, [transaksiList, selectedMonth, currentMonthTransaksiList]);
+
+  // Kalkulasi Transaksi Khusus Bulan yang Dipilih
   const totalMasuk = useMemo(() => {
     return monthTransaksiList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_masuk) || 0), 0);
   }, [monthTransaksiList]);
@@ -381,7 +478,12 @@ export function DatabaseMaintenanceBanner() {
     return monthTransaksiList.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_keluar) || 0), 0);
   }, [monthTransaksiList]);
 
-  const saldoBersih = totalMasuk - totalKeluar;
+  // Mutasi Bersih Periode Terpilih = Total Pemasukan DIKURANGI Total Pengeluaran
+  const mutasiBersih = totalMasuk - totalKeluar;
+  const saldoBersih = mutasiBersih;
+
+  // Total Kas Tersedia (Saldo Akhir) = Sisa Bulan Kemarin + Mutasi Bersih Periode Ini
+  const totalKasTersedia = saldoAwalSelectedMonth + mutasiBersih;
 
   // Filtered Transaksi (Tipe Masuk/Keluar + Pencarian)
   const filteredTransaksiList = useMemo(() => {
@@ -487,7 +589,7 @@ export function DatabaseMaintenanceBanner() {
                     </h6>
                   </div>
                   <p className="mb-0 text-secondary text-xs mt-0.5">
-                    Donasi pemeliharaan database Cloudflare prabayar bulan ini telah tercapai ({formatUSD(effectiveSaldo)} / {formatUSD(TARGET_MONTHLY_IDR)}). Terima kasih atas partisipasi dan kebaikan seluruh rekan!
+                    Tagihan database Cloudflare (periode bulan kemarin) sudah terbayar lunas menggunakan dana donasi masuk bulan ini ({formatRupiah(currentMonthMasuk)}) dan sisa kas bulan kemarin ({formatRupiah(saldoAwalBulanIni)}). Sisa kas saat ini: {formatRupiah(totalKasTersediaSaatIni)}. Terima kasih atas kerja sama seluruh rekan!
                   </p>
                 </div>
               </div>
@@ -633,16 +735,16 @@ export function DatabaseMaintenanceBanner() {
                       <div className="text-xs text-dark">
                         <strong>Target Donasi sudah Terpenuhi,, Terima kasih Teman Teman Kerja sama nya.</strong>
                         <br />
-                        Kebutuhan dana pemeliharaan database Cloudflare untuk periode berjalan sudah tercukupi. Terima kasih yang sebesar-besarnya atas kontribusi dan kepedulian seluruh rekan kerja.
+                        Tagihan pemeliharaan database Cloudflare pemakaian bulan kemarin sudah terbayar lunas di awal bulan ini. Dana dihimpun dari dana donasi masuk bulan ini (<strong>{formatRupiah(currentMonthMasuk)}</strong>) bersama sisa kas bulan kemarin (<strong>{formatRupiah(saldoAwalBulanIni)}</strong>). Biaya tagihan server: <strong>{formatRupiah(currentMonthKeluar)}</strong>. Sisa kas riil saat ini: <strong>{formatRupiah(totalKasTersediaSaatIni)}</strong> ({formatUSD(totalKasTersediaSaatIni)}).
                       </div>
                     </div>
                   ) : (
                     <div className="alert alert-warning border border-warning-subtle d-flex align-items-start gap-2.5 p-3 rounded-3 mb-0">
                       <i className="bi bi-info-circle-fill text-warning-emphasis fs-5 flex-shrink-0 mt-0.5" />
                       <div className="text-xs text-dark">
-                        <strong>Mohon Bantuannya untuk Pemeliharaan Database prabayar.</strong>
+                        <strong>Mohon Bantuannya untuk Pemeliharaan Database.</strong>
                         <br />
-                        Database Cloudflare yang digunakan aplikasi beroperasi dengan sistem kuota prabayar untuk pembacaan, penyimpanan, dan sinkronisasi data antar cabang secara real-time. Donasi sukarela Anda sangat membantu menjaga kelangsungan operasional sistem.
+                        Dana donasi yang dihimpun di bulan ini dialokasikan untuk membayar tagihan server database pemakaian bulan kemarin. Dana terkumpul (sisa kas kemarin + donasi berjalan): <strong>{formatUSD(effectiveSaldo)}</strong> dari target <strong>{formatUSD(TARGET_MONTHLY_IDR)}</strong>{sisaTarget > 0 ? ` (Kekurangan bulan ini: ${formatUSD(sisaTarget)})` : ""}. Donasi sukarela Anda sangat membantu menjaga kelangsungan operasional sistem.
                       </div>
                     </div>
                   )}
@@ -652,24 +754,24 @@ export function DatabaseMaintenanceBanner() {
                     <div className="d-flex align-items-center justify-content-between mb-2">
                       <div className="fw-bold text-dark text-sm d-flex align-items-center gap-1.5">
                         <i className={`bi ${isTargetAchieved ? "bi-patch-check-fill text-success" : "bi-bullseye text-primary"}`} />
-                        Target Pemeliharaan ($15)
+                        Tagihan Server Bulan Kemarin ($15)
                       </div>
                       <div className="text-xs fw-bold text-success">
                         {formatUSD(effectiveSaldo)} / {formatUSD(TARGET_MONTHLY_IDR)}
                       </div>
                     </div>
-                    <div className="progress" style={{ height: "10px" }} aria-label="Target Pemeliharaan" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}>
+                    <div className="progress" style={{ height: "10px" }} aria-label="Target Pemeliharaan Bulan Ini" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}>
                       <div 
                         className={`progress-bar ${progressPercent >= 100 ? "bg-success" : "bg-primary progress-bar-striped progress-bar-animated"}`} 
                         style={{ width: `${progressPercent}%` }}
                       ></div>
                     </div>
-                    <div className="d-flex align-items-center justify-content-between mt-1">
+                    <div className="d-flex align-items-center justify-content-between mt-1 flex-wrap gap-1">
                       <div className={`text-xxs fw-semibold ${isTargetAchieved ? "text-success" : "text-danger"}`}>
-                        {sisaTarget > 0 ? `Kekurangan: ${formatUSD(sisaTarget)}` : "Target Terpenuhi (100%)"}
+                        {isTargetAchieved ? "✓ Tagihan Server Bulan Kemarin Terbayar Lunas" : `Kekurangan Bulan Ini: ${formatUSD(sisaTarget)}`}
                       </div>
                       <div className="text-xxs text-muted fw-semibold">
-                        Terkumpul: {progressPercent}%
+                        Sisa Kemarin: {formatRupiah(saldoAwalBulanIni)} + Masuk: {formatRupiah(currentMonthMasuk)} | Kas Akhir: {formatRupiah(totalKasTersediaSaatIni)}
                       </div>
                     </div>
                   </div>
@@ -900,31 +1002,37 @@ export function DatabaseMaintenanceBanner() {
                   </div>
                 </div>
 
-                {/* Stats Bento Summary Khusus Bulan Ini */}
+                {/* Stats Bento Summary 4 Kartu: Sisa Bulan Kemarin + Masuk - Keluar = Total Kas Tersedia */}
                 <div className="row g-2.5 mb-3">
-                  {/* Saldo Bersih */}
-                  <div className="col-12 col-sm-4">
-                    <div className="bg-white border rounded-3 p-2.5 shadow-sm d-flex align-items-center gap-2.5">
+                  {/* Kartu 1: Sisa Bulan Kemarin (Saldo Awal) */}
+                  <div className="col-12 col-sm-6 col-lg-3">
+                    <div className="bg-white border rounded-3 p-2.5 shadow-sm d-flex align-items-center gap-2.5 h-100">
                       <div
-                        className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center flex-shrink-0"
+                        className="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center flex-shrink-0"
                         style={{ width: 38, height: 38 }}
                       >
-                        <i className="bi bi-wallet2 fs-6" />
+                        <i className="bi bi-clock-history fs-6" />
                       </div>
                       <div className="min-w-0 flex-grow-1">
-                        <div className="text-xxs text-muted fw-bold text-uppercase">
-                          Saldo {isCurrentMonthSelected ? "Bulan Ini" : "Periode Ini"}
+                        <div className="text-xxs text-muted fw-bold text-uppercase d-flex align-items-center justify-content-between">
+                          <span className="text-truncate">Sisa Bln Kemarin</span>
+                          <span className="badge bg-light text-secondary border font-monospace" style={{ fontSize: "0.58rem" }}>
+                            Saldo Awal
+                          </span>
                         </div>
-                        <div className={`text-sm fw-bold ${saldoBersih >= 0 ? "text-success" : "text-danger"} text-truncate`}>
-                          {formatUSD(saldoBersih)}
+                        <div className={`text-sm fw-bold ${saldoAwalSelectedMonth >= 0 ? "text-primary" : "text-danger"} text-truncate`}>
+                          {formatUSD(saldoAwalSelectedMonth)} <span className="text-xxs fw-semibold opacity-75">({formatRupiah(saldoAwalSelectedMonth)})</span>
+                        </div>
+                        <div className="text-xxs text-muted text-truncate" title="Sisa kas sebelum periode bulan ini">
+                          Sisa kas sebelum bulan ini
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Donasi Masuk */}
-                  <div className="col-6 col-sm-4">
-                    <div className="bg-white border rounded-3 p-2.5 shadow-sm d-flex align-items-center gap-2.5">
+                  {/* Kartu 2: Donasi Masuk */}
+                  <div className="col-12 col-sm-6 col-lg-3">
+                    <div className="bg-white border rounded-3 p-2.5 shadow-sm d-flex align-items-center gap-2.5 h-100">
                       <div
                         className="rounded-circle text-success d-flex align-items-center justify-content-center flex-shrink-0"
                         style={{ width: 38, height: 38, backgroundColor: "#ecfdf5" }}
@@ -933,18 +1041,21 @@ export function DatabaseMaintenanceBanner() {
                       </div>
                       <div className="min-w-0 flex-grow-1">
                         <div className="text-xxs text-muted fw-bold text-uppercase">
-                          Total Masuk ({formatMonthName(selectedMonth)})
+                          Total Masuk ({formatMonthName(selectedMonth).slice(0, 8)})
                         </div>
                         <div className="text-sm fw-bold text-success text-truncate">
-                          {formatUSD(totalMasuk)}
+                          {formatUSD(totalMasuk)} <span className="text-xxs fw-semibold opacity-75">({formatRupiah(totalMasuk)})</span>
+                        </div>
+                        <div className="text-xxs text-muted text-truncate">
+                          {filteredTransaksiList.filter((t) => Number(t.jumlah_transaksi_masuk) > 0).length} transaksi donasi
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Pengeluaran / Server */}
-                  <div className="col-6 col-sm-4">
-                    <div className="bg-white border rounded-3 p-2.5 shadow-sm d-flex align-items-center gap-2.5">
+                  {/* Kartu 3: Pengeluaran / Biaya Server */}
+                  <div className="col-12 col-sm-6 col-lg-3">
+                    <div className="bg-white border rounded-3 p-2.5 shadow-sm d-flex align-items-center gap-2.5 h-100">
                       <div
                         className="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0"
                         style={{ width: 38, height: 38 }}
@@ -953,10 +1064,39 @@ export function DatabaseMaintenanceBanner() {
                       </div>
                       <div className="min-w-0 flex-grow-1">
                         <div className="text-xxs text-muted fw-bold text-uppercase">
-                          Biaya Server ({formatMonthName(selectedMonth)})
+                          Biaya Server ({formatMonthName(selectedMonth).slice(0, 8)})
                         </div>
-                        <div className="text-sm fw-bold text-danger text-truncate">
-                          {formatUSD(totalKeluar)}
+                        <div className={`text-sm fw-bold text-danger text-truncate`}>
+                          {formatUSD(totalKeluar)} <span className="text-xxs fw-semibold opacity-75">({formatRupiah(totalKeluar)})</span>
+                        </div>
+                        <div className="text-xxs text-muted text-truncate" title="Tagihan pemakaian server bulan sebelumnya yang dibayar di bulan ini">
+                          Tagihan server bln lalu ({filteredTransaksiList.filter((t) => Number(t.jumlah_transaksi_keluar) > 0).length} trx)
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Kartu 4: Total Kas Tersedia (Saldo Akhir) */}
+                  <div className="col-12 col-sm-6 col-lg-3">
+                    <div className="bg-white border border-success-subtle rounded-3 p-2.5 shadow-sm d-flex align-items-center gap-2.5 h-100" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)" }}>
+                      <div
+                        className="rounded-circle bg-success text-white d-flex align-items-center justify-content-center flex-shrink-0 shadow-xs"
+                        style={{ width: 38, height: 38 }}
+                      >
+                        <i className="bi bi-wallet2 fs-6" />
+                      </div>
+                      <div className="min-w-0 flex-grow-1">
+                        <div className="text-xxs text-muted fw-bold text-uppercase d-flex align-items-center justify-content-between">
+                          <span className="text-dark fw-bolder">Kas Tersedia</span>
+                          <span className="badge bg-success text-white fw-bold" style={{ fontSize: "0.58rem" }}>
+                            Saldo Akhir
+                          </span>
+                        </div>
+                        <div className={`text-sm fw-bold ${totalKasTersedia >= 0 ? "text-success" : "text-danger"} text-truncate`}>
+                          {formatUSD(totalKasTersedia)} <span className="text-xxs fw-semibold opacity-75">({formatRupiah(totalKasTersedia)})</span>
+                        </div>
+                        <div className="text-xxs text-muted text-truncate" title={`Sisa lalu (${formatRupiah(saldoAwalSelectedMonth)}) + Mutasi bln ini (${mutasiBersih >= 0 ? "+" : ""}${formatRupiah(mutasiBersih)})`}>
+                          Mutasi bln ini: <strong className={mutasiBersih >= 0 ? "text-success" : "text-danger"}>{mutasiBersih >= 0 ? "+" : ""}{formatRupiah(mutasiBersih)}</strong>
                         </div>
                       </div>
                     </div>
@@ -1057,6 +1197,37 @@ export function DatabaseMaintenanceBanner() {
                         </tr>
                       </thead>
                       <tbody>
+                        {/* 1. Baris Saldo Awal (Sisa Kas Bulan Kemarin / Saldo Awal Periode) */}
+                        {!loadingTransaksi && (filterType === "all" || filterType === "masuk") && saldoAwalSelectedMonth !== 0 && (
+                          <tr className="table-primary bg-primary-subtle bg-opacity-25 border-bottom border-primary-subtle">
+                            <td className="text-center text-primary fw-bold text-xxs px-2.5 py-2">
+                              <i className="bi bi-clock-history" />
+                            </td>
+                            <td className="text-center text-primary fw-semibold px-2.5 py-2">
+                              <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0.5 text-xxs font-monospace">
+                                Awal Bulan
+                              </span>
+                            </td>
+                            <td className="px-2.5 py-2">
+                              <div className="d-flex align-items-center gap-1.5">
+                                <i className="bi bi-wallet2 text-primary" />
+                                <span className="fw-bold text-primary text-xs">
+                                  Saldo Awal (Sisa Kas Bulan Kemarin)
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-2.5 py-2 text-primary text-xxs fst-italic">
+                              Akumulasi sisa kas sebelum periode {formatMonthName(selectedMonth)}
+                            </td>
+                            <td className="text-end px-2.5 py-2 text-primary fw-bold font-monospace text-xs" colSpan={2}>
+                              <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0.5 text-xxs fw-bold font-monospace">
+                                {formatUSD(saldoAwalSelectedMonth)} ({formatRupiah(saldoAwalSelectedMonth)})
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+
+                        {/* 2. Riwayat Mutasi Transaksi Bulan Berjalan */}
                         {loadingTransaksi ? (
                           <tr>
                             <td colSpan={6} className="text-center py-4">
@@ -1083,68 +1254,96 @@ export function DatabaseMaintenanceBanner() {
                         ) : (
                           filteredTransaksiList.map((item, idx) => {
                             const masuk = Number(item.jumlah_transaksi_masuk) || 0;
-                            const keluar = Number(item.jumlah_transaksi_keluar) || 0;
-                            const { date, time } = formatDateTimeDisplay(item.tanggal, item.created_at);
+                          const keluar = Number(item.jumlah_transaksi_keluar) || 0;
+                          const { date, time } = formatDateTimeDisplay(item.tanggal, item.created_at);
 
-                            return (
-                              <tr key={item.id}>
-                                <td className="text-center text-muted text-xxs px-2.5 py-2">
-                                  {idx + 1}
-                                </td>
-                                <td className="text-center text-dark fw-semibold px-2.5 py-2">
-                                  <div className="d-flex flex-column align-items-center justify-content-center gap-0.5">
-                                    <span className="badge bg-light text-secondary border rounded-pill px-2 py-0.5 text-xxs font-monospace">
-                                      {date}
+                          return (
+                            <tr key={item.id}>
+                              <td className="text-center text-muted text-xxs px-2.5 py-2">
+                                {idx + 1}
+                              </td>
+                              <td className="text-center text-dark fw-semibold px-2.5 py-2">
+                                <div className="d-flex flex-column align-items-center justify-content-center gap-0.5">
+                                  <span className="badge bg-light text-secondary border rounded-pill px-2 py-0.5 text-xxs font-monospace">
+                                    {date}
+                                  </span>
+                                  {time ? (
+                                    <span className="text-muted text-xxs d-inline-flex align-items-center gap-1 font-monospace" style={{ fontSize: "0.68rem" }}>
+                                      <i className="bi bi-clock text-primary" style={{ fontSize: "0.65rem" }} />
+                                      {time} WIB
                                     </span>
-                                    {time ? (
-                                      <span className="text-muted text-xxs d-inline-flex align-items-center gap-1 font-monospace" style={{ fontSize: "0.68rem" }}>
-                                        <i className="bi bi-clock text-primary" style={{ fontSize: "0.65rem" }} />
-                                        {time} WIB
-                                      </span>
-                                    ) : null}
+                                  ) : null}
+                                </div>
+                              </td>
+                              <td className="px-2.5 py-2">
+                                <div className="d-flex align-items-center gap-1.5">
+                                  <div
+                                    className={`rounded-circle ${
+                                      masuk > 0 ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger"
+                                    } d-flex align-items-center justify-content-center flex-shrink-0`}
+                                    style={{ width: 22, height: 22 }}
+                                  >
+                                    <i className={`bi ${masuk > 0 ? "bi-arrow-down-left" : "bi-arrow-up-right"}`} style={{ fontSize: 10 }} />
                                   </div>
-                                </td>
-                                <td className="px-2.5 py-2">
-                                  <div className="d-flex align-items-center gap-1.5">
-                                    <div
-                                      className={`rounded-circle ${
-                                        masuk > 0 ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger"
-                                      } d-flex align-items-center justify-content-center flex-shrink-0`}
-                                      style={{ width: 22, height: 22 }}
-                                    >
-                                      <i className={`bi ${masuk > 0 ? "bi-arrow-down-left" : "bi-arrow-up-right"}`} style={{ fontSize: 10 }} />
-                                    </div>
-                                    <span className="fw-bold text-dark text-xs">
-                                      {item.hidden_nama_pengirim === 1 ? "*******" : (item.nama_pengirim || "*******")}
-                                    </span>
-                                  </div>
-                                </td>
-                                <td className="px-2.5 py-2 text-muted text-xxs">
-                                  {item.keterangan || "donasi masuk"}
-                                </td>
-                                <td className="text-end px-2.5 py-2">
-                                  {masuk > 0 ? (
-                                    <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 text-xxs fw-bold font-monospace">
-                                      +{formatUSD(masuk)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-muted text-xxs">-</span>
-                                  )}
-                                </td>
-                                <td className="text-end px-2.5 py-2">
-                                  {keluar > 0 ? (
-                                    <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0.5 text-xxs fw-bold font-monospace">
-                                      -{formatUSD(keluar)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-muted text-xxs">-</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
+                                  <span className="fw-bold text-dark text-xs">
+                                    {item.hidden_nama_pengirim === 1 ? "*******" : (item.nama_pengirim || "*******")}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-2.5 py-2 text-muted text-xxs">
+                                {item.keterangan || "donasi masuk"}
+                              </td>
+                              <td className="text-end px-2.5 py-2">
+                                {masuk > 0 ? (
+                                  <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 text-xxs fw-bold font-monospace">
+                                    +{formatUSD(masuk)}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted text-xxs">-</span>
+                                )}
+                              </td>
+                              <td className="text-end px-2.5 py-2">
+                                {keluar > 0 ? (
+                                  <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0.5 text-xxs fw-bold font-monospace">
+                                    -{formatUSD(keluar)}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted text-xxs">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        }))}
                       </tbody>
+                      {/* Table Footer Summary */}
+                      <tfoot className="table-light border-top">
+                        <tr className="fw-bold text-xxs">
+                          <td colSpan={4} className="text-end px-2.5 py-2 text-dark">
+                            Total Mutasi Bulan {formatMonthName(selectedMonth)}:
+                          </td>
+                          <td className="text-end px-2.5 py-2 text-success font-monospace">
+                            +{formatUSD(totalMasuk)}
+                            <br />
+                            <span className="text-xxs opacity-75">({formatRupiah(totalMasuk)})</span>
+                          </td>
+                          <td className="text-end px-2.5 py-2 text-danger font-monospace">
+                            -{formatUSD(totalKeluar)}
+                            <br />
+                            <span className="text-xxs opacity-75">({formatRupiah(totalKeluar)})</span>
+                          </td>
+                        </tr>
+                        <tr className="bg-success-subtle bg-opacity-25 fw-bold text-xs border-top">
+                          <td colSpan={4} className="text-end px-2.5 py-2 text-dark">
+                            <span className="d-inline-flex align-items-center gap-1">
+                              <i className="bi bi-wallet2 text-success" />
+                              Total Kas Tersedia (Saldo Akhir):
+                            </span>
+                          </td>
+                          <td colSpan={2} className={`text-end px-2.5 py-2 ${totalKasTersedia >= 0 ? "text-success" : "text-danger"} font-monospace`}>
+                            {formatUSD(totalKasTersedia)} ({formatRupiah(totalKasTersedia)})
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </div>

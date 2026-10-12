@@ -100,7 +100,35 @@ export function DonasiView({
   // Perhitungan Statistik Rekening
   const totalRekening = records.length;
 
-  // Perhitungan Statistik Transaksi Bulanan (dari tabel donasi_transaksi berdasarkan bulan yang dipilih)
+  // 1. Transaksi SEBELUM bulan yang dipilih (untuk menghitung Sisa Saldo Bulan Kemarin / Saldo Awal)
+  const priorMonthTransaksiRecords = useMemo(() => {
+    if (selectedMonth === "all") return [];
+    return transaksiRecords.filter((t) => {
+      const raw = t.tanggal || t.created_at || "";
+      if (!raw) return false;
+      if (/^\d{4}-\d{2}/.test(raw)) {
+        return raw.slice(0, 7) < selectedMonth;
+      }
+      try {
+        const d = new Date(raw);
+        if (!isNaN(d.getTime())) {
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, "0");
+          return `${year}-${month}` < selectedMonth;
+        }
+      } catch {}
+      return false;
+    });
+  }, [transaksiRecords, selectedMonth]);
+
+  // Sisa Uang / Saldo Awal dari Bulan Kemarin
+  const saldoAwalBulanLalu = useMemo(() => {
+    const masuk = priorMonthTransaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_masuk) || 0), 0);
+    const keluar = priorMonthTransaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_keluar) || 0), 0);
+    return masuk - keluar;
+  }, [priorMonthTransaksiRecords]);
+
+  // 2. Transaksi KHUSUS bulan yang dipilih
   const totalNominalMasuk = useMemo(() => {
     return monthTransaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_masuk) || 0), 0);
   }, [monthTransaksiRecords]);
@@ -109,7 +137,19 @@ export function DonasiView({
     return monthTransaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_keluar) || 0), 0);
   }, [monthTransaksiRecords]);
 
-  const saldoBersih = totalNominalMasuk - totalNominalKeluar;
+  // Mutasi Bersih Bulan Ini = Pemasukan Bulan Ini DIKURANGI Pengeluaran Bulan Ini
+  const mutasiBersihBulanIni = totalNominalMasuk - totalNominalKeluar;
+  const saldoBersih = mutasiBersihBulanIni;
+
+  // Total Kas Tersedia Saat Ini = Saldo Awal Bulan Lalu + Mutasi Bersih Bulan Ini
+  const totalKasTersedia = useMemo(() => {
+    if (selectedMonth === "all") {
+      const masuk = transaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_masuk) || 0), 0);
+      const keluar = transaksiRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_transaksi_keluar) || 0), 0);
+      return masuk - keluar;
+    }
+    return saldoAwalBulanLalu + mutasiBersihBulanIni;
+  }, [selectedMonth, transaksiRecords, saldoAwalBulanLalu, mutasiBersihBulanIni]);
 
   const countMasuk = useMemo(() => {
     return monthTransaksiRecords.filter((t) => Number(t.jumlah_transaksi_masuk) > 0).length;
@@ -250,123 +290,164 @@ export function DonasiView({
   return (
     <div className="py-2">
       {/* Header Section */}
-      <div className="row g-3 mb-3.5 align-items-stretch">
-        <div className="col-12 col-xl-5 d-flex flex-column justify-content-between">
-          <div>
-            <div className="d-flex align-items-center gap-2 mb-1.5 flex-wrap">
-              <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
-                <i className="bi bi-shield-lock-fill" />
-                KHUSUS ADMIN PUSAT
-              </span>
-              <span className="badge bg-light text-muted border rounded-pill px-2.5 py-1 text-xxs">
-                <i className="bi bi-database me-1" />
-                {activeTab === "rekening" ? "Tabel: donasi" : "Tabel: donasi_transaksi"}
-              </span>
+      <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-3">
+        <div>
+          <div className="d-flex align-items-center gap-2 mb-1.5 flex-wrap">
+            <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+              <i className="bi bi-shield-lock-fill" />
+              KHUSUS ADMIN PUSAT
+            </span>
+            <span className="badge bg-light text-muted border rounded-pill px-2.5 py-1 text-xxs">
+              <i className="bi bi-database me-1" />
+              {activeTab === "rekening" ? "Tabel: donasi" : "Tabel: donasi_transaksi"}
+            </span>
+          </div>
+          <h4 className="fw-bold text-dark d-flex align-items-center gap-2 mb-1">
+            <i className="bi bi-heart-fill text-danger" />
+            Kelola Donasi Database
+          </h4>
+          <p className="text-muted text-xs mb-0">
+            Pengelolaan rekening donasi publik dan pencatatan transaksi masuk/keluar dari skema tabel <code className="text-dark fw-bold">donasi_transaksi</code>.
+          </p>
+        </div>
+
+        {/* Filter Periode Bulan */}
+        <div className="d-flex align-items-center gap-2 flex-wrap ms-md-auto">
+          <span className="text-xxs fw-bold text-muted text-uppercase d-flex align-items-center gap-1">
+            <i className="bi bi-calendar3 text-primary" />
+            Periode Hitung:
+          </span>
+          <select
+            className="form-select form-select-sm rounded-pill text-xs fw-semibold border bg-white shadow-xs"
+            style={{ width: "auto", minWidth: 160 }}
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+          >
+            <option value={getCurrentMonthKey()}>Bulan Ini ({formatMonthLabel(getCurrentMonthKey())})</option>
+            <option disabled>──────────</option>
+            {availableMonths.map((mKey) => (
+              <option key={mKey} value={mKey}>
+                {formatMonthLabel(mKey)}
+              </option>
+            ))}
+            <option value="all">Semua Periode (Akumulasi)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Info Edukasi Siklus Tagihan Server */}
+      <div className="alert bg-primary-subtle bg-opacity-25 border border-primary-subtle text-dark rounded-4 p-3 mb-3 d-flex align-items-start gap-2.5 shadow-xs">
+        <i className="bi bi-info-circle-fill text-primary fs-5 flex-shrink-0 mt-0.5" />
+        <div className="text-xs">
+          <strong>Siklus Pembukuan &amp; Tagihan Server Database:</strong>
+          <div className="mt-0.5 text-secondary">
+            Tagihan server Cloudflare beroperasi dengan sistem <strong>pascabayar</strong> (pemakaian bulan lalu ditagihkan di awal bulan berjalan). 
+            Oleh karena itu, <strong>dana donasi yang masuk di Bulan Ini</strong> bersama <strong>sisa uang kas bulan kemarin</strong> dihimpun untuk melunasi <strong>tagihan server bulan kemarin</strong> tersebut.
+          </div>
+        </div>
+      </div>
+
+      {/* 4 Cards Bento Strip: Sisa Bulan Lalu + Masuk - Keluar = Total Kas Tersedia */}
+      <div className="row g-2.5 mb-3.5">
+        {/* Kartu 1: Sisa Uang Bulan Kemarin (Saldo Awal) */}
+        <div className="col-12 col-sm-6 col-xl-3">
+          <div className="bg-white border rounded-4 p-3 shadow-sm h-100 d-flex align-items-center gap-3">
+            <div
+              className="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center flex-shrink-0"
+              style={{ width: 44, height: 44 }}
+            >
+              <i className="bi bi-clock-history fs-5" />
             </div>
-            <h4 className="fw-bold text-dark d-flex align-items-center gap-2 mb-1">
-              <i className="bi bi-heart-fill text-danger" />
-              Kelola Donasi Database
-            </h4>
-            <p className="text-muted text-xs mb-2">
-              Pengelolaan rekening donasi publik dan pencatatan transaksi masuk/keluar dari skema tabel <code className="text-dark fw-bold">donasi_transaksi</code>.
-            </p>
-            {/* Filter Periode Bulan */}
-            <div className="d-flex align-items-center gap-2 flex-wrap">
-              <span className="text-xxs fw-bold text-muted text-uppercase d-flex align-items-center gap-1">
-                <i className="bi bi-calendar3 text-primary" />
-                Periode Hitung:
-              </span>
-              <select
-                className="form-select form-select-sm rounded-pill text-xs fw-semibold border bg-white shadow-xs"
-                style={{ width: "auto", minWidth: 160 }}
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-              >
-                <option value={getCurrentMonthKey()}>Bulan Ini ({formatMonthLabel(getCurrentMonthKey())})</option>
-                <option disabled>──────────</option>
-                {availableMonths.map((mKey) => (
-                  <option key={mKey} value={mKey}>
-                    {formatMonthLabel(mKey)}
-                  </option>
-                ))}
-                <option value="all">Semua Periode (Akumulasi)</option>
-              </select>
+            <div className="min-w-0 flex-grow-1">
+              <div className="text-xxs text-muted fw-bold text-uppercase d-flex align-items-center justify-content-between">
+                <span>Sisa Bulan Kemarin</span>
+                <span className="badge bg-light text-secondary border font-monospace" style={{ fontSize: "0.6rem" }}>
+                  Saldo Awal
+                </span>
+              </div>
+              <div className={`text-base fw-bold ${saldoAwalBulanLalu >= 0 ? "text-primary" : "text-danger"} text-truncate`}>
+                {formatRupiah(saldoAwalBulanLalu)}
+              </div>
+              <div className="text-xxs text-muted text-truncate">
+                {selectedMonth === "all" ? "Awal pembukuan" : "Sisa kas sebelum bulan ini"}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Stats Bento */}
-        <div className="col-12 col-xl-7">
-          <div className="row g-2.5 h-100">
-            {/* Metric 1: Saldo Bersih */}
-            <div className="col-12 col-sm-4">
-              <div className="bg-white border rounded-4 p-3 shadow-sm h-100 d-flex align-items-center gap-3">
-                <div
-                  className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center flex-shrink-0"
-                  style={{ width: 44, height: 44 }}
-                >
-                  <i className="bi bi-wallet2 fs-5" />
-                </div>
-                <div className="min-w-0 flex-grow-1">
-                  <div className="text-xxs text-muted fw-bold text-uppercase d-flex align-items-center justify-content-between">
-                    <span>Saldo Bersih</span>
-                    <span className="badge bg-light text-secondary border font-monospace" style={{ fontSize: "0.62rem" }}>
-                      {selectedMonth === "all" ? "Semua" : formatMonthLabel(selectedMonth).slice(0, 8)}
-                    </span>
-                  </div>
-                  <div className={`text-base fw-bold ${saldoBersih >= 0 ? "text-success" : "text-danger"} text-truncate`}>
-                    {formatRupiah(saldoBersih)}
-                  </div>
-                  <div className="text-xxs text-muted">
-                    {monthTransaksiRecords.length} Total Transaksi
-                  </div>
-                </div>
+        {/* Kartu 2: Donasi Masuk Bulan Ini */}
+        <div className="col-12 col-sm-6 col-xl-3">
+          <div className="bg-white border rounded-4 p-3 shadow-sm h-100 d-flex align-items-center gap-3">
+            <div
+              className="rounded-circle text-success d-flex align-items-center justify-content-center flex-shrink-0"
+              style={{ width: 44, height: 44, backgroundColor: "#ecfdf5" }}
+            >
+              <i className="bi bi-arrow-down-left-circle fs-5" />
+            </div>
+            <div className="min-w-0 flex-grow-1">
+              <div className="text-xxs text-muted fw-bold text-uppercase d-flex align-items-center justify-content-between">
+                <span>Donasi Masuk</span>
+                <span className="badge bg-success-subtle text-success border border-success-subtle" style={{ fontSize: "0.6rem" }}>
+                  {countMasuk} Trx
+                </span>
+              </div>
+              <div className="text-base fw-bold text-success text-truncate">
+                {formatRupiah(totalNominalMasuk)}
+              </div>
+              <div className="text-xxs text-muted text-truncate">
+                {selectedMonth === "all" ? "Total semua pemasukan" : `Pemasukan ${formatMonthLabel(selectedMonth).slice(0, 10)}`}
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* Metric 2: Total Donasi Masuk */}
-            <div className="col-6 col-sm-4">
-              <div className="bg-white border rounded-4 p-3 shadow-sm h-100 d-flex align-items-center gap-2.5">
-                <div
-                  className="rounded-circle bg-emerald-50 text-success d-flex align-items-center justify-content-center flex-shrink-0"
-                  style={{ width: 44, height: 44, backgroundColor: "#ecfdf5" }}
-                >
-                  <i className="bi bi-arrow-down-left-circle fs-5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xxs text-muted fw-bold text-uppercase">
-                    Donasi Masuk
-                  </div>
-                  <div className="text-sm fw-bold text-success text-truncate">
-                    {formatRupiah(totalNominalMasuk)}
-                  </div>
-                  <div className="text-xxs text-muted">
-                    {countMasuk} Transaksi
-                  </div>
-                </div>
+        {/* Kartu 3: Biaya Keluar / Server Bulan Ini */}
+        <div className="col-12 col-sm-6 col-xl-3">
+          <div className="bg-white border rounded-4 p-3 shadow-sm h-100 d-flex align-items-center gap-3">
+            <div
+              className="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0"
+              style={{ width: 44, height: 44 }}
+            >
+              <i className="bi bi-arrow-up-right-circle fs-5" />
+            </div>
+            <div className="min-w-0 flex-grow-1">
+              <div className="text-xxs text-muted fw-bold text-uppercase d-flex align-items-center justify-content-between">
+                <span>Biaya / Keluar</span>
+                <span className="badge bg-danger-subtle text-danger border border-danger-subtle" style={{ fontSize: "0.6rem" }}>
+                  {countKeluar} Trx
+                </span>
+              </div>
+              <div className="text-base fw-bold text-danger text-truncate">
+                {formatRupiah(totalNominalKeluar)}
+              </div>
+              <div className="text-xxs text-muted text-truncate" title="Tagihan server pemakaian bulan sebelumnya yang dibayar di bulan ini">
+                {selectedMonth === "all" ? "Total semua pengeluaran" : "Tagihan server (bln kemaren)"}
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* Metric 3: Total Transaksi Keluar */}
-            <div className="col-6 col-sm-4">
-              <div className="bg-white border rounded-4 p-3 shadow-sm h-100 d-flex align-items-center gap-2.5">
-                <div
-                  className="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0"
-                  style={{ width: 44, height: 44 }}
-                >
-                  <i className="bi bi-arrow-up-right-circle fs-5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xxs text-muted fw-bold text-uppercase">
-                    Biaya / Keluar
-                  </div>
-                  <div className="text-sm fw-bold text-danger text-truncate">
-                    {formatRupiah(totalNominalKeluar)}
-                  </div>
-                  <div className="text-xxs text-muted">
-                    {countKeluar} Pengeluaran
-                  </div>
-                </div>
+        {/* Kartu 4: Total Kas Tersedia (Saldo Akhir) */}
+        <div className="col-12 col-sm-6 col-xl-3">
+          <div className="bg-white border border-success-subtle rounded-4 p-3 shadow-sm h-100 d-flex align-items-center gap-3" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)" }}>
+            <div
+              className="rounded-circle bg-success text-white d-flex align-items-center justify-content-center flex-shrink-0 shadow-xs"
+              style={{ width: 44, height: 44 }}
+            >
+              <i className="bi bi-wallet2 fs-5" />
+            </div>
+            <div className="min-w-0 flex-grow-1">
+              <div className="text-xxs text-muted fw-bold text-uppercase d-flex align-items-center justify-content-between">
+                <span className="text-dark fw-bolder">Kas Tersedia</span>
+                <span className="badge bg-success text-white fw-bold" style={{ fontSize: "0.6rem" }}>
+                  Saldo Akhir
+                </span>
+              </div>
+              <div className={`text-base fw-bold ${totalKasTersedia >= 0 ? "text-success" : "text-danger"} text-truncate`}>
+                {formatRupiah(totalKasTersedia)}
+              </div>
+              <div className="text-xxs text-muted text-truncate" title={`Sisa lalu (${formatRupiah(saldoAwalBulanLalu)}) + Mutasi bln ini (${mutasiBersihBulanIni >= 0 ? "+" : ""}${formatRupiah(mutasiBersihBulanIni)})`}>
+                Mutasi bln ini: <strong className={mutasiBersihBulanIni >= 0 ? "text-success" : "text-danger"}>{mutasiBersihBulanIni >= 0 ? "+" : ""}{formatRupiah(mutasiBersihBulanIni)}</strong>
               </div>
             </div>
           </div>
@@ -769,6 +850,44 @@ export function DonasiView({
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Baris Saldo Awal (Sisa Kas Bulan Kemarin) */}
+                  {!loading && (filterType === "all" || filterType === "masuk") && selectedMonth !== "all" && saldoAwalBulanLalu !== 0 && (
+                    <tr className="table-primary bg-primary-subtle bg-opacity-25 border-bottom border-primary-subtle">
+                      <td className="text-center text-primary fw-bold text-xxs px-3 py-2.5">
+                        <i className="bi bi-clock-history fs-6" />
+                      </td>
+                      <td className="text-center px-2 py-2.5">
+                        <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0.5 text-xxs font-monospace">
+                          Awal Bulan
+                        </span>
+                      </td>
+                      <td className="text-center text-primary text-xs px-3 py-2.5">
+                        <span className="badge bg-light text-primary border rounded-pill px-2 py-0.5 text-xxs font-monospace">
+                          Awal Periode
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="d-flex align-items-center gap-1.5">
+                          <i className="bi bi-wallet2 text-primary" />
+                          <span className="fw-bold text-primary text-xs">
+                            Saldo Awal (Sisa Kas Bulan Kemarin)
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-primary text-xxs fst-italic">
+                        Akumulasi sisa kas sebelum periode {formatMonthLabel(selectedMonth)}
+                      </td>
+                      <td className="px-3 py-2.5 text-end">
+                        <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-1 text-xs fw-bold font-monospace">
+                          +{formatRupiah(saldoAwalBulanLalu)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-end text-muted text-xxs">-</td>
+                      <td className="px-3 py-2.5 text-center text-muted text-xxs">-</td>
+                      <td className="px-3 py-2.5 text-center text-muted text-xxs">-</td>
+                    </tr>
+                  )}
+
                   {loading ? (
                     <tr>
                       <td colSpan={9} className="text-center py-5">
@@ -938,9 +1057,16 @@ export function DonasiView({
 
                           {/* Keterangan */}
                           <td className="px-3 py-3">
-                            <span className="badge bg-light text-secondary border rounded-pill px-2.5 py-1 text-xxs fw-medium">
-                              {item.keterangan || "donasi masuk"}
-                            </span>
+                            <div className="d-flex align-items-center flex-wrap gap-1">
+                              <span className="badge bg-light text-secondary border rounded-pill px-2.5 py-1 text-xxs fw-medium">
+                                {item.keterangan || "donasi masuk"}
+                              </span>
+                              {keluar > 0 && (
+                                <span className="badge bg-warning-subtle text-dark border border-warning-subtle rounded-pill px-1.5 py-0.5 text-xxs" title="Tagihan pemakaian server bulan sebelumnya yang dibayar di bulan ini">
+                                  <i className="bi bi-clock-history me-0.5" /> Tagihan server bln lalu
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           {/* Jumlah Transaksi Masuk */}
@@ -979,6 +1105,33 @@ export function DonasiView({
                     })
                   )}
                 </tbody>
+                {/* Table Footer Summary */}
+                <tfoot className="table-light border-top">
+                  <tr className="fw-bold text-xs">
+                    <td colSpan={5} className="text-end px-3 py-2.5 text-dark">
+                      Total Mutasi {selectedMonth === "all" ? "Seluruh Periode" : `Bulan ${formatMonthLabel(selectedMonth)}`}:
+                    </td>
+                    <td className="text-end px-3 py-2.5 text-success font-monospace">
+                      +{formatRupiah(totalNominalMasuk)}
+                    </td>
+                    <td className="text-end px-3 py-2.5 text-danger font-monospace">
+                      -{formatRupiah(totalNominalKeluar)}
+                    </td>
+                    <td colSpan={2}></td>
+                  </tr>
+                  <tr className="bg-success-subtle bg-opacity-25 fw-bold text-xs border-top">
+                    <td colSpan={5} className="text-end px-3 py-2.5 text-dark">
+                      <span className="d-inline-flex align-items-center gap-1.5">
+                        <i className="bi bi-wallet2 text-success fs-6" />
+                        Total Kas Tersedia (Saldo Akhir):
+                      </span>
+                    </td>
+                    <td colSpan={2} className={`text-end px-3 py-2.5 ${totalKasTersedia >= 0 ? "text-success" : "text-danger"} font-monospace fs-6`}>
+                      {formatRupiah(totalKasTersedia)}
+                    </td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </div>
