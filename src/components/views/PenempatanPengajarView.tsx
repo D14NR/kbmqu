@@ -4,6 +4,10 @@ type PenempatanPengajarViewProps = {
   loading: boolean;
   records: Record<string, string>[];
   query: string;
+  isAdmin?: boolean;
+  onAdd?: () => void;
+  onEdit?: (record: Record<string, string>) => void;
+  onDelete?: (record: Record<string, string>) => void;
 };
 
 const placementHeaders = [
@@ -55,6 +59,10 @@ export function PenempatanPengajarView({
   loading,
   records,
   query: externalQuery,
+  isAdmin = false,
+  onAdd,
+  onEdit,
+  onDelete,
 }: PenempatanPengajarViewProps) {
   const [searchTerm, setSearchTerm] = useState(externalQuery || "");
   const [selectedCabang, setSelectedCabang] = useState("");
@@ -186,8 +194,25 @@ export function PenempatanPengajarView({
 
         <div className="col-12 col-sm-12 col-lg-4">
           <div className="card border-0 shadow-sm rounded-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-primary-subtle h-100 d-flex justify-content-center flex-column">
-            <div className="fw-bold text-dark text-xs mb-0.5">Penempatan Guru KBM</div>
-            <div className="text-muted text-xxs">Sinkronisasi otomatis dengan jadwal belajar mengajar.</div>
+            <div className="d-flex align-items-center justify-content-between mb-0.5">
+              <div className="fw-bold text-dark text-xs">Otoritas Penempatan KBM</div>
+              {isAdmin ? (
+                <span className="badge bg-success text-white border-0 text-xxs rounded-pill px-2.5 py-1 fw-bold shadow-xs">
+                  <i className="bi bi-shield-check me-1" />
+                  Khusus Admin Pusat
+                </span>
+              ) : (
+                <span className="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-xxs rounded-pill px-2 py-0.5">
+                  <i className="bi bi-lock-fill me-1" />
+                  Mode Baca Cabang
+                </span>
+              )}
+            </div>
+            <div className="text-muted text-xxs">
+              {isAdmin
+                ? "Sebagai Admin Pusat, Anda memiliki wewenang penuh untuk Menambah, Mengedit, dan Menghapus jadwal penempatan guru."
+                : "Pengaturan jadwal penempatan guru dikelola terpusat oleh Admin Pusat (cabang hanya dapat melihat data)."}
+            </div>
           </div>
         </div>
       </div>
@@ -259,150 +284,217 @@ export function PenempatanPengajarView({
             </div>
           </div>
 
-          {/* Right Controls: Sort */}
-          <div className="d-flex flex-wrap align-items-center gap-2">
-            <div className="input-group input-group-sm" style={{ width: 160 }}>
-              <span className="input-group-text bg-light text-muted border-end-0">
-                <i className="bi bi-sort-alpha-down" />
-              </span>
-              <select
-                className="form-select form-select-sm border-start-0"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortOption)}
-              >
-                <option value="name-asc">Nama (A - Z)</option>
-                <option value="name-desc">Nama (Z - A)</option>
-                <option value="day-asc">Urutan Hari</option>
-              </select>
+            {/* Right Controls: Sort & Action */}
+            <div className="d-flex flex-wrap align-items-center gap-2">
+              <div className="input-group input-group-sm" style={{ width: 160 }}>
+                <span className="input-group-text bg-light text-muted border-end-0">
+                  <i className="bi bi-sort-alpha-down" />
+                </span>
+                <select
+                  className="form-select form-select-sm border-start-0"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortOption)}
+                >
+                  <option value="name-asc">Nama (A - Z)</option>
+                  <option value="name-desc">Nama (Z - A)</option>
+                  <option value="day-asc">Urutan Hari</option>
+                </select>
+              </div>
+
+              {isAdmin && onAdd ? (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm rounded-3 px-3 fw-semibold d-flex align-items-center gap-1.5 shadow-sm"
+                  onClick={onAdd}
+                  title="Tambah Penempatan Pengajar (Khusus Admin Pusat)"
+                >
+                  <i className="bi bi-plus-lg" />
+                  <span>Tambah Penempatan</span>
+                </button>
+              ) : !isAdmin ? (
+                <span
+                  className="badge bg-light text-muted border px-2.5 py-1.5 text-xxs rounded-pill d-inline-flex align-items-center gap-1"
+                  title="Data penempatan dikelola terpusat oleh Admin Pusat"
+                >
+                  <i className="bi bi-shield-lock text-secondary" />
+                  Mode Lihat
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
-      </div>
 
-      {/* 3. CONTENT AREA */}
-      {loading ? (
-        <div className="card border-0 shadow-sm rounded-4 bg-white p-5 text-center">
-          <div className="spinner-border text-primary mx-auto mb-3" role="status" />
-          <h6 className="fw-bold text-dark mb-1">Memuat Data Penempatan...</h6>
-          <p className="text-muted text-xs mb-0">Menghubungkan ke database jadwal</p>
-        </div>
-      ) : processedRecords.length === 0 ? (
-        <div className="card border-0 shadow-sm rounded-4 bg-white p-5 text-center">
-          <div
-            className="rounded-circle bg-light text-muted mx-auto d-flex align-items-center justify-content-center mb-3"
-            style={{ width: 64, height: 64 }}
-          >
-            <i className="bi bi-calendar-x fs-2" />
+        {/* 3. CONTENT AREA */}
+        {loading ? (
+          <div className="card border-0 shadow-sm rounded-4 bg-white p-5 text-center">
+            <div className="spinner-border text-primary mx-auto mb-3" role="status" />
+            <h6 className="fw-bold text-dark mb-1">Memuat Data Penempatan...</h6>
+            <p className="text-muted text-xs mb-0">Menghubungkan ke database jadwal</p>
           </div>
-          <h6 className="fw-bold text-dark mb-1">
-            {searchTerm || selectedCabang || selectedHari ? "Tidak Ada Hasil Pencarian" : "Belum Ada Data Penempatan"}
-          </h6>
-          <p className="text-muted text-xs mb-3" style={{ maxWidth: 400, margin: "0 auto" }}>
-            {searchTerm || selectedCabang || selectedHari
-              ? "Tidak ditemukan jadwal penempatan yang sesuai dengan filter atau kata kunci yang Anda masukkan."
-              : "Jadwal penempatan belum ditambahkan ke dalam database."}
-          </p>
-          {(searchTerm || selectedCabang || selectedHari) && (
-            <button
-              type="button"
-              className="btn btn-outline-secondary btn-sm rounded-3"
-              onClick={() => {
-                setSearchTerm("");
-                setSelectedCabang("");
-                setSelectedHari("");
-              }}
+        ) : processedRecords.length === 0 ? (
+          <div className="card border-0 shadow-sm rounded-4 bg-white p-5 text-center">
+            <div
+              className="rounded-circle bg-light text-muted mx-auto d-flex align-items-center justify-content-center mb-3"
+              style={{ width: 64, height: 64 }}
             >
-              Reset Semua Filter
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="card border-0 shadow-sm rounded-4 bg-white overflow-hidden">
-          <div className="table-responsive">
-            <table className="table table-hover align-middle mb-0">
-              <thead className="table-light border-bottom">
-                <tr className="text-muted text-xxs text-uppercase fw-bold">
-                  <th className="text-center py-3" style={{ width: 50 }}>#</th>
-                  <th className="py-3" style={{ minWidth: 240 }}>Profil Pengajar</th>
-                  <th className="py-3" style={{ width: 140 }}>Waktu</th>
-                  <th className="py-3" style={{ minWidth: 200 }}>Cabang Penempatan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {processedRecords.map((record, index) => {
-                  const nama = record["Nama Pengajar"] || record.nama_pengajar || "-";
-                  const kode = record["Kode Pengajar"] || record.kode_pengajar || "-";
-                  const domisili = record.Domisili || record.domisili || "-";
-                  const hari = record.Hari || record.hari || "-";
-                  const jamMulai = record["Jam Mulai"] || record.jam_mulai || "-";
-                  const jamSelesai = record["Jam Selesai"] || record.jam_selesai || "-";
-                  const rawCabang = record["Cabang Penempatan"] || record.cabang_penempatan || "-";
-                  const cabangList = rawCabang.split(",").map(c => c.trim()).filter(Boolean);
+              <i className="bi bi-calendar-x fs-2" />
+            </div>
+            <h6 className="fw-bold text-dark mb-1">
+              {searchTerm || selectedCabang || selectedHari ? "Tidak Ada Hasil Pencarian" : "Belum Ada Data Penempatan"}
+            </h6>
+            <p className="text-muted text-xs mb-3" style={{ maxWidth: 400, margin: "0 auto" }}>
+              {searchTerm || selectedCabang || selectedHari
+                ? "Tidak ditemukan jadwal penempatan yang sesuai dengan filter atau kata kunci yang Anda masukkan."
+                : "Jadwal penempatan belum ditambahkan ke dalam database."}
+            </p>
+            <div className="d-flex justify-content-center gap-2">
+              {(searchTerm || selectedCabang || selectedHari) && (
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm rounded-3"
+                  onClick={() => {
+                    setSearchTerm("");
+                    setSelectedCabang("");
+                    setSelectedHari("");
+                  }}
+                >
+                  Reset Semua Filter
+                </button>
+              )}
+              {isAdmin && onAdd && !searchTerm && !selectedCabang && !selectedHari && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm rounded-3 px-3 fw-semibold d-flex align-items-center gap-1.5 shadow-sm"
+                  onClick={onAdd}
+                >
+                  <i className="bi bi-plus-lg" />
+                  <span>Tambah Penempatan Pengajar</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="card border-0 shadow-sm rounded-4 bg-white overflow-hidden">
+            <div className="table-responsive">
+              <table className="table table-hover align-middle mb-0">
+                <thead className="table-light border-bottom">
+                  <tr className="text-muted text-xxs text-uppercase fw-bold">
+                    <th className="text-center py-3" style={{ width: 50 }}>#</th>
+                    <th className="py-3" style={{ minWidth: 240 }}>Profil Pengajar</th>
+                    <th className="py-3" style={{ width: 140 }}>Waktu</th>
+                    <th className="py-3" style={{ minWidth: 200 }}>Cabang Penempatan</th>
+                    <th className="text-center py-3" style={{ width: 150 }}>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {processedRecords.map((record, index) => {
+                    const nama = record["Nama Pengajar"] || record.nama_pengajar || "-";
+                    const kode = record["Kode Pengajar"] || record.kode_pengajar || "-";
+                    const domisili = record.Domisili || record.domisili || "-";
+                    const hari = record.Hari || record.hari || "-";
+                    const jamMulai = record["Jam Mulai"] || record.jam_mulai || "-";
+                    const jamSelesai = record["Jam Selesai"] || record.jam_selesai || "-";
+                    const rawCabang = record["Cabang Penempatan"] || record.cabang_penempatan || "-";
+                    const cabangList = rawCabang.split(",").map(c => c.trim()).filter(Boolean);
 
-                  return (
-                    <tr key={`penempatan-${index}`} className="transition-all">
-                      <td className="text-center text-muted text-xs fw-semibold">{index + 1}</td>
-                      <td>
-                        <div className="d-flex align-items-center gap-2.5">
-                          <div
-                            className="rounded-3 text-white d-flex align-items-center justify-content-center flex-shrink-0 fw-bold text-xs shadow-xs"
-                            style={{
-                              width: 36,
-                              height: 36,
-                              background: getAvatarBgColor(nama),
-                            }}
-                          >
-                            {getInitials(nama)}
+                    return (
+                      <tr key={`penempatan-${index}`} className="transition-all">
+                        <td className="text-center text-muted text-xs fw-semibold">{index + 1}</td>
+                        <td>
+                          <div className="d-flex align-items-center gap-2.5">
+                            <div
+                              className="rounded-3 text-white d-flex align-items-center justify-content-center flex-shrink-0 fw-bold text-xs shadow-xs"
+                              style={{
+                                width: 36,
+                                height: 36,
+                                background: getAvatarBgColor(nama),
+                              }}
+                            >
+                              {getInitials(nama)}
+                            </div>
+                            <div>
+                              <div className="d-flex align-items-center gap-1.5 mb-0.5">
+                                <span className="fw-bold text-dark text-sm">{nama}</span>
+                                {kode && kode !== "-" && (
+                                  <span className="badge bg-secondary-subtle text-secondary-emphasis font-monospace px-1.5 py-0.5 text-xxs rounded">
+                                    {kode}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-muted text-xxs d-flex align-items-center gap-1">
+                                <i className="bi bi-house-door text-muted" />
+                                <span>Asal Cabang: <strong>{domisili}</strong></span>
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="d-flex align-items-center gap-1.5 mb-0.5">
-                              <span className="fw-bold text-dark text-sm">{nama}</span>
-                              {kode && kode !== "-" && (
-                                <span className="badge bg-secondary-subtle text-secondary-emphasis font-monospace px-1.5 py-0.5 text-xxs rounded">
-                                  {kode}
+                        </td>
+                        <td>
+                          <div className="d-flex flex-column gap-1">
+                            <span className="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 text-xs rounded-2 d-inline-flex align-items-center gap-1 w-fit-content">
+                              <i className="bi bi-calendar-day" />
+                              {hari}
+                            </span>
+                            <span className="text-xs fw-semibold text-muted d-flex align-items-center gap-1">
+                              <i className="bi bi-clock" />
+                              {jamMulai} - {jamSelesai}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="d-flex flex-wrap gap-1" style={{ maxWidth: 300 }}>
+                            {cabangList.length === 0 || rawCabang === "-" ? (
+                              <span className="text-muted text-xxs italic">- Belum ditentukan -</span>
+                            ) : (
+                              cabangList.map((cab, cIdx) => (
+                                <span
+                                  key={`cab-${cIdx}`}
+                                  className="badge bg-light text-dark border px-2 py-1 text-xxs rounded-pill d-inline-flex align-items-center gap-1 shadow-sm"
+                                >
+                                  <i className="bi bi-geo-alt text-danger" />
+                                  {cab}
                                 </span>
-                              )}
-                            </div>
-                            <div className="text-muted text-xxs d-flex align-items-center gap-1">
-                              <i className="bi bi-house-door text-muted" />
-                              <span>Asal Cabang: <strong>{domisili}</strong></span>
-                            </div>
+                              ))
+                            )}
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="d-flex flex-column gap-1">
-                          <span className="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 text-xs rounded-2 d-inline-flex align-items-center gap-1 w-fit-content">
-                            <i className="bi bi-calendar-day" />
-                            {hari}
-                          </span>
-                          <span className="text-xs fw-semibold text-muted d-flex align-items-center gap-1">
-                            <i className="bi bi-clock" />
-                            {jamMulai} - {jamSelesai}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="d-flex flex-wrap gap-1" style={{ maxWidth: 300 }}>
-                          {cabangList.length === 0 || rawCabang === "-" ? (
-                            <span className="text-muted text-xxs italic">- Belum ditentukan -</span>
-                          ) : (
-                            cabangList.map((cab, cIdx) => (
-                              <span
-                                key={`cab-${cIdx}`}
-                                className="badge bg-light text-dark border px-2 py-1 text-xxs rounded-pill d-inline-flex align-items-center gap-1 shadow-sm"
+                        </td>
+
+                        {/* Aksi */}
+                        <td className="text-center">
+                          {isAdmin ? (
+                            <div className="d-flex justify-content-center align-items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => onEdit?.(record)}
+                                className="btn btn-outline-primary btn-xs px-2 py-1 rounded-2 d-inline-flex align-items-center gap-1 shadow-xs fw-medium"
+                                title="Edit Penempatan Pengajar (Khusus Admin Pusat)"
                               >
-                                <i className="bi bi-geo-alt text-danger" />
-                                {cab}
-                              </span>
-                            ))
+                                <i className="bi bi-pencil" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDelete?.(record)}
+                                className="btn btn-outline-danger btn-xs px-2 py-1 rounded-2 d-inline-flex align-items-center gap-1 shadow-xs fw-medium"
+                                title="Hapus Penempatan Pengajar (Khusus Admin Pusat)"
+                              >
+                                <i className="bi bi-trash" />
+                                <span>Hapus</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <span
+                              className="badge bg-light text-muted border text-xxs font-monospace px-2 py-1"
+                              title="Hanya Admin Pusat yang berwenang mengedit atau menghapus penempatan pengajar"
+                            >
+                              <i className="bi bi-lock me-1 text-secondary" />
+                              Khusus Admin Pusat
+                            </span>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
             </table>
           </div>
           <div className="p-3 bg-light border-top d-flex justify-content-between align-items-center text-xs text-muted">

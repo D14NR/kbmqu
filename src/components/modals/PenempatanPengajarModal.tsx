@@ -84,7 +84,11 @@ export function PenempatanPengajarModal({
         <div className="d-flex justify-content-between align-items-start gap-3">
           <div>
             <h5 className="mb-1">{isEditing ? "Edit" : "Tambah"} Penempatan Pengajar</h5>
-            <div className="text-muted small">Atur hari, jam, dan cabang yang bersedia Anda ajar.</div>
+            <div className="text-muted small">
+              {isEditing
+                ? "Perbarui jadwal penempatan hari, jam, dan cabang pengajar (Khusus Admin Pusat)."
+                : "Atur jadwal penempatan hari, jam, dan cabang pengajar baru (Khusus Admin Pusat)."}
+            </div>
           </div>
           <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose}>
             Tutup
@@ -97,12 +101,19 @@ export function PenempatanPengajarModal({
             <Select
               value={
                 draft.kodePengajar
-                  ? pengajarOptions.find((option) => option.value === draft.kodePengajar) || null
+                  ? pengajarOptions.find(
+                      (option) =>
+                        option.value.trim().toLowerCase() === draft.kodePengajar.trim().toLowerCase() ||
+                        option.label.toLowerCase().includes(draft.kodePengajar.trim().toLowerCase())
+                    ) || {
+                      value: draft.kodePengajar,
+                      label: draft.namaPengajar ? `${draft.kodePengajar} - ${draft.namaPengajar}` : draft.kodePengajar,
+                    }
                   : null
               }
               options={pengajarOptions}
               isSearchable
-              placeholder="Pilih pengajar"
+              placeholder="Pilih pengajar..."
               onChange={(option) => {
                 const selected = option?.value || "";
                 onDraftChange({
@@ -122,7 +133,9 @@ export function PenempatanPengajarModal({
               type="text"
               className="form-control form-control-sm"
               value={draft.domisili}
-              readOnly={true}
+              readOnly={isDomisiliLocked}
+              placeholder="Cabang asal/domisili..."
+              onChange={(e) => onDraftChange({ ...draft, domisili: e.target.value })}
             />
           </div>
           <div className="col-12">
@@ -147,8 +160,8 @@ export function PenempatanPengajarModal({
                           type="checkbox"
                           checked={item.enabled}
                           onChange={(event) => {
-                            const nextAvailability = draft.availabilityList.map((entry) =>
-                              entry.hari === item.hari
+                            const nextAvailability = draft.availabilityList.map((entry, i) =>
+                              i === idx
                                 ? { ...entry, enabled: event.target.checked }
                                 : entry
                             );
@@ -180,8 +193,8 @@ export function PenempatanPengajarModal({
                           value={item.jamMulai}
                           disabled={!item.enabled}
                           onChange={(event) => {
-                            const nextAvailability = draft.availabilityList.map((entry) =>
-                              entry.hari === item.hari
+                            const nextAvailability = draft.availabilityList.map((entry, i) =>
+                              i === idx
                                 ? { ...entry, jamMulai: event.target.value }
                                 : entry
                             );
@@ -197,8 +210,8 @@ export function PenempatanPengajarModal({
                           value={item.jamSelesai}
                           disabled={!item.enabled}
                           onChange={(event) => {
-                            const nextAvailability = draft.availabilityList.map((entry) =>
-                              entry.hari === item.hari
+                            const nextAvailability = draft.availabilityList.map((entry, i) =>
+                              i === idx
                                 ? { ...entry, jamSelesai: event.target.value }
                                 : entry
                             );
@@ -210,20 +223,18 @@ export function PenempatanPengajarModal({
                         <div className="d-flex align-items-center gap-2">
                           <div className="flex-grow-1">
                             <Select
-                              value={
-                                item.cabangList.length > 0
-                                  ? { label: item.cabangList[0], value: item.cabangList[0] }
-                                  : null
-                              }
+                              isMulti
+                              value={item.cabangList.map((c) => ({ label: c, value: c }))}
                               options={cabangOptions.map((c) => ({ label: c, value: c }))}
                               isClearable
                               isSearchable
                               isDisabled={!item.enabled}
-                              placeholder="Pilih cabang"
-                              onChange={(selectedOption) => {
-                                const nextCabangList = selectedOption ? [String(selectedOption.value)] : [];
-                                const nextAvailability = draft.availabilityList.map((entry) =>
-                                  entry.hari === item.hari
+                              placeholder="Pilih cabang..."
+                              onChange={(selectedOptions) => {
+                                const opts = (selectedOptions as Array<{ value: string; label: string }>) || [];
+                                const nextCabangList = opts.map((opt) => String(opt.value).trim()).filter(Boolean);
+                                const nextAvailability = draft.availabilityList.map((entry, i) =>
+                                  i === idx
                                     ? { ...entry, cabangList: nextCabangList }
                                     : entry
                                 );

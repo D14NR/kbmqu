@@ -348,7 +348,7 @@ export function App() {
     domisili: "",
     availabilityList: [],
   });
-  const [penempatanOldRecord] = useState<Record<string, string> | null>(null);
+  const [penempatanOldRecord, setPenempatanOldRecord] = useState<Record<string, string> | null>(null);
   const [penempatanError, setPenempatanError] = useState("");
   const [isIzinModalOpen, setIsIzinModalOpen] = useState(false);
   const [izinDraft, setIzinDraft] = useState<IzinPengajarDraft>({
@@ -687,6 +687,9 @@ export function App() {
   const activeScheduleKey: ScheduleMenuKey = isScheduleMenuKey(activeKey)
     ? activeKey
     : "bulanIni";
+  const userRoll = normalizeText((authSession as any)?.role || authSession?.roll || "");
+  const userName = normalizeText(authSession?.username || "");
+  const userCabang = normalizeText(authSession?.cabang || "");
   const isAdmin =
     [
       "admin",
@@ -695,9 +698,19 @@ export function App() {
       "admin_pusat",
       "superadmin",
       "super admin",
-    ].includes(normalizeText(authSession?.roll || "")) ||
-    normalizeText(authSession?.cabang || "") === "pusat" ||
-    normalizeText(authSession?.cabang || "") === "kantor pusat";
+    ].includes(userRoll) ||
+    [
+      "admin",
+      "pusat",
+      "admin pusat",
+      "admin_pusat",
+      "superadmin",
+      "super admin",
+    ].includes(userName) ||
+    userName.includes("admin") ||
+    userCabang === "pusat" ||
+    userCabang === "kantor pusat" ||
+    userCabang === "admin pusat";
   const restrictedCabang = !isAdmin ? authSession?.cabang || "" : "";
   const selectedScheduleCabang = scheduleCabangView[activeScheduleKey] || restrictedCabang || "";
   const isScheduleReadOnly =
@@ -4041,6 +4054,7 @@ export function App() {
     const domisili = getPenempatanDomisili(record);
     
     return {
+      id: record.id || "",
       "Kode Pengajar": record["Kode Pengajar"] || "",
       "Nama Pengajar": record["Nama Pengajar"] || record["Nama"] || "",
       Domisili: domisili,
@@ -4066,13 +4080,14 @@ export function App() {
       const normalized = rows.map((row) => {
         const record = toRecord(row);
         return normalizePenempatanRecord({
-          "Kode Pengajar": record["Kode Pengajar"] || "",
-          "Nama Pengajar": record["Nama Pengajar"] || record["Nama"] || "",
-          Domisili: record.Domisili || "",
-          Hari: record.Hari || record.hari_tersedia || "",
+          id: row.id,
+          "Kode Pengajar": record["Kode Pengajar"] || record.kode_pengajar || "",
+          "Nama Pengajar": record["Nama Pengajar"] || record["Nama"] || record.nama_pengajar || "",
+          Domisili: record.Domisili || record.domisili || "",
+          Hari: record.Hari || record.hari_tersedia || record.hari || "",
           "Jam Mulai": record["Jam Mulai"] || record.jam_mulai || "",
           "Jam Selesai": record["Jam Selesai"] || record.jam_selesai || "",
-          "Cabang Penempatan": record["Cabang Penempatan"] || record.bersedia_mengajar_dicabang || "",
+          "Cabang Penempatan": record["Cabang Penempatan"] || record.bersedia_mengajar_dicabang || record.cabang_penempatan || "",
         });
       });
 
@@ -4083,6 +4098,7 @@ export function App() {
             const next = normalized[i];
             return (
               next &&
+              curr.id === next.id &&
               curr["Kode Pengajar"] === next["Kode Pengajar"] &&
               curr["Nama Pengajar"] === next["Nama Pengajar"] &&
               curr.Domisili === next.Domisili &&
@@ -4139,100 +4155,263 @@ export function App() {
     setPenempatanDraft(resolvedDraft);
   };
 
-    const handleSavePenempatanDay = async (item: { hari: string; jamMulai: string; jamSelesai: string; cabangList: string[] }) => {
-      const canManagePenempatan = isAdmin || (restrictedCabang && normalizeText(penempatanDraft.domisili || "") === normalizeText(restrictedCabang));
-      
-      if (!canManagePenempatan) {
-        pushToast("Anda hanya dapat menyimpan data penempatan pengajar dari cabang domisili Anda.", "error");
-        return;
+  const handleOpenPenempatanModal = (record?: Record<string, string>) => {
+    if (!isAdmin) {
+      pushToast("Hanya Admin Pusat yang memiliki wewenang untuk menambah atau mengedit penempatan pengajar.", "error");
+      return;
+    }
+    setPenempatanError("");
+    if (record) {
+      setPenempatanOldRecord(record);
+      const kode = (record["Kode Pengajar"] || record.kode_pengajar || "").trim();
+      const nama = (record["Nama Pengajar"] || record.nama_pengajar || record["Nama"] || record.Nama || "").trim();
+      const domisili = (record.Domisili || record.domisili || "").trim();
+
+      // Cari semua jadwal penempatan milik pengajar ini untuk diisi ke modal
+      const matchingTeacherRecords = penempatanRecords.filter(
+        (r) => normalizeValueKey(r["Kode Pengajar"] || r.kode_pengajar || "") === normalizeValueKey(kode)
+      );
+
+      let availabilityList: PenempatanDraft["availabilityList"] = [];
+      if (matchingTeacherRecords.length > 0) {
+        // Group by hari
+        const byHari: Record<string, { jamMulai: string; jamSelesai: string; cabangList: Set<string> }> = {};
+        matchingTeacherRecords.forEach((tr) => {
+          const rawHari = tr.Hari || tr.hari || tr.hari_tersedia || "";
+          const hariParts = rawHari.includes(",") ? rawHari.split(",").map((h) => h.trim()) : [rawHari.trim()];
+          const jMulai = tr["Jam Mulai"] || tr.jam_mulai || "08:00";
+          const jSelesai = tr["Jam Selesai"] || tr.jam_selesai || "20:00";
+          const rawCabang = tr["Cabang Penempatan"] || tr.cabang_penempatan || tr.bersedia_mengajar_dicabang || "";
+          const cabangs = rawCabang.split(",").map((c) => c.trim()).filter(Boolean);
+
+          hariParts.forEach((h) => {
+            if (!h) return;
+            const hTitle = titleCase(h);
+            if (!byHari[hTitle]) {
+              byHari[hTitle] = {
+                jamMulai: jMulai.slice(0, 5),
+                jamSelesai: jSelesai.slice(0, 5),
+                cabangList: new Set(),
+              };
+            }
+            cabangs.forEach((c) => byHari[hTitle].cabangList.add(c));
+          });
+        });
+
+        availabilityList = Object.entries(byHari).map(([hari, data]) => ({
+          hari,
+          enabled: true,
+          jamMulai: data.jamMulai,
+          jamSelesai: data.jamSelesai,
+          cabangList: Array.from(data.cabangList),
+        }));
       }
 
-      const draftValue = {
-        ...penempatanDraft,
-        kodePengajar: penempatanDraft.kodePengajar.trim(),
-        namaPengajar: penempatanDraft.namaPengajar.trim(),
-        domisili: penempatanDraft.domisili.trim(),
+      if (availabilityList.length === 0) {
+        const rawHari = record.Hari || record.hari || record.hari_tersedia || "Senin";
+        const rawMulai = (record["Jam Mulai"] || record.jam_mulai || "08:00").slice(0, 5);
+        const rawSelesai = (record["Jam Selesai"] || record.jam_selesai || "20:00").slice(0, 5);
+        const rawCabang = record["Cabang Penempatan"] || record.cabang_penempatan || record.bersedia_mengajar_dicabang || "";
+        const cabangs = rawCabang.split(",").map((c) => c.trim()).filter(Boolean);
+
+        availabilityList = [
+          {
+            hari: titleCase(rawHari),
+            enabled: true,
+            jamMulai: rawMulai,
+            jamSelesai: rawSelesai,
+            cabangList: cabangs,
+          },
+        ];
+      }
+
+      setPenempatanDraft({
+        kodePengajar: kode,
+        namaPengajar: nama,
+        domisili: domisili,
+        availabilityList,
+      });
+    } else {
+      setPenempatanOldRecord(null);
+      setPenempatanDraft({
+        kodePengajar: "",
+        namaPengajar: "",
+        domisili: "",
         availabilityList: [
           {
-            hari: titleCase(item.hari),
+            hari: "Senin",
             enabled: true,
-            jamMulai: item.jamMulai.trim(),
-            jamSelesai: item.jamSelesai.trim(),
-            cabangList: (item.cabangList || []).map((c) => String(c || "").trim()).filter(Boolean),
+            jamMulai: "08:00",
+            jamSelesai: "20:00",
+            cabangList: [],
           },
         ],
-      } as PenempatanDraft;
+      });
+    }
+    setIsPenempatanModalOpen(true);
+  };
 
-      if (!draftValue.kodePengajar || !draftValue.namaPengajar) {
-        setPenempatanError("Pengajar wajib dipilih.");
-        return;
-      }
-      if (!draftValue.domisili) {
-        setPenempatanError("Domisili wajib diisi.");
-        return;
-      }
+  const handleDeletePenempatan = (record: Record<string, string>) => {
+    if (!isAdmin) {
+      pushToast("Hanya Admin Pusat yang memiliki wewenang untuk menghapus penempatan pengajar.", "error");
+      return;
+    }
+    const nama = record["Nama Pengajar"] || record.nama_pengajar || record["Nama"] || record.Nama || "pengajar ini";
+    const hari = record.Hari || record.hari || record.hari_tersedia || "";
+    const jam = record["Jam Mulai"] && record["Jam Selesai"] ? `${record["Jam Mulai"]} - ${record["Jam Selesai"]}` : "";
+    const cabang = record["Cabang Penempatan"] || record.cabang_penempatan || record.bersedia_mengajar_dicabang || "";
 
-      const av = draftValue.availabilityList[0];
-      if (!av.jamMulai || !av.jamSelesai || parseTimeValue(av.jamMulai) === null || parseTimeValue(av.jamSelesai) === null) {
-        setPenempatanError(`Jam mulai dan selesai wajib diisi untuk hari ${av.hari}.`);
-        return;
-      }
-      if (av.jamMulai >= av.jamSelesai) {
-        setPenempatanError(`Jam mulai harus lebih awal dari jam selesai untuk hari ${av.hari}.`);
-        return;
-      }
-      if (av.cabangList.length === 0) {
-        setPenempatanError(`Pilih minimal satu cabang penempatan untuk hari ${av.hari}.`);
-        return;
-      }
+    openConfirmDialog(
+      `Hapus jadwal penempatan untuk ${nama}${hari ? ` pada hari ${hari}` : ""}${jam ? ` (${jam})` : ""}${cabang ? ` di cabang ${cabang}` : ""}?`,
+      async () => {
+        setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const bucket = dataBucket["Penempatan Pengajar"];
+          const rows = await listRows(bucket);
 
-      const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
-      const matchingPengajar = pengajarRows.find(
-        (row) => normalizeValueKey(row.data["Kode Pengajar"]) === normalizeValueKey(draftValue.kodePengajar)
-      );
-      const resolvedPengajarId = matchingPengajar ? decodeId(matchingPengajar.id).id : "";
+          // Cari baris yang cocok berdasarkan id spesifik, atau kombinasi kode pengajar + hari + cabang
+          let targetIds: string[] = [];
+          if (record.id) {
+            const cleanRecId = decodeId(record.id).id;
+            const matched = rows.find(
+              (r) => decodeId(r.id).id === cleanRecId || r.id === record.id
+            );
+            if (matched) {
+              targetIds.push(matched.id);
+            }
+          }
 
-      if (!resolvedPengajarId) {
-        setPenempatanError("Tidak dapat menemukan ID pengajar yang sesuai untuk data penempatan ini.");
-        return;
+          if (targetIds.length === 0) {
+            const targetKode = normalizeValueKey(record["Kode Pengajar"] || record.kode_pengajar || "");
+            const targetHari = normalizeText(record.Hari || record.hari || record.hari_tersedia || "");
+            const targetCabang = normalizeText(record["Cabang Penempatan"] || record.cabang_penempatan || record.bersedia_mengajar_dicabang || "");
+
+            targetIds = rows
+              .filter((row) => {
+                const d = row.data;
+                const dKode = normalizeValueKey(d["Kode Pengajar"] || d.kode_pengajar || "");
+                const dHari = normalizeText(d.Hari || d.hari || d.hari_tersedia || "");
+                const dCabang = normalizeText(d["Cabang Penempatan"] || d.cabang_penempatan || d.bersedia_mengajar_dicabang || "");
+                return (
+                  dKode === targetKode &&
+                  (targetHari ? dHari.includes(targetHari) || targetHari.includes(dHari) : true) &&
+                  (!targetCabang || dCabang.includes(targetCabang))
+                );
+              })
+              .map((row) => row.id);
+          }
+
+          if (targetIds.length > 0) {
+            await deleteRowsByIds(targetIds);
+            await handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+            pushToast("Data penempatan pengajar berhasil dihapus.", "success");
+          } else {
+            pushToast("Data penempatan tidak ditemukan atau sudah dihapus.", "warning");
+            await handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+          }
+        } catch (error) {
+          setPenempatanStatus((prev) => ({
+            ...prev,
+            error: "Gagal menghapus penempatan pengajar.",
+          }));
+          pushToast("Gagal menghapus penempatan pengajar.", "error");
+        } finally {
+          setPenempatanStatus((prev) => ({ ...prev, loading: false }));
+        }
       }
+    );
+  };
 
-      const payload = {
-        ...buildPenempatanPayload(draftValue, resolvedPengajarId),
-        Hari: av.hari,
-        "Jam Mulai": av.jamMulai,
-        "Jam Selesai": av.jamSelesai,
-        "Cabang Penempatan": av.cabangList.join(", "),
-        __availability_json: JSON.stringify([av]),
-      };
+  const handleSavePenempatanDay = async (item: { hari: string; jamMulai: string; jamSelesai: string; cabangList: string[] }) => {
+    if (!isAdmin) {
+      pushToast("Hanya Admin Pusat yang dapat menyimpan data penempatan pengajar.", "error");
+      return;
+    }
 
-      setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
-      try {
-        const bucket = dataBucket["Penempatan Pengajar"];
-        const rows = await listRows(bucket);
-        const targetKode = normalizeValueKey(draftValue.kodePengajar);
-        const targetIds = rows
-          .filter((row) => normalizeValueKey(row.data["Kode Pengajar"]) === targetKode)
-          .map((row) => row.id);
-        await deleteRowsByIds(targetIds);
-        await insertRow(bucket, payload);
-        await handleLoadPenempatanPengajar({ silent: true });
-        pushToast(`Penempatan hari ${av.hari} berhasil disimpan.`, "success");
-      } catch (error) {
-        setPenempatanStatus((prev) => ({
-          ...prev,
-          loading: false,
-          error: "Gagal menyimpan penempatan pengajar.",
-        }));
-        pushToast("Gagal menyimpan penempatan pengajar.", "error");
-      }
+    const draftValue = {
+      ...penempatanDraft,
+      kodePengajar: penempatanDraft.kodePengajar.trim(),
+      namaPengajar: penempatanDraft.namaPengajar.trim(),
+      domisili: penempatanDraft.domisili.trim(),
+      availabilityList: [
+        {
+          hari: titleCase(item.hari),
+          enabled: true,
+          jamMulai: item.jamMulai.trim(),
+          jamSelesai: item.jamSelesai.trim(),
+          cabangList: (item.cabangList || []).map((c) => String(c || "").trim()).filter(Boolean),
+        },
+      ],
+    } as PenempatanDraft;
+
+    if (!draftValue.kodePengajar || !draftValue.namaPengajar) {
+      setPenempatanError("Pengajar wajib dipilih.");
+      return;
+    }
+    if (!draftValue.domisili) {
+      setPenempatanError("Domisili wajib diisi.");
+      return;
+    }
+
+    const av = draftValue.availabilityList[0];
+    if (!av.jamMulai || !av.jamSelesai || parseTimeValue(av.jamMulai) === null || parseTimeValue(av.jamSelesai) === null) {
+      setPenempatanError(`Jam mulai dan selesai wajib diisi untuk hari ${av.hari}.`);
+      return;
+    }
+    if (av.jamMulai >= av.jamSelesai) {
+      setPenempatanError(`Jam mulai harus lebih awal dari jam selesai untuk hari ${av.hari}.`);
+      return;
+    }
+    if (av.cabangList.length === 0) {
+      setPenempatanError(`Pilih minimal satu cabang penempatan untuk hari ${av.hari}.`);
+      return;
+    }
+
+    const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
+    const matchingPengajar = pengajarRows.find(
+      (row) => normalizeValueKey(row.data["Kode Pengajar"]) === normalizeValueKey(draftValue.kodePengajar)
+    );
+    const resolvedPengajarId = matchingPengajar ? decodeId(matchingPengajar.id).id : "";
+
+    if (!resolvedPengajarId) {
+      setPenempatanError("Tidak dapat menemukan ID pengajar yang sesuai untuk data penempatan ini.");
+      return;
+    }
+
+    const payload = {
+      ...buildPenempatanPayload(draftValue, resolvedPengajarId),
+      Hari: av.hari,
+      "Jam Mulai": av.jamMulai,
+      "Jam Selesai": av.jamSelesai,
+      "Cabang Penempatan": av.cabangList.join(", "),
+      __availability_json: JSON.stringify([av]),
     };
 
+    setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const bucket = dataBucket["Penempatan Pengajar"];
+      const rows = await listRows(bucket);
+      const targetKode = normalizeValueKey(draftValue.kodePengajar);
+      const targetIds = rows
+        .filter((row) => normalizeValueKey(row.data["Kode Pengajar"]) === targetKode)
+        .map((row) => row.id);
+      await deleteRowsByIds(targetIds);
+      await insertRow(bucket, payload);
+      await handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+      pushToast(`Penempatan hari ${av.hari} berhasil disimpan.`, "success");
+    } catch (error) {
+      setPenempatanStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Gagal menyimpan penempatan pengajar.",
+      }));
+      pushToast("Gagal menyimpan penempatan pengajar.", "error");
+    }
+  };
+
   const handleSavePenempatanPengajar = async () => {
-    const canManagePenempatan = isAdmin || (restrictedCabang && normalizeText(penempatanDraft.domisili || "") === normalizeText(restrictedCabang));
-    
-    if (!canManagePenempatan) {
-      setPenempatanError("Anda hanya dapat menyimpan data penempatan pengajar dari cabang domisili Anda.");
+    if (!isAdmin) {
+      setPenempatanError("Hanya Admin Pusat yang memiliki wewenang untuk menyimpan atau mengubah penempatan pengajar.");
       return;
     }
 
@@ -4250,7 +4429,7 @@ export function App() {
           jamSelesai: item.jamSelesai.trim(),
           cabangList: Array.from(
             new Set(
-              (restrictedCabang ? [restrictedCabang] : item.cabangList)
+              item.cabangList
                 .map((cabang) => cabang.trim())
                 .filter(Boolean)
             )
@@ -4298,13 +4477,17 @@ export function App() {
 
     const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
     const matchingPengajar = pengajarRows.find(
-      (row) => normalizeValueKey(row.data["Kode Pengajar"]) === normalizeValueKey(draftValue.kodePengajar)
+      (row) =>
+        normalizeValueKey(row.data["Kode Pengajar"] || row.data.kode_pengajar || "") ===
+        normalizeValueKey(draftValue.kodePengajar)
     );
-    const resolvedPengajarId = matchingPengajar ? decodeId(matchingPengajar.id).id : "";
+    let resolvedPengajarId = matchingPengajar ? decodeId(matchingPengajar.id).id : "";
 
     if (!resolvedPengajarId) {
-      setPenempatanError("Tidak dapat menemukan ID pengajar yang sesuai untuk data penempatan ini.");
-      return;
+      resolvedPengajarId =
+        penempatanOldRecord?.["__id_pengajar"] ||
+        penempatanOldRecord?.["id_pengajar"] ||
+        crypto.randomUUID();
     }
 
     setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
@@ -4312,34 +4495,42 @@ export function App() {
       const bucket = dataBucket["Penempatan Pengajar"];
       const rows = await listRows(bucket);
       const targetKode = normalizeValueKey(draftValue.kodePengajar);
+      const oldKode = penempatanOldRecord ? normalizeValueKey(penempatanOldRecord["Kode Pengajar"] || penempatanOldRecord.kode_pengajar || "") : "";
+
+      // Hapus data lama pengajar ini (atau kode lama jika diganti)
       const targetIds = rows
-        .filter((row) => normalizeValueKey(row.data["Kode Pengajar"]) === targetKode)
+        .filter((row) => {
+          const rowKode = normalizeValueKey(row.data["Kode Pengajar"] || row.data.kode_pengajar || "");
+          const isSameId = penempatanOldRecord?.id
+            ? decodeId(row.id).id === decodeId(penempatanOldRecord.id).id || row.id === penempatanOldRecord.id
+            : false;
+          return isSameId || (targetKode && rowKode === targetKode) || (oldKode && rowKode === oldKode);
+        })
         .map((row) => row.id);
-      await deleteRowsByIds(targetIds);
+      if (targetIds.length > 0) {
+        await deleteRowsByIds(targetIds);
+      }
       
-      // Create separate rows for each enabled availability entry (each day)
+      // Simpan setiap hari ketersediaan penempatan
       const enabledAvailabilities = draftValue.availabilityList.filter((item) => item.enabled);
       for (const availability of enabledAvailabilities) {
-        // For each cabang in this day's cabangList, create a separate row
-        const cabangsForDay = availability.cabangList.length > 0 ? availability.cabangList : [""];
-        for (const cabang of cabangsForDay) {
-          const rowPayload = {
-            "Kode Pengajar": draftValue.kodePengajar,
-            "Nama Pengajar": draftValue.namaPengajar,
-            Domisili: draftValue.domisili,
-            Hari: availability.hari,
-            "Jam Mulai": availability.jamMulai,
-            "Jam Selesai": availability.jamSelesai,
-            "Cabang Penempatan": cabang,
-            "__id_pengajar": resolvedPengajarId,
-          };
-          await insertRow(bucket, rowPayload);
-        }
+        const rowPayload = {
+          "Kode Pengajar": draftValue.kodePengajar,
+          "Nama Pengajar": draftValue.namaPengajar,
+          Domisili: draftValue.domisili,
+          Hari: availability.hari,
+          "Jam Mulai": availability.jamMulai,
+          "Jam Selesai": availability.jamSelesai,
+          "Cabang Penempatan": availability.cabangList.join(", "),
+          "__id_pengajar": resolvedPengajarId,
+        };
+        await insertRow(bucket, rowPayload);
       }
       
       setIsPenempatanModalOpen(false);
       setPenempatanError("");
-      void handleLoadPenempatanPengajar({ silent: true });
+      setPenempatanOldRecord(null);
+      void handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
       pushToast("Penempatan pengajar berhasil disimpan.", "success");
     } catch (error) {
       setPenempatanStatus((prev) => ({
@@ -8906,6 +9097,10 @@ export function App() {
                         loading={penempatanStatus.loading}
                         records={filteredPenempatanRecords}
                         query={query}
+                        isAdmin={isAdmin}
+                        onAdd={() => handleOpenPenempatanModal()}
+                        onEdit={handleOpenPenempatanModal}
+                        onDelete={handleDeletePenempatan}
                       />
                     ) : activeKey === "liburNasional" ? (
                         isAdmin ? (
@@ -9131,6 +9326,7 @@ export function App() {
         onClose={() => {
           setIsPenempatanModalOpen(false);
           setPenempatanError("");
+          setPenempatanOldRecord(null);
         }}
         onDraftChange={handlePenempatanDraftChange}
         onSave={handleSavePenempatanPengajar}

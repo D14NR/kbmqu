@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { formatLocalDate, parseFlexibleDate, parseRangeFromString } from "../../utils/schedule";
 import { getTagStyle } from "../../utils/tagColor";
+import type { DonasiTransaksiRecord } from "../../types/donasi";
 
 type DashboardRequestItem = {
   id: string;
@@ -44,6 +45,8 @@ type DashboardViewProps = {
   canManagePermintaan: boolean;
   userCabang?: string;
   isAdmin?: boolean;
+  transaksiDonasi?: DonasiTransaksiRecord[];
+  onNavigateToDonasi?: () => void;
   onApproveIzin: (item: DashboardIzinItem) => void;
   onRejectIzin: (item: DashboardIzinItem) => void;
   onApprovePermintaan: (item: DashboardRequestItem) => void;
@@ -87,6 +90,8 @@ export function DashboardView({
   canManagePermintaan,
   userCabang = "",
   isAdmin = false,
+  transaksiDonasi = [],
+  onNavigateToDonasi,
   onApproveIzin,
   onRejectIzin,
   onApprovePermintaan,
@@ -228,6 +233,111 @@ export function DashboardView({
     return "Selamat Malam";
   }, []);
 
+  // --- Perhitungan Ringkasan Saldo Bersih Bulan Ini (Khusus Akun Admin) ---
+  const currentMonthKey = formatLocalDate(new Date()).slice(0, 7);
+  const [activeFinancialMonth, setActiveFinancialMonth] = useState<string>(currentMonthKey);
+
+  const getTransactionMonthKey = (dateStr?: string, createdAt?: string): string => {
+    const raw = dateStr || createdAt || "";
+    if (!raw) return "";
+    if (/^\d{4}-\d{2}/.test(raw)) {
+      return raw.slice(0, 7);
+    }
+    try {
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        return `${year}-${month}`;
+      }
+    } catch {}
+    const parts = raw.split(/[\/\-]/);
+    if (parts.length === 3 && parts[2].length === 4) {
+      return `${parts[2]}-${parts[1].padStart(2, "0")}`;
+    }
+    return "";
+  };
+
+  const availableFinancialMonths = useMemo(() => {
+    const set = new Set<string>();
+    set.add(currentMonthKey);
+    (transaksiDonasi || []).forEach((t) => {
+      const mKey = getTransactionMonthKey(t.tanggal, t.created_at);
+      if (mKey) set.add(mKey);
+    });
+    return Array.from(set).sort().reverse();
+  }, [transaksiDonasi, currentMonthKey]);
+
+  const currentMonthFormatted = useMemo(() => {
+    try {
+      const parts = activeFinancialMonth.split("-");
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+      return d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+    } catch {
+      return activeFinancialMonth;
+    }
+  }, [activeFinancialMonth]);
+
+  // Transaksi bulan berjalan / terpilih
+  const currentMonthTransaksi = useMemo(() => {
+    return (transaksiDonasi || []).filter((item) => {
+      const mKey = getTransactionMonthKey(item.tanggal, item.created_at);
+      return mKey === activeFinancialMonth;
+    });
+  }, [transaksiDonasi, activeFinancialMonth]);
+
+  // Total Pemasukan Bulan Ini (dijumlahkan dari seluruh donasi/transaksi masuk)
+  const totalPemasukanBulanIni = useMemo(() => {
+    return currentMonthTransaksi.reduce(
+      (sum, item) => sum + (Number(item.jumlah_transaksi_masuk) || 0),
+      0
+    );
+  }, [currentMonthTransaksi]);
+
+  // Total Pengeluaran Bulan Ini (dijumlahkan dari seluruh pengeluaran/tagihan tercatat)
+  const totalPengeluaranBulanIni = useMemo(() => {
+    return currentMonthTransaksi.reduce(
+      (sum, item) => sum + (Number(item.jumlah_transaksi_keluar) || 0),
+      0
+    );
+  }, [currentMonthTransaksi]);
+
+  // Total Saldo Bersih Bulan Ini = Total Pemasukan - Total Pengeluaran
+  const totalSaldoBersihBulanIni = totalPemasukanBulanIni - totalPengeluaranBulanIni;
+
+  // Transaksi sebelum bulan ini untuk menghitung sisa kas bulan lalu / saldo awal
+  const priorMonthTransaksi = useMemo(() => {
+    return (transaksiDonasi || []).filter((item) => {
+      const mKey = getTransactionMonthKey(item.tanggal, item.created_at);
+      return mKey && mKey < activeFinancialMonth;
+    });
+  }, [transaksiDonasi, activeFinancialMonth]);
+
+  const saldoAwalBulanKemarin = useMemo(() => {
+    const masuk = priorMonthTransaksi.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_masuk) || 0), 0);
+    const keluar = priorMonthTransaksi.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_keluar) || 0), 0);
+    return masuk - keluar;
+  }, [priorMonthTransaksi]);
+
+  // Total Kas Tersedia Riil Saat Ini = Sisa Kas Kemarin + Saldo Bersih Bulan Ini
+  const totalKasTersediaSaatIni = saldoAwalBulanKemarin + totalSaldoBersihBulanIni;
+
+  const countPemasukan = useMemo(() => {
+    return currentMonthTransaksi.filter((t) => Number(t.jumlah_transaksi_masuk) > 0).length;
+  }, [currentMonthTransaksi]);
+
+  const countPengeluaran = useMemo(() => {
+    return currentMonthTransaksi.filter((t) => Number(t.jumlah_transaksi_keluar) > 0).length;
+  }, [currentMonthTransaksi]);
+
+  const formatRupiah = (val: number) => {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      maximumFractionDigits: 0,
+    }).format(val);
+  };
+
   return (
     <div className="container-fluid px-0">
       {/* 1. Header Banner */}
@@ -345,6 +455,200 @@ export function DashboardView({
             <i className="bi bi-arrow-down-circle me-1.5" />
             Tinjau Persetujuan Sekarang
           </a>
+        </div>
+      )}
+
+      {/* 2.5 Kartu Ringkasan Saldo Bersih Bulan Ini (Hanya Tampil di Akun Admin) */}
+      {isAdmin && (
+        <div className="card shadow-sm border border-primary-subtle rounded-3 mb-3 bg-white overflow-hidden">
+          {/* Header Kartu */}
+          <div className="card-header bg-primary-subtle bg-opacity-25 py-2.5 px-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div className="d-flex align-items-center flex-wrap gap-2">
+              <span className="badge bg-danger text-white rounded-pill px-2.5 py-1 text-xxs fw-bold shadow-xs">
+                <i className="bi bi-shield-lock-fill me-1" />
+                KHUSUS AKUN ADMIN
+              </span>
+              <span className="badge bg-white text-primary border border-primary-subtle rounded-pill px-2.5 py-1 text-xxs fw-semibold">
+                <i className="bi bi-calendar-check me-1" />
+                Bulan Ini ({currentMonthFormatted})
+              </span>
+              <h6 className="fw-bold mb-0 text-dark d-flex align-items-center gap-2 ms-1">
+                <i className="bi bi-cash-stack text-success fs-5" />
+                Ringkasan Saldo Bersih Bulan Ini
+              </h6>
+            </div>
+
+            <div className="d-flex align-items-center gap-2">
+              {availableFinancialMonths.length > 1 && (
+                <div className="d-flex align-items-center gap-1.5">
+                  <span className="text-muted text-xxs fw-medium">Pilih Periode:</span>
+                  <select
+                    className="form-select form-select-sm py-0.5 px-2 text-xs rounded-pill border-secondary-subtle"
+                    style={{ width: "auto" }}
+                    value={activeFinancialMonth}
+                    onChange={(e) => setActiveFinancialMonth(e.target.value)}
+                  >
+                    {availableFinancialMonths.map((m) => {
+                      const isCurrent = m === currentMonthKey;
+                      let label = m;
+                      try {
+                        const [y, mon] = m.split("-");
+                        label = new Date(Number(y), Number(mon) - 1, 1).toLocaleDateString("id-ID", {
+                          month: "long",
+                          year: "numeric",
+                        });
+                      } catch {}
+                      return (
+                        <option key={m} value={m}>
+                          {label} {isCurrent ? "(Bulan Ini)" : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+              {onNavigateToDonasi && (
+                <button
+                  type="button"
+                  onClick={onNavigateToDonasi}
+                  className="btn btn-outline-primary btn-sm rounded-pill px-2.5 py-0.5 text-xxs fw-bold d-flex align-items-center gap-1 shadow-xs"
+                  title="Buka menu Kelola Donasi untuk melihat rincian mutasi & invoice"
+                >
+                  <span>Buka Mutasi Donasi</span>
+                  <i className="bi bi-arrow-right" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Isi Ringkasan Kartu */}
+          <div className="card-body p-3 p-md-3.5">
+            <div className="row g-3">
+              {/* Kolom 1: Total Saldo Bersih Bulan Ini (Hero Metric) */}
+              <div className="col-12 col-md-6 col-xl-4">
+                <div
+                  className={`p-3 rounded-3 h-100 border d-flex flex-column justify-content-between ${
+                    totalSaldoBersihBulanIni >= 0
+                      ? "bg-success-subtle bg-opacity-25 border-success-subtle"
+                      : "bg-danger-subtle bg-opacity-25 border-danger-subtle"
+                  }`}
+                >
+                  <div>
+                    <div className="d-flex align-items-center justify-content-between mb-1.5">
+                      <span className="text-muted fw-bold text-xxs text-uppercase tracking-wider">
+                        Total Saldo Bersih Bulan Ini
+                      </span>
+                      <span
+                        className={`badge rounded-pill px-2 py-0.5 text-xxs fw-bold ${
+                          totalSaldoBersihBulanIni >= 0
+                            ? "bg-success text-white"
+                            : "bg-danger text-white"
+                        }`}
+                      >
+                        {totalSaldoBersihBulanIni >= 0 ? "SURPLUS BERSIH" : "DEFISIT BERSIH"}
+                      </span>
+                    </div>
+                    <div
+                      className={`fw-bolder tracking-tight ${
+                        totalSaldoBersihBulanIni >= 0 ? "text-success" : "text-danger"
+                      }`}
+                      style={{ fontSize: "1.75rem", lineHeight: 1.2 }}
+                    >
+                      {formatRupiah(totalSaldoBersihBulanIni)}
+                    </div>
+                    <div className="text-muted text-xxs mt-1">
+                      {totalSaldoBersihBulanIni >= 0
+                        ? "Pemasukan bulan ini lebih besar dibanding pengeluaran yang tercatat."
+                        : "Pengeluaran (tagihan) bulan ini melampaui pemasukan donasi baru."}
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 pt-2 border-top border-secondary-subtle small text-muted d-flex align-items-center justify-content-between">
+                    <span className="text-xxs fw-semibold text-dark">
+                      Rumus: Pemasukan − Pengeluaran
+                    </span>
+                    <span className="badge bg-white text-secondary border rounded-pill px-2 py-0.5 text-xxs">
+                      {currentMonthTransaksi.length} Catatan Bulan Ini
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Kolom 2: Total Pemasukan Bulan Ini */}
+              <div className="col-12 col-sm-6 col-md-3 col-xl-2.5">
+                <div className="p-3 rounded-3 h-100 border bg-light bg-opacity-50 d-flex flex-column justify-content-between">
+                  <div>
+                    <div className="d-flex align-items-center justify-content-between mb-1.5">
+                      <span className="text-muted fw-semibold text-xxs text-uppercase">Pemasukan Bulan Ini</span>
+                      <i className="bi bi-arrow-down-left-circle-fill text-success fs-5" />
+                    </div>
+                    <div className="h4 fw-bold text-success mb-0">
+                      + {formatRupiah(totalPemasukanBulanIni)}
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-2 border-top small text-muted text-xxs d-flex justify-content-between align-items-center">
+                    <span>Donasi Masuk</span>
+                    <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill">
+                      {countPemasukan} Transaksi
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Kolom 3: Total Pengeluaran Bulan Ini */}
+              <div className="col-12 col-sm-6 col-md-3 col-xl-2.5">
+                <div className="p-3 rounded-3 h-100 border bg-light bg-opacity-50 d-flex flex-column justify-content-between">
+                  <div>
+                    <div className="d-flex align-items-center justify-content-between mb-1.5">
+                      <span className="text-muted fw-semibold text-xxs text-uppercase">Pengeluaran Tercatat</span>
+                      <i className="bi bi-arrow-up-right-circle-fill text-danger fs-5" />
+                    </div>
+                    <div className="h4 fw-bold text-danger mb-0">
+                      - {formatRupiah(totalPengeluaranBulanIni)}
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-2 border-top small text-muted text-xxs d-flex justify-content-between align-items-center">
+                    <span>Biaya / Server</span>
+                    <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill">
+                      {countPengeluaran} Transaksi
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Kolom 4: Total Kas Tersedia Riil (Termasuk Sisa Kemarin) */}
+              <div className="col-12 col-xl-3">
+                <div className="p-3 rounded-3 h-100 border bg-primary-subtle bg-opacity-15 border-primary-subtle d-flex flex-column justify-content-between">
+                  <div>
+                    <div className="d-flex align-items-center justify-content-between mb-1.5">
+                      <span className="text-muted fw-semibold text-xxs text-uppercase">Total Kas Tersedia</span>
+                      <i className="bi bi-wallet2 text-primary fs-5" />
+                    </div>
+                    <div className="h4 fw-bold text-primary mb-0">
+                      {formatRupiah(totalKasTersediaSaatIni)}
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-2 border-top text-xxs text-muted d-flex justify-content-between align-items-center">
+                    <span>Sisa Kas Bulan Lalu:</span>
+                    <span className="fw-bold text-dark">{formatRupiah(saldoAwalBulanKemarin)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Catatan Transparansi Rumus & Saldo */}
+            <div className="mt-3 pt-2.5 border-top d-flex flex-wrap align-items-center justify-content-between gap-2 text-xxs text-muted">
+              <div className="d-flex align-items-center gap-1.5">
+                <i className="bi bi-info-circle-fill text-primary" />
+                <span>
+                  <strong>Perhitungan Saldo Bersih:</strong> Total Pemasukan ({formatRupiah(totalPemasukanBulanIni)}) − Total Pengeluaran ({formatRupiah(totalPengeluaranBulanIni)}) = <strong className={totalSaldoBersihBulanIni >= 0 ? "text-success" : "text-danger"}>{formatRupiah(totalSaldoBersihBulanIni)}</strong>.
+                </span>
+              </div>
+              <div className="text-secondary">
+                Kas Tersedia Riil = Sisa Bulan Kemarin ({formatRupiah(saldoAwalBulanKemarin)}) + Saldo Bersih ({formatRupiah(totalSaldoBersihBulanIni)}) = <strong className="text-dark">{formatRupiah(totalKasTersediaSaatIni)}</strong>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
