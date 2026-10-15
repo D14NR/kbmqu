@@ -5,6 +5,7 @@ type DonasiViewProps = {
   loading: boolean;
   records: DonasiRecord[];
   transaksiRecords?: DonasiTransaksiRecord[];
+  isAdmin?: boolean;
   onAdd: () => void;
   onEdit: (record: DonasiRecord) => void;
   onDelete: (record: DonasiRecord) => void;
@@ -19,6 +20,7 @@ export function DonasiView({
   loading,
   records,
   transaksiRecords = [],
+  isAdmin = false,
   onAdd,
   onEdit,
   onDelete,
@@ -596,24 +598,31 @@ export function DonasiView({
                 <span>Segarkan</span>
               </button>
 
-              {activeTab === "rekening" ? (
-                <button
-                  type="button"
-                  onClick={onAdd}
-                  className="btn btn-warning btn-sm fw-bold text-dark rounded-3 px-3.5 py-1.5 shadow-sm d-flex align-items-center gap-2"
-                >
-                  <i className="bi bi-plus-circle-fill text-dark" />
-                  <span>Tambah Saluran Donasi</span>
-                </button>
+              {isAdmin ? (
+                activeTab === "rekening" ? (
+                  <button
+                    type="button"
+                    onClick={onAdd}
+                    className="btn btn-warning btn-sm fw-bold text-dark rounded-3 px-3.5 py-1.5 shadow-sm d-flex align-items-center gap-2"
+                  >
+                    <i className="bi bi-plus-circle-fill text-dark" />
+                    <span>Tambah Saluran Donasi</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onAddTransaksi}
+                    className="btn btn-success btn-sm fw-bold text-white rounded-3 px-3.5 py-1.5 shadow-sm d-flex align-items-center gap-2"
+                  >
+                    <i className="bi bi-plus-circle-fill text-white" />
+                    <span>Tambah Transaksi</span>
+                  </button>
+                )
               ) : (
-                <button
-                  type="button"
-                  onClick={onAddTransaksi}
-                  className="btn btn-success btn-sm fw-bold text-white rounded-3 px-3.5 py-1.5 shadow-sm d-flex align-items-center gap-2"
-                >
-                  <i className="bi bi-plus-circle-fill text-white" />
-                  <span>Tambah Transaksi</span>
-                </button>
+                <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-3 py-1.5 text-xs fw-semibold d-inline-flex align-items-center gap-1.5 shadow-xs">
+                  <i className="bi bi-shield-check" />
+                  <span>Transparansi Cabang</span>
+                </span>
               )}
             </div>
           </div>
@@ -644,9 +653,11 @@ export function DonasiView({
                     <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 55 }}>
                       No
                     </th>
-                    <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 100 }}>
-                      Aksi
-                    </th>
+                    {isAdmin && (
+                      <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 100 }}>
+                        Aksi
+                      </th>
+                    )}
                     <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase">
                       Bank / Saluran (nama_bank)
                     </th>
@@ -667,14 +678,14 @@ export function DonasiView({
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-5">
+                      <td colSpan={isAdmin ? 7 : 6} className="text-center py-5">
                         <div className="spinner-border spinner-border-sm text-warning me-2" role="status" />
                         <span className="text-muted text-xs">Memuat data donasi...</span>
                       </td>
                     </tr>
                   ) : filteredRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-5">
+                      <td colSpan={isAdmin ? 7 : 6} className="text-center py-5">
                         <div className="d-flex flex-column align-items-center justify-content-center">
                           <div
                             className="rounded-circle bg-warning-subtle text-warning-emphasis d-flex align-items-center justify-content-center mb-2"
@@ -686,7 +697,7 @@ export function DonasiView({
                           <p className="text-muted text-xs mb-3" style={{ maxWidth: 350 }}>
                             {searchQuery
                               ? `Tidak ada rekening yang cocok dengan kata kunci "${searchQuery}".`
-                              : "Klik tombol Tambah Saluran Donasi untuk memasukkan nomor rekening bank atau e-wallet."}
+                              : "Saluran donasi operasional database akan ditampilkan di sini."}
                           </p>
                           {searchQuery ? (
                             <button
@@ -696,7 +707,7 @@ export function DonasiView({
                             >
                               Reset Pencarian
                             </button>
-                          ) : (
+                          ) : isAdmin ? (
                             <button
                               type="button"
                               className="btn btn-warning btn-sm fw-bold text-dark rounded-pill px-4 shadow-sm"
@@ -705,7 +716,7 @@ export function DonasiView({
                               <i className="bi bi-plus-lg me-1" />
                               Tambah Saluran Sekarang
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -723,26 +734,28 @@ export function DonasiView({
                           </td>
 
                           {/* Aksi */}
-                          <td className="text-center px-2 py-3">
-                            <div className="d-inline-flex align-items-center gap-1">
-                              <button
-                                type="button"
-                                className="btn btn-outline-primary btn-xs rounded-2 px-2 py-1"
-                                onClick={() => onEdit(item)}
-                                title="Edit Rekening"
-                              >
-                                <i className="bi bi-pencil-square" />
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-outline-danger btn-xs rounded-2 px-2 py-1"
-                                onClick={() => onDelete(item)}
-                                title="Hapus Rekening"
-                              >
-                                <i className="bi bi-trash3" />
-                              </button>
-                            </div>
-                          </td>
+                          {isAdmin && (
+                            <td className="text-center px-2 py-3">
+                              <div className="d-inline-flex align-items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-primary btn-xs rounded-2 px-2 py-1"
+                                  onClick={() => onEdit(item)}
+                                  title="Edit Rekening"
+                                >
+                                  <i className="bi bi-pencil-square" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-danger btn-xs rounded-2 px-2 py-1"
+                                  onClick={() => onDelete(item)}
+                                  title="Hapus Rekening"
+                                >
+                                  <i className="bi bi-trash3" />
+                                </button>
+                              </div>
+                            </td>
+                          )}
 
                           {/* Nama Bank */}
                           <td className="px-3 py-3">
@@ -823,9 +836,11 @@ export function DonasiView({
                     <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 50 }}>
                       No
                     </th>
-                    <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 90 }}>
-                      Aksi
-                    </th>
+                    {isAdmin && (
+                      <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 90 }}>
+                        Aksi
+                      </th>
+                    )}
                     <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 125 }}>
                       Tanggal
                     </th>
@@ -856,11 +871,13 @@ export function DonasiView({
                       <td className="text-center text-primary fw-bold text-xxs px-3 py-2.5">
                         <i className="bi bi-clock-history fs-6" />
                       </td>
-                      <td className="text-center px-2 py-2.5">
-                        <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0.5 text-xxs font-monospace">
-                          Awal Bulan
-                        </span>
-                      </td>
+                      {isAdmin && (
+                        <td className="text-center px-2 py-2.5">
+                          <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0.5 text-xxs font-monospace">
+                            Awal Bulan
+                          </span>
+                        </td>
+                      )}
                       <td className="text-center text-primary text-xs px-3 py-2.5">
                         <span className="badge bg-light text-primary border rounded-pill px-2 py-0.5 text-xxs font-monospace">
                           Awal Periode
@@ -890,14 +907,14 @@ export function DonasiView({
 
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-5">
+                      <td colSpan={isAdmin ? 9 : 8} className="text-center py-5">
                         <div className="spinner-border spinner-border-sm text-success me-2" role="status" />
                         <span className="text-muted text-xs">Memuat data transaksi...</span>
                       </td>
                     </tr>
                   ) : filteredTransaksi.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-5">
+                      <td colSpan={isAdmin ? 9 : 8} className="text-center py-5">
                         <div className="d-flex flex-column align-items-center justify-content-center">
                           <div
                             className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center mb-2"
@@ -909,7 +926,7 @@ export function DonasiView({
                           <p className="text-muted text-xs mb-3" style={{ maxWidth: 380 }}>
                             {searchQuery || filterType !== "all"
                               ? "Tidak ada transaksi yang sesuai dengan filter atau kata kunci pencarian."
-                              : "Catat donasi masuk atau biaya pengeluaran operasional ke dalam tabel donasi_transaksi."}
+                              : "Riwayat donasi masuk dan biaya pemeliharaan server akan tercatat di sini."}
                           </p>
                           {searchQuery || filterType !== "all" ? (
                             <button
@@ -922,7 +939,7 @@ export function DonasiView({
                             >
                               Reset Filter
                             </button>
-                          ) : (
+                          ) : isAdmin && onAddTransaksi ? (
                             <button
                               type="button"
                               className="btn btn-success btn-sm fw-bold text-white rounded-pill px-4 shadow-sm"
@@ -931,7 +948,7 @@ export function DonasiView({
                               <i className="bi bi-plus-lg me-1" />
                               Tambah Transaksi Sekarang
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -948,48 +965,50 @@ export function DonasiView({
                           </td>
 
                           {/* Aksi */}
-                          <td className="text-center px-2 py-3">
-                            <div className="d-inline-flex align-items-center gap-1">
-                              {onEditTransaksi && (
-                                <button
-                                  type="button"
-                                  className="btn btn-outline-primary btn-xs rounded-2 px-2 py-1"
-                                  onClick={() => onEditTransaksi(item)}
-                                  title="Edit Transaksi"
-                                >
-                                  <i className="bi bi-pencil-square" />
-                                </button>
-                              )}
-                              {onToggleHideNamaTransaksi && (
-                                <button
-                                  type="button"
-                                  className={`btn btn-xs rounded-2 px-2 py-1 ${
-                                    Number(item.hidden_nama_pengirim) === 1
-                                      ? "btn-secondary text-white"
-                                      : "btn-outline-secondary"
-                                  }`}
-                                  onClick={() => onToggleHideNamaTransaksi(item)}
-                                  title={
-                                    Number(item.hidden_nama_pengirim) === 1
-                                      ? "Status: Sembunyi di Publik (*******). Klik untuk TAMPILKAN nama pengirim di publik"
-                                      : "Status: Tampil Nama di Publik. Klik untuk SEMBUNYIKAN nama pengirim (*******) di publik"
-                                  }
-                                >
-                                  <i className={`bi ${Number(item.hidden_nama_pengirim) === 1 ? "bi-eye-slash-fill" : "bi-eye"}`} />
-                                </button>
-                              )}
-                              {onDeleteTransaksi && (
-                                <button
-                                  type="button"
-                                  className="btn btn-outline-danger btn-xs rounded-2 px-2 py-1"
-                                  onClick={() => onDeleteTransaksi(item)}
-                                  title="Hapus Transaksi"
-                                >
-                                  <i className="bi bi-trash3" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
+                          {isAdmin && (
+                            <td className="text-center px-2 py-3">
+                              <div className="d-inline-flex align-items-center gap-1">
+                                {onEditTransaksi && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-primary btn-xs rounded-2 px-2 py-1"
+                                    onClick={() => onEditTransaksi(item)}
+                                    title="Edit Transaksi"
+                                  >
+                                    <i className="bi bi-pencil-square" />
+                                  </button>
+                                )}
+                                {onToggleHideNamaTransaksi && (
+                                  <button
+                                    type="button"
+                                    className={`btn btn-xs rounded-2 px-2 py-1 ${
+                                      Number(item.hidden_nama_pengirim) === 1
+                                        ? "btn-secondary text-white"
+                                        : "btn-outline-secondary"
+                                    }`}
+                                    onClick={() => onToggleHideNamaTransaksi(item)}
+                                    title={
+                                      Number(item.hidden_nama_pengirim) === 1
+                                        ? "Status: Sembunyi di Publik (*******). Klik untuk TAMPILKAN nama pengirim di publik"
+                                        : "Status: Tampil Nama di Publik. Klik untuk SEMBUNYIKAN nama pengirim (*******) di publik"
+                                    }
+                                  >
+                                    <i className={`bi ${Number(item.hidden_nama_pengirim) === 1 ? "bi-eye-slash-fill" : "bi-eye"}`} />
+                                  </button>
+                                )}
+                                {onDeleteTransaksi && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-danger btn-xs rounded-2 px-2 py-1"
+                                    onClick={() => onDeleteTransaksi(item)}
+                                    title="Hapus Transaksi"
+                                  >
+                                    <i className="bi bi-trash3" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          )}
 
                           {/* Tanggal */}
                           <td className="px-3 py-3 text-center text-xs fw-semibold text-dark">
@@ -1108,7 +1127,7 @@ export function DonasiView({
                 {/* Table Footer Summary */}
                 <tfoot className="table-light border-top">
                   <tr className="fw-bold text-xs">
-                    <td colSpan={5} className="text-end px-3 py-2.5 text-dark">
+                    <td colSpan={isAdmin ? 5 : 4} className="text-end px-3 py-2.5 text-dark">
                       Total Mutasi {selectedMonth === "all" ? "Seluruh Periode" : `Bulan ${formatMonthLabel(selectedMonth)}`}:
                     </td>
                     <td className="text-end px-3 py-2.5 text-success font-monospace">
@@ -1120,7 +1139,7 @@ export function DonasiView({
                     <td colSpan={2}></td>
                   </tr>
                   <tr className="bg-success-subtle bg-opacity-25 fw-bold text-xs border-top">
-                    <td colSpan={5} className="text-end px-3 py-2.5 text-dark">
+                    <td colSpan={isAdmin ? 5 : 4} className="text-end px-3 py-2.5 text-dark">
                       <span className="d-inline-flex align-items-center gap-1.5">
                         <i className="bi bi-wallet2 text-success fs-6" />
                         Total Kas Tersedia (Saldo Akhir):
@@ -1138,20 +1157,20 @@ export function DonasiView({
         </div>
       )}
 
-      {/* Info Petunjuk Khusus Admin Pusat */}
+      {/* Info Petunjuk Transparansi Pusat & Cabang */}
       <div className="mt-3 card bg-light border-0 rounded-4 p-3.5">
         <div className="d-flex align-items-start gap-3">
-          <div className="rounded-circle bg-warning text-dark p-2 d-flex align-items-center justify-content-center flex-shrink-0">
-            <i className="bi bi-lightbulb fs-6" />
+          <div className="rounded-circle bg-primary text-white p-2 d-flex align-items-center justify-content-center flex-shrink-0">
+            <i className="bi bi-shield-check fs-6" />
           </div>
           <div className="text-xs text-secondary">
-            <strong className="text-dark">Petunjuk Pengelolaan Menu Donasi:</strong>
+            <strong className="text-dark">Petunjuk Transparansi Donasi &amp; Operasional Database:</strong>
             <ul className="mb-0 ps-3 mt-1 d-flex flex-column gap-1">
               <li>
-                <strong>Tab Saluran Rekening (<code>donasi</code>):</strong> Digunakan untuk mengatur data rekening &amp; e-wallet yang ditampilkan kepada pengajar / pengguna di modal banner donasi.
+                <strong>Pusat &amp; Seluruh Cabang:</strong> Riwayat mutasi donasi masuk dan tagihan server ditampilkan secara terbuka agar seluruh pengurus cabang dapat memantau kesehatan kas operasional sistem bersama-sama.
               </li>
               <li>
-                <strong>Tab Transaksi (<code>donasi_transaksi</code>):</strong> Digunakan untuk mencatat mutasi keuangan donasi masuk (<code>jumlah_transaksi_masuk</code>) dan pemeliharaan server/operasional (<code>jumlah_transaksi_keluar</code>) beserta keterangan (<code>keterangan</code>).
+                <strong>Hak Kelola Admin Pusat:</strong> Penambahan saluran rekening baru dan pencatatan transaksi mutasi hanya dikelola oleh Akun Admin Pusat demi menjaga akuntabilitas data.
               </li>
             </ul>
           </div>

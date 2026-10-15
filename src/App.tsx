@@ -5305,8 +5305,8 @@ export function App() {
   };
 
   useEffect(() => {
-    if (activeKey === "donasi" && isAdmin) {
-      void handleLoadDonasi();
+    if (activeKey === "donasi" || activeKey === "dashboard") {
+      void handleLoadDonasi({ silent: true });
     }
   }, [activeKey, isAdmin]);
 
@@ -5351,7 +5351,7 @@ export function App() {
         handleLoadIzinPengajar(opts),
         handleLoadPermintaanPengajar(opts),
         handleLoadAccountsCabang(opts),
-        isAdmin ? handleLoadDonasi(opts) : Promise.resolve(),
+        handleLoadDonasi(opts),
       ]);
       lastRefreshAllTimestampRef.current = Date.now();
       if (showToast) {
@@ -5458,10 +5458,16 @@ export function App() {
         case "accountsCabang":
           await handleLoadAccountsCabang({ silent: options.silent, forceFresh: options.forceFresh });
           break;
+        case "dashboard":
+          await Promise.all([
+            handleLoadPermintaanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadIzinPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh }),
+          ]);
+          break;
         case "donasi":
-          if (isAdmin) {
-            await handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh });
-          }
+          await handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh });
           break;
         default:
           await handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh });
@@ -5474,6 +5480,11 @@ export function App() {
 
   const handleMenuSelect = (key: string) => {
     if (key === activeKey) {
+      return;
+    }
+
+    const adminOnlyKeys = ["hapusJadwal", "liburNasional", "accounts_cabang", "donasi"];
+    if (adminOnlyKeys.includes(key) && !isAdmin) {
       return;
     }
 
@@ -9036,6 +9047,8 @@ export function App() {
                         canManagePermintaan={Boolean(authSession)}
                         userCabang={restrictedCabang}
                         isAdmin={isAdmin}
+                        transaksiDonasi={transaksiDonasiRecords}
+                        onNavigateToDonasi={isAdmin ? () => setActiveKey("donasi") : undefined}
                         onApproveIzin={(item) => handleUpdateIzinStatus(item, "Disetujui")}
                         onRejectIzin={(item) => handleUpdateIzinStatus(item, "Ditolak")}
                         onApprovePermintaan={(item) => handleUpdatePermintaanStatus(item, "Disetujui")}
@@ -9143,13 +9156,14 @@ export function App() {
                         loading={donasiStatus.loading}
                         records={donasiRecords}
                         transaksiRecords={transaksiDonasiRecords}
-                        onAdd={() => handleOpenDonasiModal()}
-                        onEdit={handleOpenDonasiModal}
-                        onDelete={handleDeleteDonasi}
-                        onAddTransaksi={() => handleOpenTransaksiDonasiModal()}
-                        onEditTransaksi={handleOpenTransaksiDonasiModal}
-                        onDeleteTransaksi={handleDeleteTransaksiDonasi}
-                        onToggleHideNamaTransaksi={handleToggleHideNamaTransaksiDonasi}
+                        isAdmin={isAdmin}
+                        onAdd={isAdmin ? () => handleOpenDonasiModal() : () => {}}
+                        onEdit={isAdmin ? handleOpenDonasiModal : () => {}}
+                        onDelete={isAdmin ? handleDeleteDonasi : () => {}}
+                        onAddTransaksi={isAdmin ? () => handleOpenTransaksiDonasiModal() : undefined}
+                        onEditTransaksi={isAdmin ? handleOpenTransaksiDonasiModal : undefined}
+                        onDeleteTransaksi={isAdmin ? handleDeleteTransaksiDonasi : undefined}
+                        onToggleHideNamaTransaksi={isAdmin ? handleToggleHideNamaTransaksiDonasi : undefined}
                         onRefresh={handleLoadDonasi}
                       />
                     ) : activeKey === "suratTugasMengajar" ? (

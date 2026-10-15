@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatLocalDate, parseFlexibleDate, parseRangeFromString } from "../../utils/schedule";
 import { getTagStyle } from "../../utils/tagColor";
 import type { DonasiTransaksiRecord } from "../../types/donasi";
@@ -233,9 +233,59 @@ export function DashboardView({
     return "Selamat Malam";
   }, []);
 
-  // --- Perhitungan Ringkasan Saldo Bersih Bulan Ini (Khusus Akun Admin) ---
+  // --- Perhitungan Ringkasan Saldo Bersih Bulan Ini (Pusat & Seluruh Cabang) ---
+  // Default tersembunyi, dapat dibuka/ditutup melalui tombol Tampilkan / Sembunyikan
+  const [showFinancialSummary, setShowFinancialSummary] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("dashboard_show_financial_summary") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleFinancialSummary = () => {
+    setShowFinancialSummary((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("dashboard_show_financial_summary", String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
+
   const currentMonthKey = formatLocalDate(new Date()).slice(0, 7);
   const [activeFinancialMonth, setActiveFinancialMonth] = useState<string>(currentMonthKey);
+  const [internalTransaksi, setInternalTransaksi] = useState<DonasiTransaksiRecord[]>([]);
+
+  useEffect(() => {
+    if (!showFinancialSummary) return;
+    if (transaksiDonasi && transaksiDonasi.length > 0) {
+      setInternalTransaksi(transaksiDonasi);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchDonasi = async () => {
+      try {
+        const res = await fetch("/db/donasi_transaksi");
+        const json = await res.json();
+        if (isMounted && json.success && Array.isArray(json.data)) {
+          setInternalTransaksi(json.data);
+        }
+      } catch (e) {
+        console.error("Dashboard fetch donasi fallback error:", e);
+      }
+    };
+    void fetchDonasi();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [showFinancialSummary, transaksiDonasi]);
+
+  const activeTransaksiList = (transaksiDonasi && transaksiDonasi.length > 0) ? transaksiDonasi : internalTransaksi;
 
   const getTransactionMonthKey = (dateStr?: string, createdAt?: string): string => {
     const raw = dateStr || createdAt || "";
@@ -261,12 +311,12 @@ export function DashboardView({
   const availableFinancialMonths = useMemo(() => {
     const set = new Set<string>();
     set.add(currentMonthKey);
-    (transaksiDonasi || []).forEach((t) => {
+    activeTransaksiList.forEach((t) => {
       const mKey = getTransactionMonthKey(t.tanggal, t.created_at);
       if (mKey) set.add(mKey);
     });
     return Array.from(set).sort().reverse();
-  }, [transaksiDonasi, currentMonthKey]);
+  }, [activeTransaksiList, currentMonthKey]);
 
   const currentMonthFormatted = useMemo(() => {
     try {
@@ -280,11 +330,11 @@ export function DashboardView({
 
   // Transaksi bulan berjalan / terpilih
   const currentMonthTransaksi = useMemo(() => {
-    return (transaksiDonasi || []).filter((item) => {
+    return activeTransaksiList.filter((item) => {
       const mKey = getTransactionMonthKey(item.tanggal, item.created_at);
       return mKey === activeFinancialMonth;
     });
-  }, [transaksiDonasi, activeFinancialMonth]);
+  }, [activeTransaksiList, activeFinancialMonth]);
 
   // Total Pemasukan Bulan Ini (dijumlahkan dari seluruh donasi/transaksi masuk)
   const totalPemasukanBulanIni = useMemo(() => {
@@ -307,11 +357,11 @@ export function DashboardView({
 
   // Transaksi sebelum bulan ini untuk menghitung sisa kas bulan lalu / saldo awal
   const priorMonthTransaksi = useMemo(() => {
-    return (transaksiDonasi || []).filter((item) => {
+    return activeTransaksiList.filter((item) => {
       const mKey = getTransactionMonthKey(item.tanggal, item.created_at);
       return mKey && mKey < activeFinancialMonth;
     });
-  }, [transaksiDonasi, activeFinancialMonth]);
+  }, [activeTransaksiList, activeFinancialMonth]);
 
   const saldoAwalBulanKemarin = useMemo(() => {
     const masuk = priorMonthTransaksi.reduce((sum, item) => sum + (Number(item.jumlah_transaksi_masuk) || 0), 0);
@@ -458,15 +508,54 @@ export function DashboardView({
         </div>
       )}
 
-      {/* 2.5 Kartu Ringkasan Saldo Bersih Bulan Ini (Hanya Tampil di Akun Admin) */}
-      {isAdmin && (
+      {/* 2.5 Kartu Ringkasan Saldo Bersih Bulan Ini (Dengan Tombol Tampilkan / Sembunyikan) */}
+      {!showFinancialSummary ? (
+        <div className="card shadow-xs border border-primary-subtle rounded-3 mb-3 bg-light bg-opacity-60">
+          <div className="card-body py-2.5 px-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div className="d-flex align-items-center gap-2.5">
+              <div
+                className="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center shadow-xs flex-shrink-0"
+                style={{ width: 34, height: 34 }}
+              >
+                <i className="bi bi-wallet2 fs-6 text-primary" />
+              </div>
+              <div>
+                <div className="d-flex align-items-center gap-2 flex-wrap">
+                  <span className="fw-bold text-dark text-sm">
+                    Ringkasan Saldo Bersih & Kas Operasional
+                  </span>
+                  <span className="badge bg-secondary-subtle text-secondary border rounded-pill px-2 py-0.5 text-xxs fw-medium">
+                    <i className="bi bi-eye-slash me-1" />
+                    Tersembunyi
+                  </span>
+                  <span className="badge bg-primary-subtle text-primary rounded-pill px-2 py-0.5 text-xxs fw-semibold">
+                    {userCabang ? `Cabang ${userCabang.toUpperCase()}` : "Pusat & Seluruh Cabang"}
+                  </span>
+                </div>
+                <p className="text-muted text-xxs mb-0 mt-0.5">
+                  Klik tombol <strong>Tampilkan</strong> di sebelah kanan untuk melihat rincian sisa kas, penerimaan donasi, dan tagihan server.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleToggleFinancialSummary}
+              className="btn btn-primary btn-sm px-3 py-1.5 rounded-pill fw-semibold shadow-xs d-flex align-items-center gap-1.5 text-xs text-nowrap"
+            >
+              <i className="bi bi-eye" />
+              <span>Tampilkan</span>
+            </button>
+          </div>
+        </div>
+      ) : (
         <div className="card shadow-sm border border-primary-subtle rounded-3 mb-3 bg-white overflow-hidden">
           {/* Header Kartu */}
           <div className="card-header bg-primary-subtle bg-opacity-25 py-2.5 px-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div className="d-flex align-items-center flex-wrap gap-2">
-              <span className="badge bg-danger text-white rounded-pill px-2.5 py-1 text-xxs fw-bold shadow-xs">
-                <i className="bi bi-shield-lock-fill me-1" />
-                KHUSUS AKUN ADMIN
+              <span className="badge bg-primary text-white rounded-pill px-2.5 py-1 text-xxs fw-bold shadow-xs">
+                <i className="bi bi-building me-1" />
+                {userCabang ? `PUSAT & CABANG ${userCabang.toUpperCase()}` : "PUSAT & SELURUH CABANG"}
               </span>
               <span className="badge bg-white text-primary border border-primary-subtle rounded-pill px-2.5 py-1 text-xxs fw-semibold">
                 <i className="bi bi-calendar-check me-1" />
@@ -518,17 +607,26 @@ export function DashboardView({
                   <i className="bi bi-arrow-right" />
                 </button>
               )}
+              <button
+                type="button"
+                onClick={handleToggleFinancialSummary}
+                className="btn btn-outline-secondary btn-sm rounded-pill px-2.5 py-0.5 text-xxs fw-semibold d-flex align-items-center gap-1 shadow-xs bg-white"
+                title="Sembunyikan ringkasan saldo"
+              >
+                <i className="bi bi-eye-slash" />
+                <span>Sembunyikan</span>
+              </button>
             </div>
           </div>
 
           {/* Isi Ringkasan Kartu */}
           <div className="card-body p-3 p-md-3.5">
             <div className="row g-3">
-              {/* Kolom 1: Total Saldo Bersih Bulan Ini (Hero Metric) */}
+              {/* Kolom 1: Total Kas Tersedia Riil (Hero Metric) */}
               <div className="col-12 col-md-6 col-xl-4">
                 <div
                   className={`p-3 rounded-3 h-100 border d-flex flex-column justify-content-between ${
-                    totalSaldoBersihBulanIni >= 0
+                    totalKasTersediaSaatIni >= 0
                       ? "bg-success-subtle bg-opacity-25 border-success-subtle"
                       : "bg-danger-subtle bg-opacity-25 border-danger-subtle"
                   }`}
@@ -536,39 +634,39 @@ export function DashboardView({
                   <div>
                     <div className="d-flex align-items-center justify-content-between mb-1.5">
                       <span className="text-muted fw-bold text-xxs text-uppercase tracking-wider">
-                        Total Saldo Bersih Bulan Ini
+                        Total Kas Tersedia (Saldo Akhir)
                       </span>
                       <span
                         className={`badge rounded-pill px-2 py-0.5 text-xxs fw-bold ${
-                          totalSaldoBersihBulanIni >= 0
+                          totalKasTersediaSaatIni >= 0
                             ? "bg-success text-white"
                             : "bg-danger text-white"
                         }`}
                       >
-                        {totalSaldoBersihBulanIni >= 0 ? "SURPLUS BERSIH" : "DEFISIT BERSIH"}
+                        {totalKasTersediaSaatIni >= 0 ? "KAS AMAN & TERSISA" : "DEFISIT TOTAL"}
                       </span>
                     </div>
                     <div
                       className={`fw-bolder tracking-tight ${
-                        totalSaldoBersihBulanIni >= 0 ? "text-success" : "text-danger"
+                        totalKasTersediaSaatIni >= 0 ? "text-success" : "text-danger"
                       }`}
                       style={{ fontSize: "1.75rem", lineHeight: 1.2 }}
                     >
-                      {formatRupiah(totalSaldoBersihBulanIni)}
+                      {formatRupiah(totalKasTersediaSaatIni)}
                     </div>
                     <div className="text-muted text-xxs mt-1">
-                      {totalSaldoBersihBulanIni >= 0
-                        ? "Pemasukan bulan ini lebih besar dibanding pengeluaran yang tercatat."
-                        : "Pengeluaran (tagihan) bulan ini melampaui pemasukan donasi baru."}
+                      {totalKasTersediaSaatIni >= 0
+                        ? "Uang kas riil yang aman & siap digunakan (sudah digabung sisa bulan lalu)."
+                        : "Seluruh kas habis dan membutuhkan donasi tambahan untuk operasional."}
                     </div>
                   </div>
 
                   <div className="mt-2.5 pt-2 border-top border-secondary-subtle small text-muted d-flex align-items-center justify-content-between">
                     <span className="text-xxs fw-semibold text-dark">
-                      Rumus: Pemasukan − Pengeluaran
+                      Sisa Kas Kemarin: {formatRupiah(saldoAwalBulanKemarin)}
                     </span>
                     <span className="badge bg-white text-secondary border rounded-pill px-2 py-0.5 text-xxs">
-                      {currentMonthTransaksi.length} Catatan Bulan Ini
+                      Saldo Kas Riil
                     </span>
                   </div>
                 </div>
@@ -616,21 +714,35 @@ export function DashboardView({
                 </div>
               </div>
 
-              {/* Kolom 4: Total Kas Tersedia Riil (Termasuk Sisa Kemarin) */}
+              {/* Kolom 4: Arus Kas Bersih Bulan Ini (Mutasi Pemasukan - Pengeluaran) */}
               <div className="col-12 col-xl-3">
-                <div className="p-3 rounded-3 h-100 border bg-primary-subtle bg-opacity-15 border-primary-subtle d-flex flex-column justify-content-between">
+                <div className={`p-3 rounded-3 h-100 border d-flex flex-column justify-content-between ${
+                  totalSaldoBersihBulanIni >= 0
+                    ? "bg-light bg-opacity-50"
+                    : "bg-warning-subtle bg-opacity-25 border-warning-subtle"
+                }`}>
                   <div>
                     <div className="d-flex align-items-center justify-content-between mb-1.5">
-                      <span className="text-muted fw-semibold text-xxs text-uppercase">Total Kas Tersedia</span>
-                      <i className="bi bi-wallet2 text-primary fs-5" />
+                      <span className="text-muted fw-semibold text-xxs text-uppercase">Mutasi Bulan Ini</span>
+                      <span
+                        className={`badge rounded-pill px-2 py-0.5 text-xxs fw-bold ${
+                          totalSaldoBersihBulanIni >= 0
+                            ? "bg-success text-white"
+                            : "bg-warning-subtle text-dark border border-warning-subtle"
+                        }`}
+                      >
+                        {totalSaldoBersihBulanIni >= 0 ? "SURPLUS" : "TERTUTUP SISA LALU"}
+                      </span>
                     </div>
-                    <div className="h4 fw-bold text-primary mb-0">
-                      {formatRupiah(totalKasTersediaSaatIni)}
+                    <div className={`h4 fw-bold mb-0 ${totalSaldoBersihBulanIni >= 0 ? "text-success" : "text-dark"}`}>
+                      {totalSaldoBersihBulanIni >= 0 ? `+${formatRupiah(totalSaldoBersihBulanIni)}` : formatRupiah(totalSaldoBersihBulanIni)}
                     </div>
                   </div>
                   <div className="mt-2 pt-2 border-top text-xxs text-muted d-flex justify-content-between align-items-center">
-                    <span>Sisa Kas Bulan Lalu:</span>
-                    <span className="fw-bold text-dark">{formatRupiah(saldoAwalBulanKemarin)}</span>
+                    <span>Donasi Baru − Tagihan:</span>
+                    <span className="fw-semibold text-secondary">
+                      {totalSaldoBersihBulanIni < 0 ? "Ditutup kas kemarin" : "Arus positif"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -641,11 +753,11 @@ export function DashboardView({
               <div className="d-flex align-items-center gap-1.5">
                 <i className="bi bi-info-circle-fill text-primary" />
                 <span>
-                  <strong>Perhitungan Saldo Bersih:</strong> Total Pemasukan ({formatRupiah(totalPemasukanBulanIni)}) − Total Pengeluaran ({formatRupiah(totalPengeluaranBulanIni)}) = <strong className={totalSaldoBersihBulanIni >= 0 ? "text-success" : "text-danger"}>{formatRupiah(totalSaldoBersihBulanIni)}</strong>.
+                  <strong>Perhitungan Kas Riil:</strong> Sisa Bulan Kemarin ({formatRupiah(saldoAwalBulanKemarin)}) + Donasi Masuk ({formatRupiah(totalPemasukanBulanIni)}) − Tagihan Server ({formatRupiah(totalPengeluaranBulanIni)}) = <strong className="text-success">{formatRupiah(totalKasTersediaSaatIni)}</strong>.
                 </span>
               </div>
               <div className="text-secondary">
-                Kas Tersedia Riil = Sisa Bulan Kemarin ({formatRupiah(saldoAwalBulanKemarin)}) + Saldo Bersih ({formatRupiah(totalSaldoBersihBulanIni)}) = <strong className="text-dark">{formatRupiah(totalKasTersediaSaatIni)}</strong>
+                Mutasi Murni Bulan Ini = Pemasukan − Pengeluaran = <strong className={totalSaldoBersihBulanIni >= 0 ? "text-success" : "text-danger"}>{formatRupiah(totalSaldoBersihBulanIni)}</strong> (terbayar lunas menggunakan sisa kas lalu)
               </div>
             </div>
           </div>
