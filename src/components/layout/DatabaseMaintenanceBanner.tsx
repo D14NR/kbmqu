@@ -212,6 +212,14 @@ export function DatabaseMaintenanceBanner() {
     return tagihanList.filter((t) => isDateInMonth(t.tanggal, priorMonthKey));
   }, [tagihanList, currentMonthKey, priorMonthKey]);
 
+  const targetMonthLabel = useMemo(() => {
+    if (relevantTagihans.length > 0) {
+      const isCurrent = relevantTagihans.some(t => isDateInMonth(t.tanggal, currentMonthKey));
+      return isCurrent ? "Bulan Ini" : "Bulan Kemarin";
+    }
+    return "Bulan Ini";
+  }, [relevantTagihans, currentMonthKey]);
+
   // Total Dana yang benar-benar tersedia untuk membayar tagihan:
   // (Apa yang sudah dibayar bulan ini) + (Sisa uang tunai yang ada sekarang, jika positif)
   const effectiveProgressIDR = currentMonthKeluar + Math.max(0, totalKasTersediaSaatIni);
@@ -626,7 +634,7 @@ export function DatabaseMaintenanceBanner() {
                     </h6>
                   </div>
                   <p className="mb-0 text-secondary text-xs mt-0.5">
-                    Tagihan database Cloudflare (periode bulan kemarin) sudah terbayar lunas menggunakan dana donasi masuk bulan ini ({formatRupiah(currentMonthMasuk)}) dan sisa kas bulan kemarin ({formatRupiah(saldoAwalBulanIni)}). Sisa kas saat ini: {formatRupiah(totalKasTersediaSaatIni)}. Terima kasih atas kerja sama seluruh rekan!
+                    Tagihan database Cloudflare (periode {targetMonthLabel.toLowerCase()}) sudah terbayar lunas menggunakan dana donasi masuk bulan ini ({formatRupiah(currentMonthMasuk)}) dan sisa kas bulan kemarin ({formatRupiah(saldoAwalBulanIni)}). Sisa kas saat ini: {formatRupiah(totalKasTersediaSaatIni)}. Terima kasih atas kerja sama seluruh rekan!
                   </p>
                 </div>
               </div>
@@ -772,7 +780,7 @@ export function DatabaseMaintenanceBanner() {
                       <div className="text-xs text-dark">
                         <strong>Target Donasi sudah Terpenuhi,, Terima kasih Teman Teman Kerja sama nya.</strong>
                         <br />
-                        Tagihan pemeliharaan database Cloudflare pemakaian bulan kemarin sudah terbayar lunas di awal bulan ini. Dana dihimpun dari dana donasi masuk bulan ini (<strong>{formatRupiah(currentMonthMasuk)}</strong>) bersama sisa kas bulan kemarin (<strong>{formatRupiah(saldoAwalBulanIni)}</strong>). Biaya tagihan server: <strong>{formatRupiah(currentMonthKeluar)}</strong>. Sisa kas riil saat ini: <strong>{formatRupiah(totalKasTersediaSaatIni)}</strong> ({formatUSD(totalKasTersediaSaatIni)}).
+                        Tagihan pemeliharaan database Cloudflare pemakaian {targetMonthLabel.toLowerCase()} sudah terbayar lunas di awal bulan ini. Dana dihimpun dari dana donasi masuk bulan ini (<strong>{formatRupiah(currentMonthMasuk)}</strong>) bersama sisa kas bulan kemarin (<strong>{formatRupiah(saldoAwalBulanIni)}</strong>). Biaya tagihan server: <strong>{formatRupiah(currentMonthKeluar)}</strong>. Sisa kas riil saat ini: <strong>{formatRupiah(totalKasTersediaSaatIni)}</strong> ({formatUSD(totalKasTersediaSaatIni)}).
                       </div>
                     </div>
                   ) : (
@@ -781,7 +789,7 @@ export function DatabaseMaintenanceBanner() {
                       <div className="text-xs text-dark">
                         <strong>Mohon Bantuannya untuk Pemeliharaan Database.</strong>
                         <br />
-                        Dana donasi yang dihimpun di bulan ini dialokasikan untuk membayar tagihan server database pemakaian bulan kemarin. Dana terkumpul (sisa kas kemarin + donasi berjalan): <strong>{formatUSD(effectiveSaldo)}</strong> dari target <strong>{formatUSD(TARGET_MONTHLY_IDR)}</strong>{sisaTarget > 0 ? ` (Kekurangan bulan ini: ${formatUSD(sisaTarget)})` : ""}. Donasi sukarela Anda sangat membantu menjaga kelangsungan operasional sistem.
+                        Dana donasi yang dihimpun di bulan ini dialokasikan untuk membayar tagihan server database pemakaian {targetMonthLabel.toLowerCase()}. Dana terkumpul (sisa kas kemarin + donasi berjalan): <strong>{formatUSD(effectiveSaldo)}</strong> dari target <strong>{formatUSD(TARGET_MONTHLY_IDR)}</strong>{sisaTarget > 0 ? ` (Kekurangan bulan ini: ${formatUSD(sisaTarget)})` : ""}. Donasi sukarela Anda sangat membantu menjaga kelangsungan operasional sistem.
                       </div>
                     </div>
                   )}
@@ -791,7 +799,7 @@ export function DatabaseMaintenanceBanner() {
                     <div className="d-flex align-items-center justify-content-between mb-2">
                       <div className="fw-bold text-dark text-sm d-flex align-items-center gap-1.5">
                         <i className={`bi ${isTargetAchieved ? "bi-patch-check-fill text-success" : "bi-bullseye text-primary"}`} />
-                        Tagihan Server Bulan Kemarin ({formatUSD(TARGET_MONTHLY_IDR)})
+                        Tagihan Server {targetMonthLabel} ({formatUSD(TARGET_MONTHLY_IDR)})
                       </div>
                       <div className="text-xs fw-bold text-success">
                         {formatUSD(effectiveSaldo)} / {formatUSD(TARGET_MONTHLY_IDR)}
@@ -805,7 +813,7 @@ export function DatabaseMaintenanceBanner() {
                     </div>
                     <div className="d-flex align-items-center justify-content-between mt-1 flex-wrap gap-1">
                       <div className={`text-xxs fw-semibold ${isTargetAchieved ? "text-success" : "text-danger"}`}>
-                        {isTargetAchieved ? "✓ Tagihan Server Bulan Kemarin Terbayar Lunas" : `Kekurangan Bulan Ini: ${formatUSD(sisaTarget)}`}
+                        {isTargetAchieved ? `✓ Tagihan Server ${targetMonthLabel} Terbayar Lunas` : `Kekurangan Bulan Ini: ${formatUSD(sisaTarget)}`}
                       </div>
                       <div className="text-xxs text-muted fw-semibold">
                         Sisa Kemarin: {formatRupiah(saldoAwalBulanIni)} + Masuk: {formatRupiah(currentMonthMasuk)} | Kas Akhir: {formatRupiah(totalKasTersediaSaatIni)}
