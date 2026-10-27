@@ -33,3 +33,21 @@ export type DonasiTransaksiDraft = {
   keterangan: string;
   hidden_nama_pengirim?: number;
 };
+
+export type DonasiTransaksiTagihanRecord = {
+  id: string | number;
+  nama_pengirim: string;
+  tanggal: string;
+  jumlah_tagihan: number;
+  keterangan: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type DonasiTransaksiTagihanDraft = {
+  nama_pengirim: string;
+  tanggal: string;
+  jumlah_tagihan: string | number;
+  keterangan: string;
+};
+

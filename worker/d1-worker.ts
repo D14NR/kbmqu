@@ -35,6 +35,7 @@ const allowedTables = new Set([
   "penempatan_pengajar_dicabang",
   "donasi",
   "donasi_transaksi",
+  "donasi_transaksi_tagihan",
 ]);
 
 
@@ -117,7 +118,7 @@ const buildInsertSql = (table, row) => {
   const normalizedRow = { ...row };
 
   // Generate UUID if not provided, EXCEPT for tables with AUTOINCREMENT id
-  if (!normalizedRow.id && table !== 'donasi_transaksi') {
+  if (!normalizedRow.id && table !== 'donasi_transaksi' && table !== 'donasi_transaksi_tagihan') {
     normalizedRow.id = crypto.randomUUID();
   }
 

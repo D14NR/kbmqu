@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { apiFetch } from "../../lib/api";
-import type { DonasiTransaksiRecord } from "../../types/donasi";
+import type { DonasiTransaksiRecord, DonasiTransaksiTagihanRecord } from "../../types/donasi";
 
 // Durasi tampil otomatis sebelum di-hidden: 2.5 menit (150 detik)
 const AUTO_HIDE_SECONDS = 30;
@@ -76,6 +76,7 @@ export function DatabaseMaintenanceBanner() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailTransaksiOpen, setIsDetailTransaksiOpen] = useState(false);
   const [transaksiList, setTransaksiList] = useState<DonasiTransaksiRecord[]>([]);
+  const [tagihanList, setTagihanList] = useState<DonasiTransaksiTagihanRecord[]>([]);
   const [loadingTransaksi, setLoadingTransaksi] = useState(false);
   const [searchTransaksi, setSearchTransaksi] = useState("");
   const [filterType, setFilterType] = useState<"all" | "masuk" | "keluar">("all");
@@ -186,24 +187,44 @@ export function DatabaseMaintenanceBanner() {
   // Total Kas Tersedia Riil Saat Ini = Sisa Bulan Kemarin + Mutasi Bersih Bulan Ini
   const totalKasTersediaSaatIni = saldoAwalBulanIni + saldoBersihBulanIni;
 
-  // Total Dana Himpunan & Kas yang Tersedia Bulan Ini (Sisa Kas Kemarin + Donasi Masuk Bulan Ini)
-  const totalDanaTersediaBulanIni = Math.max(0, saldoAwalBulanIni) + currentMonthMasuk;
+  const priorMonthKey = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  }, []);
 
-  const TARGET_MONTHLY_USD = 15;
-  const TARGET_MONTHLY_IDR = TARGET_MONTHLY_USD * usdRate;
+  const TARGET_MONTHLY_IDR = useMemo(() => {
+    const currentTagihan = tagihanList.filter((t) => isDateInMonth(t.tanggal, currentMonthKey));
+    const sum = currentTagihan.reduce((acc, t) => acc + (Number(t.jumlah_tagihan) || 0), 0);
+    if (sum === 0) {
+      const priorTagihan = tagihanList.filter((t) => isDateInMonth(t.tanggal, priorMonthKey));
+      const priorSum = priorTagihan.reduce((acc, t) => acc + (Number(t.jumlah_tagihan) || 0), 0);
+      return priorSum > 0 ? priorSum : 15 * usdRate;
+    }
+    return sum;
+  }, [tagihanList, currentMonthKey, priorMonthKey, usdRate]);
 
-  // Target tercapai jika:
-  // 1. Tagihan server bulan ini sudah dibayar lunas (currentMonthKeluar >= TARGET_MONTHLY_IDR)
-  // 2. Atau total dana yang dihimpun (sisa bulan kemarin + donasi bulan ini) mencapai target
-  // 3. Atau kas yang tersedia saat ini mencukupi target
+  const relevantTagihans = useMemo(() => {
+    const current = tagihanList.filter((t) => isDateInMonth(t.tanggal, currentMonthKey));
+    if (current.length > 0) return current;
+    return tagihanList.filter((t) => isDateInMonth(t.tanggal, priorMonthKey));
+  }, [tagihanList, currentMonthKey, priorMonthKey]);
+
+  // Total Dana yang benar-benar tersedia untuk membayar tagihan:
+  // (Apa yang sudah dibayar bulan ini) + (Sisa uang tunai yang ada sekarang, jika positif)
+  const effectiveProgressIDR = currentMonthKeluar + Math.max(0, totalKasTersediaSaatIni);
+
   const isTargetAchieved =
     currentMonthKeluar >= TARGET_MONTHLY_IDR ||
-    totalDanaTersediaBulanIni >= TARGET_MONTHLY_IDR ||
-    totalKasTersediaSaatIni >= TARGET_MONTHLY_IDR;
+    totalKasTersediaSaatIni >= TARGET_MONTHLY_IDR ||
+    effectiveProgressIDR >= TARGET_MONTHLY_IDR;
 
   const effectiveSaldo = isTargetAchieved
-    ? Math.max(TARGET_MONTHLY_IDR, totalDanaTersediaBulanIni)
-    : Math.max(0, totalDanaTersediaBulanIni);
+    ? Math.max(TARGET_MONTHLY_IDR, effectiveProgressIDR)
+    : Math.max(0, effectiveProgressIDR);
+    
   const progressPercent = Math.min(100, Math.round((effectiveSaldo / TARGET_MONTHLY_IDR) * 100));
   const sisaTarget = isTargetAchieved ? 0 : Math.max(0, TARGET_MONTHLY_IDR - effectiveSaldo);
 
@@ -333,9 +354,13 @@ export function DatabaseMaintenanceBanner() {
   const fetchTransaksiList = async () => {
     setLoadingTransaksi(true);
     try {
-      const res = await apiFetch<any>("/db/donasi_transaksi");
-      const rawList = Array.isArray(res) ? res : (res?.data || []);
-      const mapped: DonasiTransaksiRecord[] = (rawList || []).map((row: any) => ({
+      const [resTrx, resTagihan] = await Promise.all([
+        apiFetch<any>("/db/donasi_transaksi"),
+        apiFetch<any>("/db/donasi_transaksi_tagihan"),
+      ]);
+      
+      const rawTrxList = Array.isArray(resTrx) ? resTrx : (resTrx?.data || []);
+      const mappedTrx: DonasiTransaksiRecord[] = (rawTrxList || []).map((row: any) => ({
         id: row.id,
         nama_pengirim: String(row.data?.["Nama Pengirim"] || row.nama_pengirim || "*******"),
         tanggal: String(row.data?.["Tanggal"] || row.tanggal || ""),
@@ -354,9 +379,21 @@ export function DatabaseMaintenanceBanner() {
         created_at: String(row.data?.["Created At"] || row.created_at || ""),
         updated_at: String(row.data?.["Updated At"] || row.updated_at || ""),
       }));
-      setTransaksiList(mapped);
+      setTransaksiList(mappedTrx);
+
+      const rawTagihanList = Array.isArray(resTagihan) ? resTagihan : (resTagihan?.data || []);
+      const mappedTagihan: DonasiTransaksiTagihanRecord[] = (rawTagihanList || []).map((row: any) => ({
+        id: row.id,
+        nama_pengirim: String(row.data?.["Nama Pengirim"] || row.nama_pengirim || ""),
+        tanggal: String(row.data?.["Tanggal"] || row.tanggal || ""),
+        jumlah_tagihan: Number(row.data?.["Jumlah Tagihan"] ?? row.jumlah_tagihan ?? 0),
+        keterangan: String(row.data?.["Keterangan"] || row.keterangan || ""),
+        created_at: String(row.data?.["Created At"] || row.created_at || ""),
+        updated_at: String(row.data?.["Updated At"] || row.updated_at || ""),
+      }));
+      setTagihanList(mappedTagihan);
     } catch (err) {
-      console.error("Gagal memuat transaksi donasi", err);
+      console.error("Gagal memuat data donasi & tagihan", err);
     } finally {
       setLoadingTransaksi(false);
     }
@@ -754,7 +791,7 @@ export function DatabaseMaintenanceBanner() {
                     <div className="d-flex align-items-center justify-content-between mb-2">
                       <div className="fw-bold text-dark text-sm d-flex align-items-center gap-1.5">
                         <i className={`bi ${isTargetAchieved ? "bi-patch-check-fill text-success" : "bi-bullseye text-primary"}`} />
-                        Tagihan Server Bulan Kemarin ($15)
+                        Tagihan Server Bulan Kemarin ({formatUSD(TARGET_MONTHLY_IDR)})
                       </div>
                       <div className="text-xs fw-bold text-success">
                         {formatUSD(effectiveSaldo)} / {formatUSD(TARGET_MONTHLY_IDR)}
@@ -772,6 +809,53 @@ export function DatabaseMaintenanceBanner() {
                       </div>
                       <div className="text-xxs text-muted fw-semibold">
                         Sisa Kemarin: {formatRupiah(saldoAwalBulanIni)} + Masuk: {formatRupiah(currentMonthMasuk)} | Kas Akhir: {formatRupiah(totalKasTersediaSaatIni)}
+                      </div>
+                    </div>
+
+                    {/* Detailed Bill List */}
+                    <div className="mt-3 pt-2 border-top">
+                      <div className="text-xxs fw-bold text-uppercase text-muted mb-2">Rincian Tagihan:</div>
+                      <div className="table-responsive">
+                        <table className="table table-sm table-borderless mb-0" style={{ fontSize: '0.7rem' }}>
+                          <thead className="text-muted border-bottom">
+                            <tr>
+                              <th className="ps-0 py-1">Tanggal</th>
+                              <th className="py-1">Keterangan</th>
+                              <th className="pe-0 py-1 text-end">Jumlah</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {relevantTagihans.length > 0 ? (
+                              relevantTagihans.map((t, idx) => (
+                                <tr key={idx} className="border-bottom border-light">
+                                  <td className="ps-0 py-1.5 text-nowrap">
+                                    {formatDateDisplay(t.tanggal)}
+                                  </td>
+                                  <td className="py-1.5 text-truncate" style={{ maxWidth: '200px' }}>
+                                    {t.keterangan || "Tagihan Server"}
+                                  </td>
+                                  <td className="pe-0 py-1.5 text-end fw-bold text-danger">
+                                    {formatRupiah(t.jumlah_tagihan)}
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr className="border-bottom border-light">
+                                <td className="ps-0 py-1.5 text-muted fst-italic">-</td>
+                                <td className="py-1.5 text-muted fst-italic">Estimasi Biaya Bulanan ($15)</td>
+                                <td className="pe-0 py-1.5 text-end fw-bold text-danger">
+                                  {formatRupiah(TARGET_MONTHLY_IDR)}
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                          <tfoot className="fw-bold">
+                            <tr>
+                              <td colSpan={2} className="ps-0 py-1.5 text-dark">Total Tagihan:</td>
+                              <td className="pe-0 py-1.5 text-end text-danger">{formatRupiah(TARGET_MONTHLY_IDR)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
                       </div>
                     </div>
                   </div>

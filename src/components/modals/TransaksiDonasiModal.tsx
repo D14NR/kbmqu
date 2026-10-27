@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import type { DonasiTransaksiDraft } from "../../types/donasi";
+import type { DonasiTransaksiDraft, DonasiTransaksiTagihanRecord } from "../../types/donasi";
 
 type TransaksiDonasiModalProps = {
   isOpen: boolean;
@@ -7,6 +7,7 @@ type TransaksiDonasiModalProps = {
   draft: DonasiTransaksiDraft;
   error: string;
   loading: boolean;
+  tagihanRecords?: DonasiTransaksiTagihanRecord[];
   onClose: () => void;
   onChange: (field: keyof DonasiTransaksiDraft, value: string | number) => void;
   onSave: () => void;
@@ -15,8 +16,9 @@ type TransaksiDonasiModalProps = {
 const QUICK_NOMINALS = [25000, 50000, 100000, 200000, 500000, 1000000];
 const KETERANGAN_PRESETS = [
   "donasi masuk",
-  "pemeliharaan database&server",
-  "biaya perpanjangan domain/server",
+  "Operations Writes, Deletes, Read",
+  "pemeliharaan database & server",
+  "biaya perpanjangan database & server",
   "pemeliharaan sistem & backup",
 ];
 
@@ -44,11 +46,13 @@ export function TransaksiDonasiModal({
   draft,
   error,
   loading,
+  tagihanRecords = [],
   onClose,
   onChange,
   onSave,
 }: TransaksiDonasiModalProps) {
   const [transactionType, setTransactionType] = useState<"masuk" | "keluar">("masuk");
+  const [selectedTagihanId, setSelectedTagihanId] = useState<string>("");
 
   useEffect(() => {
     if (isOpen) {
@@ -59,6 +63,92 @@ export function TransaksiDonasiModal({
       }
     }
   }, [isOpen, draft.jumlah_transaksi_masuk, draft.jumlah_transaksi_keluar]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedTagihanId("");
+    } else if (transactionType === "keluar" && tagihanRecords.length > 0) {
+      const match = tagihanRecords.find(
+        (t) =>
+          t.nama_pengirim === draft.nama_pengirim &&
+          Number(t.jumlah_tagihan) === Number(draft.jumlah_transaksi_keluar)
+      );
+      if (match) {
+        setSelectedTagihanId(String(match.id));
+      }
+    }
+  }, [isOpen, transactionType]);
+
+  const selectedTagihan = tagihanRecords.find((t) => String(t.id) === String(selectedTagihanId));
+
+  const getTagihanMonthKey = (dateStr?: string, fallback?: string) => {
+    const raw = dateStr || fallback || "";
+    if (!raw) return "";
+    try {
+      const d = new Date(raw);
+      if (isNaN(d.getTime())) {
+        const match = raw.match(/(\d{4})-(\d{2})/);
+        if (match) return match[0];
+        return "";
+      }
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    } catch {
+      return "";
+    }
+  };
+
+  const currentTransactionMonth = React.useMemo(() => getTagihanMonthKey(draft.tanggal), [draft.tanggal]);
+
+  const filteredTagihanByMonth = React.useMemo(() => {
+    if (!currentTransactionMonth) return tagihanRecords;
+    return tagihanRecords.filter((t) => getTagihanMonthKey(t.tanggal, t.created_at) === currentTransactionMonth);
+  }, [tagihanRecords, currentTransactionMonth]);
+
+  const getTagihanDatePart = (val?: string, fallback?: string) => {
+    const raw = val || fallback || "";
+    if (!raw) return "";
+    try {
+      const d = new Date(raw);
+      if (isNaN(d.getTime())) {
+        // Fallback to regex if Date fails
+        const match = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+          return `${match[3]}/${match[2]}/${match[1]}`;
+        }
+        return raw.split("T")[0];
+      }
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    } catch {
+      return "";
+    }
+  };
+
+  const handleSelectTagihan = (tagihanId: string) => {
+    setSelectedTagihanId(tagihanId);
+    if (!tagihanId) return;
+
+    const tagihan = tagihanRecords.find((t) => String(t.id) === String(tagihanId));
+    if (tagihan) {
+      const datePart = getTagihanDatePart(tagihan.tanggal, tagihan.created_at);
+      const baseKeterangan = tagihan.keterangan || "tagihan bulan ini";
+      const finalKeterangan = datePart ? `${baseKeterangan} (${datePart})` : baseKeterangan;
+
+      onChange("nama_pengirim", tagihan.nama_pengirim);
+      onChange("jumlah_transaksi_keluar", tagihan.jumlah_tagihan);
+      onChange("jumlah_transaksi_masuk", 0);
+      onChange("keterangan", finalKeterangan);
+    }
+  };
+
+  const handleClearSelectedTagihan = () => {
+    setSelectedTagihanId("");
+    onChange("nama_pengirim", "");
+    onChange("jumlah_transaksi_keluar", 0);
+    onChange("keterangan", "pemeliharaan database & server");
+  };
 
   if (!isOpen) {
     return null;
@@ -163,6 +253,95 @@ export function TransaksiDonasiModal({
               </button>
             </div>
           </div>
+
+          {/* Pilihan Tagihan untuk Transaksi Keluar */}
+          {transactionType === "keluar" && (
+            <div className="p-3 rounded-4 border border-danger-subtle bg-danger-subtle bg-opacity-10 shadow-xs">
+              <div className="d-flex justify-content-between align-items-center mb-1.5 flex-wrap gap-1">
+                <label className="form-label text-xs fw-bold text-danger mb-0 d-flex align-items-center gap-1.5">
+                  <i className="bi bi-receipt-cutoff fs-6" />
+                  <span>Pilih Tagihan yang Mau Dibayarkan:</span>
+                </label>
+                {selectedTagihanId && (
+                  <button
+                    type="button"
+                    onClick={handleClearSelectedTagihan}
+                    className="btn btn-xs btn-link text-danger text-decoration-none p-0 text-xxs fw-semibold"
+                  >
+                    <i className="bi bi-x-circle me-1" />
+                    Reset Pilihan
+                  </button>
+                )}
+              </div>
+
+              {filteredTagihanByMonth.length === 0 ? (
+                <div className="text-xxs text-muted fst-italic py-1">
+                  Tidak ada tagihan tercatat untuk bulan {new Date(draft.tanggal).toLocaleDateString("id-ID", { month: "long", year: "numeric" })}.
+                </div>
+              ) : (
+                <>
+                  <select
+                    className="form-select form-select-sm text-xs rounded-3 border-danger-subtle bg-white py-2 shadow-xs"
+                    value={selectedTagihanId}
+                    onChange={(e) => handleSelectTagihan(e.target.value)}
+                  >
+                    <option value="">-- Pilih Tagihan Bulan Ini ({filteredTagihanByMonth.length} Tersedia) --</option>
+                    {filteredTagihanByMonth.map((t) => {
+                      const displayId = String(t.id).includes(":") ? String(t.id).split(":").pop() : t.id;
+                      const datePart = getTagihanDatePart(t.tanggal, t.created_at);
+                      return (
+                        <option key={String(t.id)} value={String(t.id)}>
+                          #{displayId} {datePart && `[${datePart}]`} - {t.nama_pengirim} | {formatRupiahPreview(t.jumlah_tagihan)}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  {selectedTagihan ? (
+                    <div className="mt-2 p-2.5 rounded-3 bg-white border border-success-subtle text-xs d-flex align-items-center justify-content-between shadow-xs">
+                      <div className="d-flex align-items-center gap-2">
+                        <div className="rounded-circle bg-success-subtle text-success p-1 d-flex align-items-center justify-content-center">
+                          <i className="bi bi-check-lg" />
+                        </div>
+                        <div>
+                          <div className="fw-bold text-dark text-xs">
+                            #{String(selectedTagihan.id).split(":").pop()} {(() => {
+                              const dp = getTagihanDatePart(selectedTagihan.tanggal, selectedTagihan.created_at);
+                              return dp ? `[${dp}]` : "";
+                            })()} - {selectedTagihan.nama_pengirim}
+                          </div>
+                          <div className="text-xxs text-muted">
+                            Nominal: <strong className="text-danger">{formatRupiahPreview(selectedTagihan.jumlah_tagihan)}</strong> | {selectedTagihan.keterangan}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 text-xxs fw-semibold">
+                        Otomatis Terisi
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="d-flex align-items-center gap-1.5 flex-wrap mt-2">
+                      <span className="text-xxs text-muted fw-semibold">Pilih Cepat:</span>
+                      {filteredTagihanByMonth.slice(0, 4).map((t) => {
+                        const displayId = String(t.id).includes(":") ? String(t.id).split(":").pop() : t.id;
+                        const datePart = getTagihanDatePart(t.tanggal, t.created_at);
+                        return (
+                          <button
+                            key={String(t.id)}
+                            type="button"
+                            onClick={() => handleSelectTagihan(String(t.id))}
+                            className="badge bg-white text-dark border text-xxs rounded-pill text-decoration-none py-1 px-2 hover-bg-danger-subtle shadow-xs"
+                          >
+                            #{displayId} {datePart && `[${datePart}]`} {t.nama_pengirim} ({formatRupiahPreview(t.jumlah_tagihan)})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {/* Tanggal & Waktu */}
           <div>
@@ -340,7 +519,15 @@ export function TransaksiDonasiModal({
                       ? "btn-dark text-white"
                       : "btn-light text-muted border-secondary-subtle"
                   }`}
-                  onClick={() => onChange("keterangan", preset)}
+                  onClick={() => {
+                    if (selectedTagihan) {
+                      const datePart = getTagihanDatePart(selectedTagihan.tanggal, selectedTagihan.created_at);
+                      const finalVal = datePart ? `${preset} (${datePart})` : preset;
+                      onChange("keterangan", finalVal);
+                    } else {
+                      onChange("keterangan", preset);
+                    }
+                  }}
                 >
                   {preset}
                 </button>

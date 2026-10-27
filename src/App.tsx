@@ -21,6 +21,7 @@ import {
 import { AccountsCabangModal } from "./components/modals/AccountsCabangModal";
 import { DonasiModal } from "./components/modals/DonasiModal";
 import { TransaksiDonasiModal } from "./components/modals/TransaksiDonasiModal";
+import { TransaksiTagihanModal } from "./components/modals/TransaksiTagihanModal";
 import {
   PermintaanPengajarModal,
   type PermintaanDraft,
@@ -40,6 +41,8 @@ import type {
   DonasiDraft,
   DonasiTransaksiRecord,
   DonasiTransaksiDraft,
+  DonasiTransaksiTagihanRecord,
+  DonasiTransaksiTagihanDraft,
 } from "./types/donasi";
 import { PenempatanPengajarView } from "./components/views/PenempatanPengajarView";
 import { IzinPengajarView } from "./components/views/IzinPengajarView";
@@ -123,6 +126,7 @@ export function App() {
     "accounts_cabang": "accounts_cabang",
     "donasi": "donasi",
     "donasi_transaksi": "donasi_transaksi",
+    "donasi_transaksi_tagihan": "donasi_transaksi_tagihan",
     "Riwayat Notifikasi Pengajar": "riwayat_notifikasi_pengajar",
   } as const;
 
@@ -290,6 +294,17 @@ export function App() {
   });
   const [editingTransaksiDonasiId, setEditingTransaksiDonasiId] = useState<string | null>(null);
   const [transaksiDonasiError, setTransaksiDonasiError] = useState("");
+
+  const [transaksiTagihanRecords, setTransaksiTagihanRecords] = useState<DonasiTransaksiTagihanRecord[]>([]);
+  const [isTransaksiTagihanModalOpen, setIsTransaksiTagihanModalOpen] = useState(false);
+  const [transaksiTagihanDraft, setTransaksiTagihanDraft] = useState<DonasiTransaksiTagihanDraft>({
+    nama_pengirim: "",
+    tanggal: new Date().toISOString().slice(0, 10),
+    jumlah_tagihan: 0,
+    keterangan: "tagihan bulan ini",
+  });
+  const [editingTransaksiTagihanId, setEditingTransaksiTagihanId] = useState<string | null>(null);
+  const [transaksiTagihanError, setTransaksiTagihanError] = useState("");
   const [selectedSuratTugasMonthKey, setSelectedSuratTugasMonthKey] = useState<string>(() => {
     try {
       const saved = localStorage.getItem("selectedMonthKey");
@@ -5027,10 +5042,12 @@ export function App() {
       if (options?.forceFresh) {
         invalidateReadCacheForBucket(dataBucket["donasi"]);
         invalidateReadCacheForBucket(dataBucket["donasi_transaksi"]);
+        invalidateReadCacheForBucket(dataBucket["donasi_transaksi_tagihan"]);
       }
-      const [donasiRows, transaksiRows] = await Promise.all([
+      const [donasiRows, transaksiRows, tagihanRows] = await Promise.all([
         listRows(dataBucket["donasi"], Boolean(options?.forceFresh)),
         listRows(dataBucket["donasi_transaksi"], Boolean(options?.forceFresh)).catch(() => []),
+        listRows(dataBucket["donasi_transaksi_tagihan"], Boolean(options?.forceFresh)).catch(() => []),
       ]);
 
       const normalizedDonasi: DonasiRecord[] = donasiRows.map((row) => ({
@@ -5069,6 +5086,21 @@ export function App() {
         updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
       }));
       setTransaksiDonasiRecords(normalizedTransaksi);
+
+      const normalizedTagihan: DonasiTransaksiTagihanRecord[] = tagihanRows.map((row) => ({
+        id: row.id,
+        nama_pengirim: String(row.data["Nama Pengirim"] || (row.data as any).nama_pengirim || ""),
+        tanggal: String(row.data["Tanggal"] || (row.data as any).tanggal || ""),
+        jumlah_tagihan: Number(
+          row.data["Jumlah Tagihan"] ??
+            (row.data as any).jumlah_tagihan ??
+            0
+        ),
+        keterangan: String(row.data["Keterangan"] || (row.data as any).keterangan || "tagihan bulan ini"),
+        created_at: String(row.data["Created At"] || (row as any).createdAt || (row as any).created_at || ""),
+        updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
+      }));
+      setTransaksiTagihanRecords(normalizedTagihan);
 
       setDonasiStatus({
         loading: false,
@@ -5216,6 +5248,141 @@ export function App() {
       console.error("Toggle Hide Nama Error:", error);
       pushToast("Gagal mengubah status privasi nama pengirim.", "error");
     }
+  };
+
+  const handlePayTagihan = (tagihan: DonasiTransaksiTagihanRecord) => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    const getTagihanDatePart = (val?: string, fallback?: string) => {
+      const raw = val || fallback || "";
+      if (!raw) return "";
+      try {
+        const d = new Date(raw);
+        if (isNaN(d.getTime())) {
+          const match = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+          if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+          return raw.split("T")[0];
+        }
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const yyyy = d.getFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+      } catch { return ""; }
+    };
+
+    const datePart = getTagihanDatePart(tagihan.tanggal, tagihan.created_at);
+    const baseKeterangan = tagihan.keterangan || "tagihan bulan ini";
+    const finalKeterangan = datePart ? `${baseKeterangan} (${datePart})` : baseKeterangan;
+
+    setTransaksiDonasiDraft({
+      nama_pengirim: tagihan.nama_pengirim || "",
+      tanggal: currentDateTime,
+      jumlah_transaksi_masuk: 0,
+      jumlah_transaksi_keluar: tagihan.jumlah_tagihan || 0,
+      keterangan: finalKeterangan,
+      hidden_nama_pengirim: 0,
+    });
+    setEditingTransaksiDonasiId(null);
+    setTransaksiDonasiError("");
+    setIsTransaksiDonasiModalOpen(true);
+  };
+
+  const handleOpenTransaksiTagihanModal = (record?: DonasiTransaksiTagihanRecord) => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    if (record) {
+      setTransaksiTagihanDraft({
+        nama_pengirim: record.nama_pengirim || "",
+        tanggal: record.tanggal || currentDateTime,
+        jumlah_tagihan: record.jumlah_tagihan || 0,
+        keterangan: record.keterangan || "tagihan bulan ini",
+      });
+      setEditingTransaksiTagihanId(String(record.id) || null);
+    } else {
+      setTransaksiTagihanDraft({
+        nama_pengirim: "",
+        tanggal: currentDateTime,
+        jumlah_tagihan: 0,
+        keterangan: "tagihan bulan ini",
+      });
+      setEditingTransaksiTagihanId(null);
+    }
+    setTransaksiTagihanError("");
+    setIsTransaksiTagihanModalOpen(true);
+  };
+
+  const handleTransaksiTagihanDraftChange = (
+    field: keyof DonasiTransaksiTagihanDraft,
+    value: string | number
+  ) => {
+    setTransaksiTagihanDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveTransaksiTagihan = async () => {
+    const nama_pengirim = String(transaksiTagihanDraft.nama_pengirim || "").trim();
+    const tanggal = String(transaksiTagihanDraft.tanggal || "").trim() || new Date().toISOString().slice(0, 10);
+    const jumlah_tagihan = Number(String(transaksiTagihanDraft.jumlah_tagihan || 0).replace(/[^0-9.-]+/g, "")) || 0;
+    const keterangan = String(transaksiTagihanDraft.keterangan || "").trim() || "tagihan bulan ini";
+
+    if (!nama_pengirim) {
+      setTransaksiTagihanError("Nama pengirim / vendor tagihan wajib diisi.");
+      return;
+    }
+    if (jumlah_tagihan <= 0) {
+      setTransaksiTagihanError("Jumlah tagihan harus diisi lebih besar dari Rp 0.");
+      return;
+    }
+
+    const payload: Record<string, string> = {
+      "Nama Pengirim": nama_pengirim,
+      Tanggal: tanggal,
+      "Jumlah Tagihan": String(jumlah_tagihan),
+      Keterangan: keterangan,
+    };
+
+    try {
+      if (editingTransaksiTagihanId) {
+        await updateRow(editingTransaksiTagihanId, payload);
+        pushToast("Data transaksi tagihan berhasil diperbarui.", "success");
+      } else {
+        await insertRow(dataBucket["donasi_transaksi_tagihan"], payload);
+        pushToast("Data transaksi tagihan berhasil dicatat.", "success");
+      }
+      setIsTransaksiTagihanModalOpen(false);
+      await handleLoadDonasi();
+    } catch (error: any) {
+      console.error("Save Transaksi Tagihan Error:", error);
+      setTransaksiTagihanError(error.message || "Gagal menyimpan transaksi tagihan.");
+      pushToast("Gagal menyimpan transaksi tagihan: " + (error.message || ""), "error");
+    }
+  };
+
+  const handleDeleteTransaksiTagihan = (record: DonasiTransaksiTagihanRecord) => {
+    openConfirmDialog(
+      `Hapus data transaksi tagihan dari ${record.nama_pengirim || "Vendor"} senilai Rp ${new Intl.NumberFormat("id-ID").format(
+        record.jumlah_tagihan
+      )} (${record.keterangan || "tagihan bulan ini"})?`,
+      async () => {
+        setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          await deleteRowsByIds([String(record.id)]);
+          await handleLoadDonasi();
+          pushToast("Transaksi tagihan berhasil dihapus.", "success");
+        } catch (error) {
+          setDonasiStatus((prev) => ({
+            ...prev,
+            loading: false,
+            error: "Gagal menghapus transaksi tagihan.",
+          }));
+          pushToast("Gagal menghapus transaksi tagihan.", "error");
+        }
+      },
+      { title: "Hapus Transaksi Tagihan", confirmLabel: "Hapus" }
+    );
   };
 
   const handleOpenDonasiModal = (record?: DonasiRecord) => {
@@ -5541,6 +5708,7 @@ export function App() {
         isAccountsCabangModalOpen ||
         isDonasiModalOpen ||
         isTransaksiDonasiModalOpen ||
+        isTransaksiTagihanModalOpen ||
         isExportClassModalOpen ||
         confirmDialog.open ||
         isPendingNotificationModalOpen ||
@@ -5604,6 +5772,7 @@ export function App() {
     isAccountsCabangModalOpen,
     isDonasiModalOpen,
     isTransaksiDonasiModalOpen,
+    isTransaksiTagihanModalOpen,
     isExportClassModalOpen,
     confirmDialog.open,
     isPendingNotificationModalOpen,
@@ -9156,6 +9325,7 @@ export function App() {
                         loading={donasiStatus.loading}
                         records={donasiRecords}
                         transaksiRecords={transaksiDonasiRecords}
+                        tagihanRecords={transaksiTagihanRecords}
                         isAdmin={isAdmin}
                         onAdd={isAdmin ? () => handleOpenDonasiModal() : () => {}}
                         onEdit={isAdmin ? handleOpenDonasiModal : () => {}}
@@ -9164,6 +9334,10 @@ export function App() {
                         onEditTransaksi={isAdmin ? handleOpenTransaksiDonasiModal : undefined}
                         onDeleteTransaksi={isAdmin ? handleDeleteTransaksiDonasi : undefined}
                         onToggleHideNamaTransaksi={isAdmin ? handleToggleHideNamaTransaksiDonasi : undefined}
+                        onAddTagihan={isAdmin ? () => handleOpenTransaksiTagihanModal() : undefined}
+                        onEditTagihan={isAdmin ? handleOpenTransaksiTagihanModal : undefined}
+                        onDeleteTagihan={isAdmin ? handleDeleteTransaksiTagihan : undefined}
+                        onPayTagihan={isAdmin ? handlePayTagihan : undefined}
                         onRefresh={handleLoadDonasi}
                       />
                     ) : activeKey === "suratTugasMengajar" ? (
@@ -9407,9 +9581,21 @@ export function App() {
         draft={transaksiDonasiDraft}
         error={transaksiDonasiError}
         loading={donasiStatus.loading}
+        tagihanRecords={transaksiTagihanRecords}
         onClose={() => setIsTransaksiDonasiModalOpen(false)}
         onChange={handleTransaksiDonasiDraftChange}
         onSave={handleSaveTransaksiDonasi}
+      />
+
+      <TransaksiTagihanModal
+        isOpen={isTransaksiTagihanModalOpen}
+        isEditing={Boolean(editingTransaksiTagihanId)}
+        draft={transaksiTagihanDraft}
+        error={transaksiTagihanError}
+        loading={donasiStatus.loading}
+        onClose={() => setIsTransaksiTagihanModalOpen(false)}
+        onChange={handleTransaksiTagihanDraftChange}
+        onSave={handleSaveTransaksiTagihan}
       />
 
       <PendingNotificationModal

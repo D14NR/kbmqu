@@ -1,10 +1,15 @@
 import React, { useState, useMemo } from "react";
-import type { DonasiRecord, DonasiTransaksiRecord } from "../../types/donasi";
+import type {
+  DonasiRecord,
+  DonasiTransaksiRecord,
+  DonasiTransaksiTagihanRecord,
+} from "../../types/donasi";
 
 type DonasiViewProps = {
   loading: boolean;
   records: DonasiRecord[];
   transaksiRecords?: DonasiTransaksiRecord[];
+  tagihanRecords?: DonasiTransaksiTagihanRecord[];
   isAdmin?: boolean;
   onAdd: () => void;
   onEdit: (record: DonasiRecord) => void;
@@ -13,6 +18,10 @@ type DonasiViewProps = {
   onEditTransaksi?: (record: DonasiTransaksiRecord) => void;
   onDeleteTransaksi?: (record: DonasiTransaksiRecord) => void;
   onToggleHideNamaTransaksi?: (record: DonasiTransaksiRecord) => void;
+  onAddTagihan?: () => void;
+  onEditTagihan?: (record: DonasiTransaksiTagihanRecord) => void;
+  onDeleteTagihan?: (record: DonasiTransaksiTagihanRecord) => void;
+  onPayTagihan?: (record: DonasiTransaksiTagihanRecord) => void;
   onRefresh: () => void;
 };
 
@@ -20,6 +29,7 @@ export function DonasiView({
   loading,
   records,
   transaksiRecords = [],
+  tagihanRecords = [],
   isAdmin = false,
   onAdd,
   onEdit,
@@ -28,9 +38,13 @@ export function DonasiView({
   onEditTransaksi,
   onDeleteTransaksi,
   onToggleHideNamaTransaksi,
+  onAddTagihan,
+  onEditTagihan,
+  onDeleteTagihan,
+  onPayTagihan,
   onRefresh,
 }: DonasiViewProps) {
-  const [activeTab, setActiveTab] = useState<"rekening" | "transaksi">("rekening");
+  const [activeTab, setActiveTab] = useState<"rekening" | "transaksi" | "tagihan">("rekening");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "masuk" | "keluar">("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -74,8 +88,22 @@ export function DonasiView({
       }
     });
 
+    tagihanRecords.forEach((t) => {
+      const raw = t.tanggal || t.created_at || "";
+      if (raw) {
+        try {
+          const d = new Date(raw);
+          if (!isNaN(d.getTime())) {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            monthsSet.add(`${year}-${month}`);
+          }
+        } catch {}
+      }
+    });
+
     return Array.from(monthsSet).sort().reverse();
-  }, [transaksiRecords]);
+  }, [transaksiRecords, tagihanRecords]);
 
   // Filter Transaksi Berdasarkan Bulan Terpilih
   const monthTransaksiRecords = useMemo(() => {
@@ -214,6 +242,57 @@ export function DonasiView({
     });
   }, [monthTransaksiRecords, filterType, searchQuery]);
 
+  // Filter Transaksi Tagihan Berdasarkan Bulan Terpilih
+  const monthTagihanRecords = useMemo(() => {
+    if (selectedMonth === "all") {
+      return tagihanRecords;
+    }
+    return tagihanRecords.filter((t) => {
+      const raw = t.tanggal || t.created_at || "";
+      if (!raw) return false;
+      try {
+        const d = new Date(raw);
+        if (isNaN(d.getTime())) {
+          return raw.startsWith(selectedMonth);
+        }
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        return `${year}-${month}` === selectedMonth;
+      } catch {
+        return raw.startsWith(selectedMonth);
+      }
+    });
+  }, [tagihanRecords, selectedMonth]);
+
+  const totalNominalTagihan = useMemo(() => {
+    return monthTagihanRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_tagihan) || 0), 0);
+  }, [monthTagihanRecords]);
+
+  // Filter Tagihan dengan Pencarian
+  const filteredTagihan = useMemo(() => {
+    let result = monthTagihanRecords;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (t) =>
+          t.nama_pengirim.toLowerCase().includes(q) ||
+          (t.keterangan && t.keterangan.toLowerCase().includes(q)) ||
+          t.tanggal.includes(q) ||
+          String(t.jumlah_tagihan).includes(q)
+      );
+    }
+
+    return [...result].sort((a, b) => {
+      const dateA = new Date(a.tanggal || 0).getTime();
+      const dateB = new Date(b.tanggal || 0).getTime();
+      if (dateB !== dateA) {
+        return dateB - dateA;
+      }
+      return Number(b.id || 0) - Number(a.id || 0);
+    });
+  }, [monthTagihanRecords, searchQuery]);
+
   const handleCopy = (text: string, id: string) => {
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text);
@@ -301,7 +380,11 @@ export function DonasiView({
             </span>
             <span className="badge bg-light text-muted border rounded-pill px-2.5 py-1 text-xxs">
               <i className="bi bi-database me-1" />
-              {activeTab === "rekening" ? "Tabel: donasi" : "Tabel: donasi_transaksi"}
+              {activeTab === "rekening"
+                ? "Tabel: donasi"
+                : activeTab === "transaksi"
+                ? "Tabel: donasi_transaksi"
+                : "Tabel: donasi_transaksi_tagihan"}
             </span>
           </div>
           <h4 className="fw-bold text-dark d-flex align-items-center gap-2 mb-1">
@@ -309,7 +392,7 @@ export function DonasiView({
             Kelola Donasi Database
           </h4>
           <p className="text-muted text-xs mb-0">
-            Pengelolaan rekening donasi publik dan pencatatan transaksi masuk/keluar dari skema tabel <code className="text-dark fw-bold">donasi_transaksi</code>.
+            Pengelolaan saluran rekening, mutasi donasi (<code className="text-dark fw-bold">donasi_transaksi</code>), serta pencatatan invoice tagihan server (<code className="text-dark fw-bold">donasi_transaksi_tagihan</code>).
           </p>
         </div>
 
@@ -458,7 +541,7 @@ export function DonasiView({
 
       {/* Nav Tabs Switcher */}
       <div className="d-flex align-items-center justify-content-between border-bottom pb-2 mb-3">
-        <ul className="nav nav-pills gap-2">
+        <ul className="nav nav-pills gap-2 flex-wrap">
           <li className="nav-item">
             <button
               type="button"
@@ -496,14 +579,38 @@ export function DonasiView({
                 setSearchQuery("");
               }}
             >
-              <i className="bi bi-receipt-cutoff text-success" />
-              <span>Transaksi</span>
+              <i className="bi bi-arrow-left-right text-success" />
+              <span>Transaksi Donasi</span>
               <span
                 className={`badge rounded-pill px-2 py-0.5 text-xxs ${
                   activeTab === "transaksi" ? "bg-success text-white" : "bg-light text-secondary border"
                 }`}
               >
                 {transaksiRecords.length}
+              </span>
+            </button>
+          </li>
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link rounded-pill px-4 py-2 text-xs fw-bold d-flex align-items-center gap-2 transition-all ${
+                activeTab === "tagihan"
+                  ? "active bg-danger text-white shadow-sm"
+                  : "bg-white text-secondary border hover-bg-light"
+              }`}
+              onClick={() => {
+                setActiveTab("tagihan");
+                setSearchQuery("");
+              }}
+            >
+              <i className="bi bi-receipt-cutoff" />
+              <span>Transaksi Tagihan</span>
+              <span
+                className={`badge rounded-pill px-2 py-0.5 text-xxs ${
+                  activeTab === "tagihan" ? "bg-white text-danger fw-bold" : "bg-light text-secondary border"
+                }`}
+              >
+                {tagihanRecords.length}
               </span>
             </button>
           </li>
@@ -514,7 +621,9 @@ export function DonasiView({
           <span>
             {activeTab === "rekening"
               ? "Daftar saluran donasi yang tampil di banner modal"
-              : "Riwayat data dari skema donasi_transaksi"}
+              : activeTab === "transaksi"
+              ? "Riwayat mutasi dari skema donasi_transaksi"
+              : "Pencatatan tagihan server dari skema donasi_transaksi_tagihan"}
           </span>
         </div>
       </div>
@@ -536,7 +645,9 @@ export function DonasiView({
                   placeholder={
                     activeTab === "rekening"
                       ? "Cari pemilik, bank, atau rekening..."
-                      : "Cari pengirim, keterangan, atau tanggal..."
+                      : activeTab === "transaksi"
+                      ? "Cari pengirim, keterangan, atau tanggal..."
+                      : "Cari vendor/pengirim, keterangan, atau nominal..."
                   }
                   className="form-control bg-light border-start-0 py-2 text-xs"
                 />
@@ -608,7 +719,7 @@ export function DonasiView({
                     <i className="bi bi-plus-circle-fill text-dark" />
                     <span>Tambah Saluran Donasi</span>
                   </button>
-                ) : (
+                ) : activeTab === "transaksi" ? (
                   <button
                     type="button"
                     onClick={onAddTransaksi}
@@ -616,6 +727,15 @@ export function DonasiView({
                   >
                     <i className="bi bi-plus-circle-fill text-white" />
                     <span>Tambah Transaksi</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onAddTagihan}
+                    className="btn btn-danger btn-sm fw-bold text-white rounded-3 px-3.5 py-1.5 shadow-sm d-flex align-items-center gap-2"
+                  >
+                    <i className="bi bi-plus-circle-fill text-white" />
+                    <span>Tambah Transaksi Tagihan</span>
                   </button>
                 )
               ) : (
@@ -1149,6 +1269,216 @@ export function DonasiView({
                       {formatRupiah(totalKasTersedia)}
                     </td>
                     <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: TRANSAKSI TAGIHAN (donasi_transaksi_tagihan) */}
+      {activeTab === "tagihan" && (
+        <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
+          <div className="card-header bg-white border-bottom p-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div className="d-flex align-items-center gap-2">
+              <i className="bi bi-receipt-cutoff text-danger" />
+              <span className="fw-bold text-dark text-sm">Riwayat Transaksi Tagihan (donasi_transaksi_tagihan)</span>
+              <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0.5 text-xxs fw-bold">
+                {filteredTagihan.length} Data Tagihan
+              </span>
+            </div>
+            <div className="d-flex align-items-center gap-2">
+              <span className="badge bg-light text-muted border text-xxs font-monospace">
+                Total Tagihan: {formatRupiah(totalNominalTagihan)}
+              </span>
+              <span className="text-xxs text-muted d-none d-lg-inline">
+                Skema: <code className="text-dark">id, nama_pengirim, tanggal, jumlah_tagihan, keterangan, created_at, updated_at</code>
+              </span>
+            </div>
+          </div>
+
+          <div className="card-body p-0">
+            <div className="table-responsive" style={{ maxHeight: "65vh" }}>
+              <table className="table table-hover align-middle mb-0">
+                <thead className="table-light border-bottom sticky-top text-xxs text-muted text-uppercase fw-bold">
+                  <tr>
+                    <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 60 }}>
+                      No / ID
+                    </th>
+                    {isAdmin && (
+                      <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 175 }}>
+                        Aksi
+                      </th>
+                    )}
+                    <th scope="col" className="px-3 py-2.5" style={{ minWidth: 140 }}>
+                      Tanggal Tagihan
+                    </th>
+                    <th scope="col" className="px-3 py-2.5" style={{ minWidth: 200 }}>
+                      Nama Pengirim / Vendor
+                    </th>
+                    <th scope="col" className="px-3 py-2.5" style={{ minWidth: 220 }}>
+                      Keterangan Tagihan
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 text-end" style={{ minWidth: 150 }}>
+                      Jumlah Tagihan (Rp)
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 130 }}>
+                      Dicatat Pada
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 130 }}>
+                      Diperbarui
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-xs divide-y">
+                  {filteredTagihan.length === 0 ? (
+                    <tr>
+                      <td colSpan={isAdmin ? 8 : 7} className="text-center py-5 text-muted">
+                        <div className="d-flex flex-column align-items-center justify-content-center">
+                          <i className="bi bi-receipt text-secondary fs-1 mb-2 opacity-50" />
+                          <h6 className="fw-semibold text-dark mb-1">Belum Ada Transaksi Tagihan</h6>
+                          <p className="text-muted text-xs mb-3" style={{ maxWidth: 360 }}>
+                            {searchQuery
+                              ? `Tidak ada data tagihan yang cocok dengan kata kunci "${searchQuery}".`
+                              : `Belum ada catatan transaksi tagihan pada periode ${formatMonthLabel(selectedMonth)}.`}
+                          </p>
+                          {isAdmin && onAddTagihan && (
+                            <button
+                              type="button"
+                              onClick={onAddTagihan}
+                              className="btn btn-outline-danger btn-sm rounded-pill px-3 py-1 text-xs fw-semibold shadow-xs d-flex align-items-center gap-1.5"
+                            >
+                              <i className="bi bi-plus-circle" />
+                              <span>Catat Transaksi Tagihan Baru</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTagihan.map((item, idx) => {
+                      const tagihanVal = Number(item.jumlah_tagihan) || 0;
+                      const dt = formatDateTimeDisplay(item.tanggal, item.created_at);
+
+                      return (
+                        <tr key={String(item.id || idx)}>
+                          {/* No / ID */}
+                          <td className="px-3 py-3 text-center">
+                            <span className="badge bg-light text-secondary border rounded-pill px-2 py-1 font-monospace text-xxs">
+                              #{item.id ?? idx + 1}
+                            </span>
+                          </td>
+
+                          {/* Aksi (Admin Only) */}
+                          {isAdmin && (
+                            <td className="px-3 py-3 text-center">
+                              <div className="d-flex align-items-center justify-content-center gap-1.5 flex-wrap">
+                                {onPayTagihan && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onPayTagihan(item)}
+                                    className="btn btn-success btn-xs rounded-pill px-2.5 py-1 text-white fw-bold shadow-xs d-inline-flex align-items-center gap-1"
+                                    title="Bayar tagihan ini (Catat di donasi_transaksi sebagai Transaksi Keluar)"
+                                  >
+                                    <i className="bi bi-wallet2" />
+                                    <span>Bayar</span>
+                                  </button>
+                                )}
+                                {onEditTagihan && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onEditTagihan(item)}
+                                    className="btn btn-outline-secondary btn-xs rounded-2 px-2 py-1 hover-shadow"
+                                    title="Edit Data Tagihan"
+                                  >
+                                    <i className="bi bi-pencil" />
+                                  </button>
+                                )}
+                                {onDeleteTagihan && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteTagihan(item)}
+                                    className="btn btn-outline-danger btn-xs rounded-2 px-2 py-1 hover-shadow"
+                                    title="Hapus Data Tagihan"
+                                  >
+                                    <i className="bi bi-trash" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Tanggal Tagihan */}
+                          <td className="px-3 py-3">
+                            <div className="d-flex flex-column">
+                              <span className="fw-semibold text-dark">{dt.date}</span>
+                              {dt.time && (
+                                <span className="text-muted text-xxs font-monospace d-flex align-items-center gap-1">
+                                  <i className="bi bi-clock" /> {dt.time} WIB
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Nama Pengirim / Vendor */}
+                          <td className="px-3 py-3">
+                            <div className="d-flex align-items-center gap-2">
+                              <div
+                                className="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0"
+                                style={{ width: 28, height: 28 }}
+                              >
+                                <i className="bi bi-building text-xxs" />
+                              </div>
+                              <span className="fw-bold text-dark text-xs">{item.nama_pengirim || "Vendor Layanan"}</span>
+                            </div>
+                          </td>
+
+                          {/* Keterangan */}
+                          <td className="px-3 py-3">
+                            <div className="d-flex align-items-center flex-wrap gap-1">
+                              <span className="badge bg-light text-secondary border rounded-pill px-2.5 py-1 text-xxs fw-medium">
+                                {item.keterangan || "tagihan bulan ini"}
+                              </span>
+                              <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-1.5 py-0.5 text-xxs">
+                                <i className="bi bi-tag-fill me-0.5" /> Tagihan
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Jumlah Tagihan */}
+                          <td className="px-3 py-3 text-end">
+                            <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-1 text-xs fw-bold font-monospace">
+                              {formatRupiah(tagihanVal)}
+                            </span>
+                          </td>
+
+                          {/* Waktu Input (created_at) */}
+                          <td className="px-3 py-3 text-center text-muted text-xxs">
+                            {formatDateDisplay(item.created_at)}
+                          </td>
+
+                          {/* Waktu Update (updated_at) */}
+                          <td className="px-3 py-3 text-center text-muted text-xxs">
+                            {formatDateDisplay(item.updated_at)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {/* Table Footer Summary */}
+                <tfoot className="table-light border-top">
+                  <tr className="fw-bold text-xs">
+                    <td colSpan={isAdmin ? 5 : 4} className="text-end px-3 py-2.5 text-dark">
+                      Total Transaksi Tagihan {selectedMonth === "all" ? "Seluruh Periode" : `Bulan ${formatMonthLabel(selectedMonth)}`}:
+                    </td>
+                    <td className="text-end px-3 py-2.5 text-danger font-monospace fs-6">
+                      {formatRupiah(totalNominalTagihan)}
+                    </td>
+                    <td colSpan={2} className="text-muted text-xxs px-3 py-2.5">
+                      ({filteredTagihan.length} invoice tagihan tercatat)
+                    </td>
                   </tr>
                 </tfoot>
               </table>

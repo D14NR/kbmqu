@@ -23,6 +23,7 @@ const bucketTableMap = {
   riwayat_notifikasi_pengajar: "riwayat_notifikasi_pengajar",
   donasi: "donasi",
   donasi_transaksi: "donasi_transaksi",
+  donasi_transaksi_tagihan: "donasi_transaksi_tagihan",
 } as const;
 
 type BucketName = keyof typeof bucketTableMap;
@@ -291,6 +292,31 @@ const schemas: Record<BucketName, BucketSchema> = {
       keterangan: asString(data.Keterangan || data.keterangan || "donasi masuk"),
       hidden_nama_pengirim: Number(data["Hidden Nama Pengirim"] ?? data.hidden_nama_pengirim ?? 0) ? 1 : 0,
     }),
+  },
+  donasi_transaksi_tagihan: {
+    table: bucketTableMap.donasi_transaksi_tagihan,
+    fromDb: (row) => ({
+      ID: asString(row.id),
+      "Nama Pengirim": asString(row.nama_pengirim),
+      Tanggal: asString(row.tanggal),
+      "Jumlah Tagihan": String(row.jumlah_tagihan ?? 0),
+      Keterangan: asString(row.keterangan || "tagihan bulan ini"),
+      "Created At": asString((row as any).created_at),
+      "Updated At": asString((row as any).updated_at),
+    }),
+    toDb: (data) => {
+      const res: Record<string, string | number | boolean | null> = {
+        nama_pengirim: asString(data["Nama Pengirim"] || data.nama_pengirim),
+        tanggal: asString(data.Tanggal || data.tanggal),
+        jumlah_tagihan: asNumberOrNull(data["Jumlah Tagihan"] ?? data.jumlah_tagihan) ?? 0,
+        keterangan: asString(data.Keterangan || data.keterangan || "tagihan bulan ini"),
+      };
+      const rawId = data.ID ?? data.id;
+      if (rawId !== undefined && rawId !== null && rawId !== "" && !isNaN(Number(rawId))) {
+        res.id = Number(rawId);
+      }
+      return res;
+    },
   },
   surat_tugas: {
     table: bucketTableMap.surat_tugas,
