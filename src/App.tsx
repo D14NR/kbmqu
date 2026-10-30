@@ -9582,6 +9582,7 @@ export function App() {
         error={transaksiDonasiError}
         loading={donasiStatus.loading}
         tagihanRecords={transaksiTagihanRecords}
+        transaksiRecords={transaksiDonasiRecords}
         onClose={() => setIsTransaksiDonasiModalOpen(false)}
         onChange={handleTransaksiDonasiDraftChange}
         onSave={handleSaveTransaksiDonasi}

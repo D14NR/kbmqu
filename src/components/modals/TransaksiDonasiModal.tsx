@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import type { DonasiTransaksiDraft, DonasiTransaksiTagihanRecord } from "../../types/donasi";
+import type { DonasiTransaksiDraft, DonasiTransaksiTagihanRecord, DonasiTransaksiRecord } from "../../types/donasi";
+import { isTagihanPaid } from "../../utils/donasi";
 
 type TransaksiDonasiModalProps = {
   isOpen: boolean;
@@ -8,6 +9,7 @@ type TransaksiDonasiModalProps = {
   error: string;
   loading: boolean;
   tagihanRecords?: DonasiTransaksiTagihanRecord[];
+  transaksiRecords?: DonasiTransaksiRecord[];
   onClose: () => void;
   onChange: (field: keyof DonasiTransaksiDraft, value: string | number) => void;
   onSave: () => void;
@@ -47,6 +49,7 @@ export function TransaksiDonasiModal({
   error,
   loading,
   tagihanRecords = [],
+  transaksiRecords = [],
   onClose,
   onChange,
   onSave,
@@ -289,50 +292,61 @@ export function TransaksiDonasiModal({
                     {filteredTagihanByMonth.map((t) => {
                       const displayId = String(t.id).includes(":") ? String(t.id).split(":").pop() : t.id;
                       const datePart = getTagihanDatePart(t.tanggal, t.created_at);
+                      const isPaid = isTagihanPaid(t, transaksiRecords);
                       return (
                         <option key={String(t.id)} value={String(t.id)}>
-                          #{displayId} {datePart && `[${datePart}]`} - {t.nama_pengirim} | {formatRupiahPreview(t.jumlah_tagihan)}
+                          #{displayId} {datePart && `[${datePart}]`} - {t.nama_pengirim} | {formatRupiahPreview(t.jumlah_tagihan)} {isPaid ? "(✓ Sudah Dibayar/Lunas)" : "(Belum Dibayar)"}
                         </option>
                       );
                     })}
                   </select>
 
                   {selectedTagihan ? (
-                    <div className="mt-2 p-2.5 rounded-3 bg-white border border-success-subtle text-xs d-flex align-items-center justify-content-between shadow-xs">
-                      <div className="d-flex align-items-center gap-2">
-                        <div className="rounded-circle bg-success-subtle text-success p-1 d-flex align-items-center justify-content-center">
-                          <i className="bi bi-check-lg" />
-                        </div>
-                        <div>
-                          <div className="fw-bold text-dark text-xs">
-                            #{String(selectedTagihan.id).split(":").pop()} {(() => {
-                              const dp = getTagihanDatePart(selectedTagihan.tanggal, selectedTagihan.created_at);
-                              return dp ? `[${dp}]` : "";
-                            })()} - {selectedTagihan.nama_pengirim}
+                    (() => {
+                      const isPaid = isTagihanPaid(selectedTagihan, transaksiRecords);
+                      return (
+                        <div className={`mt-2 p-2.5 rounded-3 bg-white border ${isPaid ? "border-success" : "border-danger-subtle"} text-xs d-flex align-items-center justify-content-between shadow-xs`}>
+                          <div className="d-flex align-items-center gap-2">
+                            <div className={`rounded-circle ${isPaid ? "bg-success text-white" : "bg-success-subtle text-success"} p-1 d-flex align-items-center justify-content-center`} style={{ width: 26, height: 26 }}>
+                              <i className="bi bi-check-lg" />
+                            </div>
+                            <div>
+                              <div className="fw-bold text-dark text-xs">
+                                #{String(selectedTagihan.id).split(":").pop()} {(() => {
+                                  const dp = getTagihanDatePart(selectedTagihan.tanggal, selectedTagihan.created_at);
+                                  return dp ? `[${dp}]` : "";
+                                })()} - {selectedTagihan.nama_pengirim}
+                              </div>
+                              <div className="text-xxs text-muted">
+                                Nominal: <strong className="text-danger">{formatRupiahPreview(selectedTagihan.jumlah_tagihan)}</strong> | {selectedTagihan.keterangan}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-xxs text-muted">
-                            Nominal: <strong className="text-danger">{formatRupiahPreview(selectedTagihan.jumlah_tagihan)}</strong> | {selectedTagihan.keterangan}
-                          </div>
+                          <span className={`badge ${isPaid ? "bg-success text-white" : "bg-success-subtle text-success border border-success-subtle"} rounded-pill px-2 py-0.5 text-xxs fw-semibold`}>
+                            {isPaid ? "✓ Sudah Lunas" : "Otomatis Terisi"}
+                          </span>
                         </div>
-                      </div>
-                      <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 text-xxs fw-semibold">
-                        Otomatis Terisi
-                      </span>
-                    </div>
+                      );
+                    })()
                   ) : (
                     <div className="d-flex align-items-center gap-1.5 flex-wrap mt-2">
                       <span className="text-xxs text-muted fw-semibold">Pilih Cepat:</span>
-                      {filteredTagihanByMonth.slice(0, 4).map((t) => {
+                      {filteredTagihanByMonth.slice(0, 5).map((t) => {
                         const displayId = String(t.id).includes(":") ? String(t.id).split(":").pop() : t.id;
                         const datePart = getTagihanDatePart(t.tanggal, t.created_at);
+                        const isPaid = isTagihanPaid(t, transaksiRecords);
                         return (
                           <button
                             key={String(t.id)}
                             type="button"
                             onClick={() => handleSelectTagihan(String(t.id))}
-                            className="badge bg-white text-dark border text-xxs rounded-pill text-decoration-none py-1 px-2 hover-bg-danger-subtle shadow-xs"
+                            className={`badge border text-xxs rounded-pill text-decoration-none py-1 px-2 shadow-xs transition-all ${
+                              isPaid
+                                ? "bg-success-subtle text-success border-success-subtle"
+                                : "bg-white text-dark border-secondary-subtle hover-bg-danger-subtle"
+                            }`}
                           >
-                            #{displayId} {datePart && `[${datePart}]`} {t.nama_pengirim} ({formatRupiahPreview(t.jumlah_tagihan)})
+                            #{displayId} {datePart && `[${datePart}]`} {t.nama_pengirim} ({formatRupiahPreview(t.jumlah_tagihan)}) {isPaid ? "✓ Lunas" : ""}
                           </button>
                         );
                       })}

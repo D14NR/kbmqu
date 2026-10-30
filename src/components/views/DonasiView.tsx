@@ -4,6 +4,7 @@ import type {
   DonasiTransaksiRecord,
   DonasiTransaksiTagihanRecord,
 } from "../../types/donasi";
+import { isTagihanPaid, findMatchingPaymentTransaction } from "../../utils/donasi";
 
 type DonasiViewProps = {
   loading: boolean;
@@ -47,6 +48,7 @@ export function DonasiView({
   const [activeTab, setActiveTab] = useState<"rekening" | "transaksi" | "tagihan">("rekening");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "masuk" | "keluar">("all");
+  const [filterTagihanStatus, setFilterTagihanStatus] = useState<"all" | "unpaid" | "paid">("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const getCurrentMonthKey = () => {
@@ -264,13 +266,40 @@ export function DonasiView({
     });
   }, [tagihanRecords, selectedMonth]);
 
+  const tagihanStats = useMemo(() => {
+    let paidCount = 0;
+    let unpaidCount = 0;
+    let paidNominal = 0;
+    let unpaidNominal = 0;
+
+    monthTagihanRecords.forEach((t) => {
+      const paid = isTagihanPaid(t, transaksiRecords);
+      const nom = Number(t.jumlah_tagihan) || 0;
+      if (paid) {
+        paidCount++;
+        paidNominal += nom;
+      } else {
+        unpaidCount++;
+        unpaidNominal += nom;
+      }
+    });
+
+    return { paidCount, unpaidCount, paidNominal, unpaidNominal };
+  }, [monthTagihanRecords, transaksiRecords]);
+
   const totalNominalTagihan = useMemo(() => {
     return monthTagihanRecords.reduce((acc, curr) => acc + (Number(curr.jumlah_tagihan) || 0), 0);
   }, [monthTagihanRecords]);
 
-  // Filter Tagihan dengan Pencarian
+  // Filter Tagihan dengan Pencarian dan Status Pembayaran (Lunas / Belum Bayar)
   const filteredTagihan = useMemo(() => {
     let result = monthTagihanRecords;
+
+    if (filterTagihanStatus === "paid") {
+      result = result.filter((t) => isTagihanPaid(t, transaksiRecords));
+    } else if (filterTagihanStatus === "unpaid") {
+      result = result.filter((t) => !isTagihanPaid(t, transaksiRecords));
+    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -291,7 +320,7 @@ export function DonasiView({
       }
       return Number(b.id || 0) - Number(a.id || 0);
     });
-  }, [monthTagihanRecords, searchQuery]);
+  }, [monthTagihanRecords, filterTagihanStatus, searchQuery, transaksiRecords]);
 
   const handleCopy = (text: string, id: string) => {
     if (navigator.clipboard && window.isSecureContext) {
@@ -691,6 +720,41 @@ export function DonasiView({
                     onClick={() => setFilterType("keluar")}
                   >
                     Keluar
+                  </button>
+                </div>
+              )}
+
+              {/* Status filter button group for Tab Tagihan */}
+              {activeTab === "tagihan" && (
+                <div className="btn-group btn-group-sm rounded-3 border bg-light p-0.5" role="group">
+                  <button
+                    type="button"
+                    className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
+                      filterTagihanStatus === "all" ? "btn-dark text-white shadow-sm" : "btn-light text-muted border-0"
+                    }`}
+                    onClick={() => setFilterTagihanStatus("all")}
+                  >
+                    Semua ({monthTagihanRecords.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
+                      filterTagihanStatus === "unpaid" ? "btn-danger text-white shadow-sm" : "btn-light text-muted border-0"
+                    }`}
+                    onClick={() => setFilterTagihanStatus("unpaid")}
+                  >
+                    <i className="bi bi-clock-history me-1" />
+                    Belum Bayar ({tagihanStats.unpaidCount})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
+                      filterTagihanStatus === "paid" ? "btn-success text-white shadow-sm" : "btn-light text-muted border-0"
+                    }`}
+                    onClick={() => setFilterTagihanStatus("paid")}
+                  >
+                    <i className="bi bi-check-circle-fill me-1" />
+                    Lunas ({tagihanStats.paidCount})
                   </button>
                 </div>
               )}
@@ -1311,6 +1375,9 @@ export function DonasiView({
                         Aksi
                       </th>
                     )}
+                    <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 140 }}>
+                      Status Pembayaran
+                    </th>
                     <th scope="col" className="px-3 py-2.5" style={{ minWidth: 140 }}>
                       Tanggal Tagihan
                     </th>
@@ -1334,7 +1401,7 @@ export function DonasiView({
                 <tbody className="text-xs divide-y">
                   {filteredTagihan.length === 0 ? (
                     <tr>
-                      <td colSpan={isAdmin ? 8 : 7} className="text-center py-5 text-muted">
+                      <td colSpan={isAdmin ? 9 : 8} className="text-center py-5 text-muted">
                         <div className="d-flex flex-column align-items-center justify-content-center">
                           <i className="bi bi-receipt text-secondary fs-1 mb-2 opacity-50" />
                           <h6 className="fw-semibold text-dark mb-1">Belum Ada Transaksi Tagihan</h6>
@@ -1360,9 +1427,11 @@ export function DonasiView({
                     filteredTagihan.map((item, idx) => {
                       const tagihanVal = Number(item.jumlah_tagihan) || 0;
                       const dt = formatDateTimeDisplay(item.tanggal, item.created_at);
+                      const matchingTrx = findMatchingPaymentTransaction(item, transaksiRecords);
+                      const paid = Boolean(matchingTrx);
 
                       return (
-                        <tr key={String(item.id || idx)}>
+                        <tr key={String(item.id || idx)} className={paid ? "table-success-subtle bg-opacity-10" : ""}>
                           {/* No / ID */}
                           <td className="px-3 py-3 text-center">
                             <span className="badge bg-light text-secondary border rounded-pill px-2 py-1 font-monospace text-xxs">
@@ -1375,15 +1444,27 @@ export function DonasiView({
                             <td className="px-3 py-3 text-center">
                               <div className="d-flex align-items-center justify-content-center gap-1.5 flex-wrap">
                                 {onPayTagihan && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onPayTagihan(item)}
-                                    className="btn btn-success btn-xs rounded-pill px-2.5 py-1 text-white fw-bold shadow-xs d-inline-flex align-items-center gap-1"
-                                    title="Bayar tagihan ini (Catat di donasi_transaksi sebagai Transaksi Keluar)"
-                                  >
-                                    <i className="bi bi-wallet2" />
-                                    <span>Bayar</span>
-                                  </button>
+                                  paid ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => onPayTagihan(item)}
+                                      className="btn btn-outline-success btn-xs rounded-pill px-2.5 py-1 fw-bold d-inline-flex align-items-center gap-1 shadow-xs"
+                                      title="Tagihan sudah lunas. Klik jika ingin mencatat pembayaran tambahan/ulang"
+                                    >
+                                      <i className="bi bi-check2-circle text-success" />
+                                      <span>Lunas</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => onPayTagihan(item)}
+                                      className="btn btn-success btn-xs rounded-pill px-2.5 py-1 text-white fw-bold shadow-xs d-inline-flex align-items-center gap-1"
+                                      title="Bayar tagihan ini (Catat di donasi_transaksi sebagai Transaksi Keluar)"
+                                    >
+                                      <i className="bi bi-wallet2" />
+                                      <span>Bayar</span>
+                                    </button>
+                                  )
                                 )}
                                 {onEditTagihan && (
                                   <button
@@ -1409,6 +1490,32 @@ export function DonasiView({
                             </td>
                           )}
 
+                          {/* Status Pembayaran (Lunas / Belum Bayar) */}
+                          <td className="px-3 py-3 text-center">
+                            {paid ? (
+                              <div className="d-flex flex-column align-items-center gap-0.5">
+                                <span className="badge bg-success text-white border-0 rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1 shadow-xs">
+                                  <i className="bi bi-check-circle-fill" />
+                                  <span>Sudah Dibayar</span>
+                                </span>
+                                {matchingTrx && (
+                                  <span
+                                    className="text-muted text-xxs font-monospace"
+                                    style={{ fontSize: "0.65rem" }}
+                                    title={`Tercatat di Mutasi Transaksi Keluar #${matchingTrx.id}`}
+                                  >
+                                    Trx #{matchingTrx.id}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+                                <i className="bi bi-clock-history" />
+                                <span>Belum Dibayar</span>
+                              </span>
+                            )}
+                          </td>
+
                           {/* Tanggal Tagihan */}
                           <td className="px-3 py-3">
                             <div className="d-flex flex-column">
@@ -1425,10 +1532,10 @@ export function DonasiView({
                           <td className="px-3 py-3">
                             <div className="d-flex align-items-center gap-2">
                               <div
-                                className="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0"
+                                className={`rounded-circle ${paid ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger"} d-flex align-items-center justify-content-center flex-shrink-0`}
                                 style={{ width: 28, height: 28 }}
                               >
-                                <i className="bi bi-building text-xxs" />
+                                <i className={`bi ${paid ? "bi-check-lg" : "bi-building"} text-xxs`} />
                               </div>
                               <span className="fw-bold text-dark text-xs">{item.nama_pengirim || "Vendor Layanan"}</span>
                             </div>
@@ -1440,15 +1547,21 @@ export function DonasiView({
                               <span className="badge bg-light text-secondary border rounded-pill px-2.5 py-1 text-xxs fw-medium">
                                 {item.keterangan || "tagihan bulan ini"}
                               </span>
-                              <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-1.5 py-0.5 text-xxs">
-                                <i className="bi bi-tag-fill me-0.5" /> Tagihan
-                              </span>
+                              {paid ? (
+                                <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-1.5 py-0.5 text-xxs">
+                                  <i className="bi bi-check-all me-0.5" /> Lunas
+                                </span>
+                              ) : (
+                                <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-1.5 py-0.5 text-xxs">
+                                  <i className="bi bi-hourglass-split me-0.5" /> Menunggu Bayar
+                                </span>
+                              )}
                             </div>
                           </td>
 
                           {/* Jumlah Tagihan */}
                           <td className="px-3 py-3 text-end">
-                            <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-1 text-xs fw-bold font-monospace">
+                            <span className={`badge ${paid ? "bg-success-subtle text-success border border-success-subtle" : "bg-danger-subtle text-danger border border-danger-subtle"} rounded-pill px-2.5 py-1 text-xs fw-bold font-monospace`}>
                               {formatRupiah(tagihanVal)}
                             </span>
                           </td>
@@ -1470,7 +1583,7 @@ export function DonasiView({
                 {/* Table Footer Summary */}
                 <tfoot className="table-light border-top">
                   <tr className="fw-bold text-xs">
-                    <td colSpan={isAdmin ? 5 : 4} className="text-end px-3 py-2.5 text-dark">
+                    <td colSpan={isAdmin ? 6 : 5} className="text-end px-3 py-2.5 text-dark">
                       Total Transaksi Tagihan {selectedMonth === "all" ? "Seluruh Periode" : `Bulan ${formatMonthLabel(selectedMonth)}`}:
                     </td>
                     <td className="text-end px-3 py-2.5 text-danger font-monospace fs-6">
@@ -1478,6 +1591,23 @@ export function DonasiView({
                     </td>
                     <td colSpan={2} className="text-muted text-xxs px-3 py-2.5">
                       ({filteredTagihan.length} invoice tagihan tercatat)
+                    </td>
+                  </tr>
+                  <tr className="bg-light fw-bold text-xs border-top">
+                    <td colSpan={isAdmin ? 6 : 5} className="text-end px-3 py-2 text-dark">
+                      Status Pembayaran {selectedMonth === "all" ? "Semua Periode" : `Bulan ${formatMonthLabel(selectedMonth)}`}:
+                    </td>
+                    <td className="text-end px-3 py-2 text-success font-monospace">
+                      <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 me-1 text-xxs">
+                        {tagihanStats.paidCount} Lunas
+                      </span>
+                      {formatRupiah(tagihanStats.paidNominal)}
+                    </td>
+                    <td colSpan={2} className="px-3 py-2 text-danger font-monospace text-xxs">
+                      <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0.5 me-1 text-xxs">
+                        {tagihanStats.unpaidCount} Belum Bayar
+                      </span>
+                      {formatRupiah(tagihanStats.unpaidNominal)}
                     </td>
                   </tr>
                 </tfoot>

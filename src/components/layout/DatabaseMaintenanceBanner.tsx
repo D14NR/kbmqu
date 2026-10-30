@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { apiFetch } from "../../lib/api";
 import type { DonasiTransaksiRecord, DonasiTransaksiTagihanRecord } from "../../types/donasi";
+import { isTagihanPaid } from "../../utils/donasi";
 
 // Durasi tampil otomatis sebelum di-hidden: 2.5 menit (150 detik)
 const AUTO_HIDE_SECONDS = 30;
@@ -212,6 +213,17 @@ export function DatabaseMaintenanceBanner() {
     return tagihanList.filter((t) => isDateInMonth(t.tanggal, priorMonthKey));
   }, [tagihanList, currentMonthKey, priorMonthKey]);
 
+  const allRelevantBillsPaid = useMemo(() => {
+    return (
+      relevantTagihans.length > 0 &&
+      relevantTagihans.every((t) => isTagihanPaid(t, transaksiList))
+    );
+  }, [relevantTagihans, transaksiList]);
+
+  const paidBillsCount = useMemo(() => {
+    return relevantTagihans.filter((t) => isTagihanPaid(t, transaksiList)).length;
+  }, [relevantTagihans, transaksiList]);
+
   const targetMonthLabel = useMemo(() => {
     if (relevantTagihans.length > 0) {
       const isCurrent = relevantTagihans.some(t => isDateInMonth(t.tanggal, currentMonthKey));
@@ -225,6 +237,7 @@ export function DatabaseMaintenanceBanner() {
   const effectiveProgressIDR = currentMonthKeluar + Math.max(0, totalKasTersediaSaatIni);
 
   const isTargetAchieved =
+    allRelevantBillsPaid ||
     currentMonthKeluar >= TARGET_MONTHLY_IDR ||
     totalKasTersediaSaatIni >= TARGET_MONTHLY_IDR ||
     effectiveProgressIDR >= TARGET_MONTHLY_IDR;
@@ -813,44 +826,73 @@ export function DatabaseMaintenanceBanner() {
                     </div>
                     <div className="d-flex align-items-center justify-content-between mt-1 flex-wrap gap-1">
                       <div className={`text-xxs fw-semibold ${isTargetAchieved ? "text-success" : "text-danger"}`}>
-                        {isTargetAchieved ? `✓ Tagihan Server ${targetMonthLabel} Terbayar Lunas` : `Kekurangan Bulan Ini: ${formatUSD(sisaTarget)}`}
+                        {allRelevantBillsPaid
+                          ? `✓ Semua Tagihan Server (${relevantTagihans.length}) Terbayar Lunas`
+                          : isTargetAchieved
+                          ? `✓ Tagihan Server ${targetMonthLabel} Terbayar Lunas`
+                          : `Kekurangan Bulan Ini: ${formatUSD(sisaTarget)} ${relevantTagihans.length > 0 ? `(${relevantTagihans.length - paidBillsCount} tagihan belum dibayar)` : ""}`}
                       </div>
                       <div className="text-xxs text-muted fw-semibold">
                         Sisa Kemarin: {formatRupiah(saldoAwalBulanIni)} + Masuk: {formatRupiah(currentMonthMasuk)} | Kas Akhir: {formatRupiah(totalKasTersediaSaatIni)}
                       </div>
                     </div>
 
-                    {/* Detailed Bill List */}
+                    {/* Detailed Bill List with Status Column */}
                     <div className="mt-3 pt-2 border-top">
-                      <div className="text-xxs fw-bold text-uppercase text-muted mb-2">Rincian Tagihan:</div>
+                      <div className="d-flex align-items-center justify-content-between mb-2">
+                        <div className="text-xxs fw-bold text-uppercase text-muted">
+                          Rincian Tagihan {targetMonthLabel}:
+                        </div>
+                        {relevantTagihans.length > 0 && (
+                          <span className={`badge ${allRelevantBillsPaid ? "bg-success text-white" : "bg-warning-subtle text-dark border border-warning-subtle"} rounded-pill px-2 py-0.5 text-xxs`}>
+                            {allRelevantBillsPaid ? "Semua Tagihan Lunas" : `${paidBillsCount}/${relevantTagihans.length} Lunas`}
+                          </span>
+                        )}
+                      </div>
                       <div className="table-responsive">
                         <table className="table table-sm table-borderless mb-0" style={{ fontSize: '0.7rem' }}>
                           <thead className="text-muted border-bottom">
                             <tr>
                               <th className="ps-0 py-1">Tanggal</th>
                               <th className="py-1">Keterangan</th>
+                              <th className="py-1 text-center" style={{ width: 100 }}>Status</th>
                               <th className="pe-0 py-1 text-end">Jumlah</th>
                             </tr>
                           </thead>
                           <tbody>
                             {relevantTagihans.length > 0 ? (
-                              relevantTagihans.map((t, idx) => (
-                                <tr key={idx} className="border-bottom border-light">
-                                  <td className="ps-0 py-1.5 text-nowrap">
-                                    {formatDateDisplay(t.tanggal)}
-                                  </td>
-                                  <td className="py-1.5 text-truncate" style={{ maxWidth: '200px' }}>
-                                    {t.keterangan || "Tagihan Server"}
-                                  </td>
-                                  <td className="pe-0 py-1.5 text-end fw-bold text-danger">
-                                    {formatRupiah(t.jumlah_tagihan)}
-                                  </td>
-                                </tr>
-                              ))
+                              relevantTagihans.map((t, idx) => {
+                                const paid = isTagihanPaid(t, transaksiList);
+                                return (
+                                  <tr key={idx} className="border-bottom border-light">
+                                    <td className="ps-0 py-1.5 text-nowrap">
+                                      {formatDateDisplay(t.tanggal)}
+                                    </td>
+                                    <td className="py-1.5 text-truncate" style={{ maxWidth: '170px' }}>
+                                      {t.keterangan || "Tagihan Server"}
+                                    </td>
+                                    <td className="py-1.5 text-center text-nowrap">
+                                      {paid ? (
+                                        <span className="badge bg-success text-white border-0 rounded-pill px-2 py-0.5 text-xxs fw-bold d-inline-flex align-items-center gap-1 shadow-xs">
+                                          <i className="bi bi-check-circle-fill" /> Lunas
+                                        </span>
+                                      ) : (
+                                        <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0.5 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+                                          <i className="bi bi-clock-history" /> Belum Bayar
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="pe-0 py-1.5 text-end fw-bold text-danger">
+                                      {formatRupiah(t.jumlah_tagihan)}
+                                    </td>
+                                  </tr>
+                                );
+                              })
                             ) : (
                               <tr className="border-bottom border-light">
                                 <td className="ps-0 py-1.5 text-muted fst-italic">-</td>
                                 <td className="py-1.5 text-muted fst-italic">Estimasi Biaya Bulanan ($15)</td>
+                                <td className="py-1.5 text-center text-muted fst-italic">-</td>
                                 <td className="pe-0 py-1.5 text-end fw-bold text-danger">
                                   {formatRupiah(TARGET_MONTHLY_IDR)}
                                 </td>
@@ -859,9 +901,24 @@ export function DatabaseMaintenanceBanner() {
                           </tbody>
                           <tfoot className="fw-bold">
                             <tr>
-                              <td colSpan={2} className="ps-0 py-1.5 text-dark">Total Tagihan:</td>
+                              <td colSpan={3} className="ps-0 py-1.5 text-dark">Total Tagihan:</td>
                               <td className="pe-0 py-1.5 text-end text-danger">{formatRupiah(TARGET_MONTHLY_IDR)}</td>
                             </tr>
+                            {relevantTagihans.length > 0 && (
+                              <tr className="text-xxs fw-semibold">
+                                <td colSpan={3} className="ps-0 py-1 text-success">
+                                  <i className="bi bi-check-circle-fill me-1" />
+                                  {paidBillsCount} dari {relevantTagihans.length} tagihan sudah dibayar lunas
+                                </td>
+                                <td className="pe-0 py-1 text-end text-muted font-monospace">
+                                  {relevantTagihans.length - paidBillsCount > 0 ? (
+                                    <span className="text-danger fw-bold">{relevantTagihans.length - paidBillsCount} belum bayar</span>
+                                  ) : (
+                                    <span className="text-success fw-bold">Semua Lunas</span>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
                           </tfoot>
                         </table>
                       </div>
