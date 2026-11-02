@@ -7379,8 +7379,10 @@ export function App() {
   useEffect(() => {
     if (!authSession?.username) return;
     const interval = window.setInterval(() => {
-      void loadAccountsFromDb();
-    }, 10000);
+      if (!document.hidden) {
+        void loadAccountsFromDb();
+      }
+    }, 60000);
     return () => window.clearInterval(interval);
   }, [authSession?.username, loadAccountsFromDb]);
 

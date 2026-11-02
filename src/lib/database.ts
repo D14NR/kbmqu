@@ -535,7 +535,7 @@ const getVirtualBuckets = (bucket: string) => {
 const getCachedRows = (bucket: string) => {
   const entry = readCache.get(bucket);
   if (entry && entry.expiresAt > Date.now()) {
-    return entry.rows.map((row) => ({ ...row, data: { ...row.data } }));
+    return entry.rows;
   }
 
   if (typeof window === "undefined" || !window.localStorage) {
@@ -557,9 +557,8 @@ const getCachedRows = (bucket: string) => {
       return null;
     }
 
-    const rows = cached.rows.map((row) => ({ ...row, data: { ...row.data } }));
-    readCache.set(bucket, { expiresAt: cached.expiresAt, rows });
-    return rows;
+    readCache.set(bucket, { expiresAt: cached.expiresAt, rows: cached.rows });
+    return cached.rows;
   } catch (_error) {
     readCache.delete(bucket);
     return null;
@@ -568,8 +567,7 @@ const getCachedRows = (bucket: string) => {
 
 const persistCachedRows = (bucket: string, rows: DbRow[]) => {
   const expiresAt = Date.now() + READ_CACHE_TTL_MS;
-  const copy = rows.map((row) => ({ ...row, data: { ...row.data } }));
-  readCache.set(bucket, { expiresAt, rows: copy });
+  readCache.set(bucket, { expiresAt, rows });
 
   if (typeof window === "undefined" || !window.localStorage) {
     return;
@@ -578,7 +576,7 @@ const persistCachedRows = (bucket: string, rows: DbRow[]) => {
   try {
     const raw = window.localStorage.getItem(READ_CACHE_STORAGE_KEY);
     const current = raw ? (JSON.parse(raw) as Record<string, { expiresAt: number; rows: DbRow[] }>) : {};
-    current[bucket] = { expiresAt, rows: copy };
+    current[bucket] = { expiresAt, rows };
     window.localStorage.setItem(READ_CACHE_STORAGE_KEY, JSON.stringify(current));
   } catch (_error) {
     // Ignore cache persistence errors, fallback to memory cache only.

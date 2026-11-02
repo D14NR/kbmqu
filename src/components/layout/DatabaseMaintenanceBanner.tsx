@@ -352,7 +352,7 @@ export function DatabaseMaintenanceBanner({
   const isHidden = timeLeft <= 0;
 
   useEffect(() => {
-    if (timeLeft <= 0) return;
+    if (!hasTagihanTerbaru || timeLeft <= 0) return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -370,7 +370,7 @@ export function DatabaseMaintenanceBanner({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeLeft]);
+  }, [hasTagihanTerbaru, timeLeft]);
 
   // Listener untuk event real-time ketika ada pembaruan tagihan atau donasi
   useEffect(() => {
