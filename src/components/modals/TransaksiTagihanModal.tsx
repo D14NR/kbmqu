@@ -92,8 +92,14 @@ export function TransaksiTagihanModal({
               <h5 className="mb-0 fw-bold text-dark">
                 {isEditing ? "Edit Transaksi Tagihan" : "Tambah Transaksi Tagihan"}
               </h5>
-              <div className="text-muted text-xs">
-                Tabel Database: <code className="text-dark fw-bold">donasi_transaksi_tagihan</code>
+              <div className="text-muted text-xs d-flex align-items-center gap-1.5 flex-wrap">
+                <span>Tabel:</span>
+                <code className="text-dark fw-bold">donasi_transaksi_tagihan</code>
+                {draft.id && (
+                  <span className="badge bg-light text-secondary border font-monospace text-xxs">
+                    ID: {String(draft.id)}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -102,6 +108,68 @@ export function TransaksiTagihanModal({
 
         {/* Form Body */}
         <div className="mt-3.5 d-flex flex-column gap-3">
+          {/* Status Tagihan (Belum Dibayar / Sudah Dibayar) */}
+          <div className="p-2.5 rounded-3 border bg-light">
+            <label className="form-label text-xs fw-bold text-dark mb-1.5 d-flex align-items-center justify-content-between">
+              <span>Status Pembayaran (status & is_lunas)</span>
+              <span className={`badge ${draft.status === "Sudah Dibayar" || draft.status === "Lunas" || Number(draft.is_lunas) === 1 ? "bg-success text-white" : "bg-danger-subtle text-danger border border-danger-subtle"} rounded-pill text-xxs`}>
+                {draft.status === "Sudah Dibayar" || draft.status === "Lunas" || Number(draft.is_lunas) === 1 ? "Sudah Dibayar (Lunas)" : "Belum Dibayar"}
+              </span>
+            </label>
+            <div className="btn-group w-100" role="group">
+              <button
+                type="button"
+                className={`btn btn-sm text-xs fw-semibold py-1.5 ${
+                  !(draft.status === "Sudah Dibayar" || draft.status === "Lunas" || Number(draft.is_lunas) === 1)
+                    ? "btn-danger text-white shadow-sm"
+                    : "btn-outline-secondary bg-white text-muted"
+                }`}
+                onClick={() => {
+                  onChange("status", "Belum Dibayar");
+                  onChange("is_lunas", 0);
+                  onChange("tanggal_bayar", "");
+                }}
+              >
+                <i className="bi bi-clock-history me-1.5" />
+                Belum Dibayar
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm text-xs fw-semibold py-1.5 ${
+                  draft.status === "Sudah Dibayar" || draft.status === "Lunas" || Number(draft.is_lunas) === 1
+                    ? "btn-success text-white shadow-sm"
+                    : "btn-outline-secondary bg-white text-muted"
+                }`}
+                onClick={() => {
+                  onChange("status", "Sudah Dibayar");
+                  onChange("is_lunas", 1);
+                  if (!draft.tanggal_bayar) {
+                    const now = new Date();
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+                    onChange("tanggal_bayar", currentDateTime);
+                  }
+                }}
+              >
+                <i className="bi bi-check-circle-fill me-1.5" />
+                Sudah Dibayar
+              </button>
+            </div>
+            {(draft.status === "Sudah Dibayar" || draft.status === "Lunas" || Number(draft.is_lunas) === 1) && (
+              <div className="mt-2.5 pt-2 border-top">
+                <label className="form-label text-xxs fw-bold text-dark mb-1">
+                  Tanggal Bayar (tanggal_bayar)
+                </label>
+                <input
+                  type="datetime-local"
+                  className="form-control form-control-sm py-1.5 px-2.5 text-xs rounded-3 border-secondary-subtle bg-white"
+                  value={formatForDateTimeInput(draft.tanggal_bayar || "")}
+                  onChange={(e) => onChange("tanggal_bayar", e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+
           {/* Nama Pengirim / Vendor */}
           <div>
             <div className="d-flex justify-content-between align-items-center mb-1">

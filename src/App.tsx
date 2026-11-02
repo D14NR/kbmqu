@@ -44,6 +44,7 @@ import type {
   DonasiTransaksiTagihanRecord,
   DonasiTransaksiTagihanDraft,
 } from "./types/donasi";
+import { isTagihanPaid } from "./utils/donasi";
 import { PenempatanPengajarView } from "./components/views/PenempatanPengajarView";
 import { IzinPengajarView } from "./components/views/IzinPengajarView";
 import { PermintaanPengajarView } from "./components/views/PermintaanPengajarView";
@@ -5082,6 +5083,11 @@ export function App() {
             (row.data as any).hidden_nama_pengirim ??
             0
         ) ? 1 : 0,
+        jenis_transaksi: String(
+          row.data["Jenis Transaksi"] ||
+            (row.data as any).jenis_transaksi ||
+            (Number(row.data["Jumlah Transaksi Keluar"] ?? (row.data as any).jumlah_transaksi_keluar ?? 0) > 0 ? "Dana Keluar" : "Dana Masuk")
+        ),
         created_at: String(row.data["Created At"] || (row as any).createdAt || (row as any).created_at || ""),
         updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
       }));
@@ -5097,10 +5103,17 @@ export function App() {
             0
         ),
         keterangan: String(row.data["Keterangan"] || (row.data as any).keterangan || "tagihan bulan ini"),
+        status: String(row.data["Status"] || (row.data as any).status || "Belum Dibayar"),
+        is_lunas: Number(row.data["Is Lunas"] ?? (row.data as any).is_lunas ?? 0) ? 1 : 0,
+        tanggal_bayar: (row.data["Tanggal Bayar"] || (row.data as any).tanggal_bayar) ? String(row.data["Tanggal Bayar"] || (row.data as any).tanggal_bayar) : null,
         created_at: String(row.data["Created At"] || (row as any).createdAt || (row as any).created_at || ""),
         updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
       }));
       setTransaksiTagihanRecords(normalizedTagihan);
+
+      try {
+        window.dispatchEvent(new CustomEvent("donasi_tagihan_updated"));
+      } catch {}
 
       setDonasiStatus({
         loading: false,
@@ -5130,6 +5143,7 @@ export function App() {
         jumlah_transaksi_keluar: record.jumlah_transaksi_keluar || 0,
         keterangan: record.keterangan || "donasi masuk",
         hidden_nama_pengirim: record.hidden_nama_pengirim ? 1 : 0,
+        jenis_transaksi: record.jenis_transaksi || (Number(record.jumlah_transaksi_keluar) > 0 ? "Dana Keluar" : "Dana Masuk"),
       });
       setEditingTransaksiDonasiId(String(record.id) || null);
     } else {
@@ -5140,6 +5154,7 @@ export function App() {
         jumlah_transaksi_keluar: 0,
         keterangan: "donasi masuk",
         hidden_nama_pengirim: 0,
+        jenis_transaksi: "Dana Masuk",
       });
       setEditingTransaksiDonasiId(null);
     }
@@ -5161,6 +5176,10 @@ export function App() {
     const jumlah_transaksi_keluar = Number(String(transaksiDonasiDraft.jumlah_transaksi_keluar || 0).replace(/[^0-9.-]+/g, "")) || 0;
     const keterangan = String(transaksiDonasiDraft.keterangan || "").trim() || "donasi masuk";
     const hidden_nama_pengirim = transaksiDonasiDraft.hidden_nama_pengirim ? 1 : 0;
+    const jenis_transaksi = String(
+      transaksiDonasiDraft.jenis_transaksi ||
+        (jumlah_transaksi_keluar > 0 ? "Dana Keluar" : "Dana Masuk")
+    );
 
     if (jumlah_transaksi_masuk <= 0 && jumlah_transaksi_keluar <= 0) {
       setTransaksiDonasiError("Jumlah transaksi masuk atau keluar harus diisi lebih besar dari Rp 0.");
@@ -5174,6 +5193,7 @@ export function App() {
       "Jumlah Transaksi Keluar": String(jumlah_transaksi_keluar),
       Keterangan: keterangan,
       "Hidden Nama Pengirim": String(hidden_nama_pengirim),
+      "Jenis Transaksi": jenis_transaksi,
     };
 
     try {
@@ -5184,6 +5204,29 @@ export function App() {
         await insertRow(dataBucket["donasi_transaksi"], payload);
         pushToast("Data transaksi donasi berhasil dicatat.", "success");
       }
+
+      // Jika transaksi keluar ini membayar tagihan server tertentu, perbarui status tagihan menjadi Sudah Dibayar
+      if (jumlah_transaksi_keluar > 0) {
+        const tagihanMatch = keterangan.match(/#(?:donasi_transaksi_tagihan|tagihan):([a-zA-Z0-9_-]+)/);
+        if (tagihanMatch && tagihanMatch[1]) {
+          const matchedTagihanId = tagihanMatch[1];
+          const targetTagihan = transaksiTagihanRecords.find(
+            (t) => String(t.id) === matchedTagihanId || String(decodeId(String(t.id)).id) === matchedTagihanId
+          );
+          if (targetTagihan) {
+            try {
+              await updateRow(String(targetTagihan.id), {
+                Status: "Sudah Dibayar",
+                "Is Lunas": "1",
+                "Tanggal Bayar": tanggal,
+              });
+            } catch (e) {
+              console.warn("Could not auto-mark tagihan as paid:", e);
+            }
+          }
+        }
+      }
+
       setIsTransaksiDonasiModalOpen(false);
       await handleLoadDonasi();
     } catch (error: any) {
@@ -5228,6 +5271,7 @@ export function App() {
       "Jumlah Transaksi Keluar": String(record.jumlah_transaksi_keluar || 0),
       Keterangan: record.keterangan || "donasi masuk",
       "Hidden Nama Pengirim": String(newVal),
+      "Jenis Transaksi": record.jenis_transaksi || (record.jumlah_transaksi_keluar > 0 ? "Dana Keluar" : "Dana Masuk"),
     };
     try {
       if (record.id) {
@@ -5283,6 +5327,7 @@ export function App() {
       jumlah_transaksi_keluar: tagihan.jumlah_tagihan || 0,
       keterangan: finalKeterangan,
       hidden_nama_pengirim: 0,
+      jenis_transaksi: "Pembayaran Tagihan",
     });
     setEditingTransaksiDonasiId(null);
     setTransaksiDonasiError("");
@@ -5296,10 +5341,14 @@ export function App() {
 
     if (record) {
       setTransaksiTagihanDraft({
+        id: record.id,
         nama_pengirim: record.nama_pengirim || "",
         tanggal: record.tanggal || currentDateTime,
         jumlah_tagihan: record.jumlah_tagihan || 0,
         keterangan: record.keterangan || "tagihan bulan ini",
+        status: record.status || "Belum Dibayar",
+        is_lunas: record.is_lunas ?? 0,
+        tanggal_bayar: record.tanggal_bayar || null,
       });
       setEditingTransaksiTagihanId(String(record.id) || null);
     } else {
@@ -5308,6 +5357,9 @@ export function App() {
         tanggal: currentDateTime,
         jumlah_tagihan: 0,
         keterangan: "tagihan bulan ini",
+        status: "Belum Dibayar",
+        is_lunas: 0,
+        tanggal_bayar: null,
       });
       setEditingTransaksiTagihanId(null);
     }
@@ -5327,6 +5379,9 @@ export function App() {
     const tanggal = String(transaksiTagihanDraft.tanggal || "").trim() || new Date().toISOString().slice(0, 10);
     const jumlah_tagihan = Number(String(transaksiTagihanDraft.jumlah_tagihan || 0).replace(/[^0-9.-]+/g, "")) || 0;
     const keterangan = String(transaksiTagihanDraft.keterangan || "").trim() || "tagihan bulan ini";
+    const status = String(transaksiTagihanDraft.status || "Belum Dibayar");
+    const is_lunas = (status === "Sudah Dibayar" || status === "Lunas" || Number(transaksiTagihanDraft.is_lunas) === 1) ? 1 : 0;
+    const tanggal_bayar = is_lunas === 1 ? (transaksiTagihanDraft.tanggal_bayar || new Date().toISOString()) : "";
 
     if (!nama_pengirim) {
       setTransaksiTagihanError("Nama pengirim / vendor tagihan wajib diisi.");
@@ -5342,7 +5397,15 @@ export function App() {
       Tanggal: tanggal,
       "Jumlah Tagihan": String(jumlah_tagihan),
       Keterangan: keterangan,
+      Status: status,
+      "Is Lunas": String(is_lunas),
+      "Tanggal Bayar": tanggal_bayar,
     };
+
+    if (!editingTransaksiTagihanId) {
+      // Pastikan id menggunakan UUID untuk tagihan baru
+      payload.id = crypto.randomUUID();
+    }
 
     try {
       if (editingTransaksiTagihanId) {
@@ -5358,6 +5421,35 @@ export function App() {
       console.error("Save Transaksi Tagihan Error:", error);
       setTransaksiTagihanError(error.message || "Gagal menyimpan transaksi tagihan.");
       pushToast("Gagal menyimpan transaksi tagihan: " + (error.message || ""), "error");
+    }
+  };
+
+  const handleToggleTagihanStatus = async (record: DonasiTransaksiTagihanRecord) => {
+    const isCurrentlyPaid = isTagihanPaid(record, transaksiDonasiRecords);
+    const newStatus = isCurrentlyPaid ? "Belum Dibayar" : "Sudah Dibayar";
+    const newIsLunas = isCurrentlyPaid ? 0 : 1;
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const newTanggalBayar = isCurrentlyPaid ? "" : currentDateTime;
+
+    try {
+      setDonasiStatus((prev) => ({ ...prev, loading: true }));
+      await updateRow(String(record.id), {
+        Status: newStatus,
+        "Is Lunas": String(newIsLunas),
+        "Tanggal Bayar": newTanggalBayar,
+      });
+      await handleLoadDonasi({ silent: true, forceFresh: true });
+      pushToast(
+        newStatus === "Sudah Dibayar"
+          ? `Status tagihan "${record.nama_pengirim}" berhasil diubah menjadi SUDAH DIBAYAR.`
+          : `Status tagihan "${record.nama_pengirim}" berhasil diubah menjadi BELUM DIBAYAR.`,
+        "success"
+      );
+    } catch (err: any) {
+      setDonasiStatus((prev) => ({ ...prev, loading: false }));
+      pushToast("Gagal mengubah status tagihan: " + (err?.message || ""), "error");
     }
   };
 
@@ -8925,7 +9017,11 @@ export function App() {
   if (!authSession) {
     return (
       <div className="app-shell">
-        <DatabaseMaintenanceBanner />
+        <DatabaseMaintenanceBanner
+          tagihanList={transaksiTagihanRecords}
+          transaksiList={transaksiDonasiRecords}
+          onRefreshDonasi={handleLoadDonasi}
+        />
         <LoginScreen
           username={loginUsername}
           password={loginPassword}
@@ -8952,7 +9048,11 @@ export function App() {
 
   return (
     <div className="min-vh-100 app-font-10 app-shell">
-      <DatabaseMaintenanceBanner />
+      <DatabaseMaintenanceBanner
+        tagihanList={transaksiTagihanRecords}
+        transaksiList={transaksiDonasiRecords}
+        onRefreshDonasi={handleLoadDonasi}
+      />
       {isRefreshingAll && (
         <div
           className="position-fixed top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-75 backdrop-blur"
@@ -9338,6 +9438,7 @@ export function App() {
                         onEditTagihan={isAdmin ? handleOpenTransaksiTagihanModal : undefined}
                         onDeleteTagihan={isAdmin ? handleDeleteTransaksiTagihan : undefined}
                         onPayTagihan={isAdmin ? handlePayTagihan : undefined}
+                        onToggleTagihanStatus={isAdmin ? handleToggleTagihanStatus : undefined}
                         onRefresh={handleLoadDonasi}
                       />
                     ) : activeKey === "suratTugasMengajar" ? (

@@ -281,6 +281,7 @@ const schemas: Record<BucketName, BucketSchema> = {
       "Jumlah Transaksi Keluar": String(row.jumlah_transaksi_keluar ?? 0),
       Keterangan: asString(row.keterangan || "donasi masuk"),
       "Hidden Nama Pengirim": String(row.hidden_nama_pengirim ?? 0),
+      "Jenis Transaksi": asString((row as any).jenis_transaksi || "Dana Masuk"),
       "Created At": asString((row as any).created_at),
       "Updated At": asString((row as any).updated_at),
     }),
@@ -291,6 +292,7 @@ const schemas: Record<BucketName, BucketSchema> = {
       jumlah_transaksi_keluar: asNumberOrNull(data["Jumlah Transaksi Keluar"] ?? data.jumlah_transaksi_keluar) ?? 0,
       keterangan: asString(data.Keterangan || data.keterangan || "donasi masuk"),
       hidden_nama_pengirim: Number(data["Hidden Nama Pengirim"] ?? data.hidden_nama_pengirim ?? 0) ? 1 : 0,
+      jenis_transaksi: asString(data["Jenis Transaksi"] || (data as any).jenis_transaksi || "Dana Masuk"),
     }),
   },
   donasi_transaksi_tagihan: {
@@ -303,6 +305,9 @@ const schemas: Record<BucketName, BucketSchema> = {
       Keterangan: asString(row.keterangan || "tagihan bulan ini"),
       "Created At": asString((row as any).created_at),
       "Updated At": asString((row as any).updated_at),
+      Status: asString((row as any).status || "Belum Dibayar"),
+      "Is Lunas": String((row as any).is_lunas ?? 0),
+      "Tanggal Bayar": asString((row as any).tanggal_bayar || ""),
     }),
     toDb: (data) => {
       const res: Record<string, string | number | boolean | null> = {
@@ -310,10 +315,13 @@ const schemas: Record<BucketName, BucketSchema> = {
         tanggal: asString(data.Tanggal || data.tanggal),
         jumlah_tagihan: asNumberOrNull(data["Jumlah Tagihan"] ?? data.jumlah_tagihan) ?? 0,
         keterangan: asString(data.Keterangan || data.keterangan || "tagihan bulan ini"),
+        status: asString(data.Status || data.status || "Belum Dibayar"),
+        is_lunas: Number(data["Is Lunas"] ?? data.is_lunas ?? 0) ? 1 : 0,
+        tanggal_bayar: asString(data["Tanggal Bayar"] ?? data.tanggal_bayar) || null,
       };
       const rawId = data.ID ?? data.id;
-      if (rawId !== undefined && rawId !== null && rawId !== "" && !isNaN(Number(rawId))) {
-        res.id = Number(rawId);
+      if (rawId !== undefined && rawId !== null && rawId !== "") {
+        res.id = !isNaN(Number(rawId)) ? Number(rawId) : String(rawId);
       }
       return res;
     },

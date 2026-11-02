@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from "react";
-import type { DonasiTransaksiDraft, DonasiTransaksiTagihanRecord, DonasiTransaksiRecord } from "../../types/donasi";
+import type {
+  DonasiTransaksiDraft,
+  DonasiTransaksiTagihanRecord,
+  DonasiTransaksiRecord,
+  JenisTransaksiDonasi,
+} from "../../types/donasi";
+import { JENIS_TRANSAKSI_OPTIONS } from "../../types/donasi";
 import { isTagihanPaid } from "../../utils/donasi";
 
 type TransaksiDonasiModalProps = {
@@ -23,6 +29,54 @@ const KETERANGAN_PRESETS = [
   "biaya perpanjangan database & server",
   "pemeliharaan sistem & backup",
 ];
+
+export const CATEGORY_CONFIG: Record<
+  string,
+  { label: string; icon: string; badgeClass: string; activeClass: string; defaultType: "masuk" | "keluar" }
+> = {
+  "Dana Masuk": {
+    label: "Dana Masuk",
+    icon: "bi-arrow-down-left-circle-fill",
+    badgeClass: "bg-success-subtle text-success border-success-subtle",
+    activeClass: "btn-success text-white border-success shadow-sm",
+    defaultType: "masuk",
+  },
+  "Dana Keluar": {
+    label: "Dana Keluar",
+    icon: "bi-arrow-up-right-circle-fill",
+    badgeClass: "bg-danger-subtle text-danger border-danger-subtle",
+    activeClass: "btn-danger text-white border-danger shadow-sm",
+    defaultType: "keluar",
+  },
+  "Pembayaran Tagihan": {
+    label: "Pembayaran Tagihan",
+    icon: "bi-receipt",
+    badgeClass: "bg-warning-subtle text-warning-emphasis border-warning-subtle",
+    activeClass: "btn-warning text-dark border-warning shadow-sm",
+    defaultType: "keluar",
+  },
+  "Pembelian": {
+    label: "Pembelian",
+    icon: "bi-cart3",
+    badgeClass: "bg-info-subtle text-info-emphasis border-info-subtle",
+    activeClass: "btn-info text-white border-info shadow-sm",
+    defaultType: "keluar",
+  },
+  "Operasional": {
+    label: "Operasional",
+    icon: "bi-gear-fill",
+    badgeClass: "bg-primary-subtle text-primary border-primary-subtle",
+    activeClass: "btn-primary text-white border-primary shadow-sm",
+    defaultType: "keluar",
+  },
+  "Lainnya": {
+    label: "Lainnya",
+    icon: "bi-tag-fill",
+    badgeClass: "bg-secondary-subtle text-secondary border-secondary-subtle",
+    activeClass: "btn-secondary text-white border-secondary shadow-sm",
+    defaultType: "masuk",
+  },
+};
 
 const formatForDateTimeInput = (dateStr?: string) => {
   if (!dateStr) return "";
@@ -84,6 +138,10 @@ export function TransaksiDonasiModal({
 
   const selectedTagihan = tagihanRecords.find((t) => String(t.id) === String(selectedTagihanId));
 
+  const activeCategory =
+    draft.jenis_transaksi ||
+    (transactionType === "keluar" ? "Dana Keluar" : "Dana Masuk");
+
   const getTagihanMonthKey = (dateStr?: string, fallback?: string) => {
     const raw = dateStr || fallback || "";
     if (!raw) return "";
@@ -113,7 +171,6 @@ export function TransaksiDonasiModal({
     try {
       const d = new Date(raw);
       if (isNaN(d.getTime())) {
-        // Fallback to regex if Date fails
         const match = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
         if (match) {
           return `${match[3]}/${match[2]}/${match[1]}`;
@@ -143,6 +200,7 @@ export function TransaksiDonasiModal({
       onChange("jumlah_transaksi_keluar", tagihan.jumlah_tagihan);
       onChange("jumlah_transaksi_masuk", 0);
       onChange("keterangan", finalKeterangan);
+      onChange("jenis_transaksi", "Pembayaran Tagihan");
     }
   };
 
@@ -151,6 +209,39 @@ export function TransaksiDonasiModal({
     onChange("nama_pengirim", "");
     onChange("jumlah_transaksi_keluar", 0);
     onChange("keterangan", "pemeliharaan database & server");
+    onChange("jenis_transaksi", "Dana Keluar");
+  };
+
+  const handleSelectCategory = (cat: string) => {
+    onChange("jenis_transaksi", cat);
+    if (cat === "Dana Masuk") {
+      setTransactionType("masuk");
+      if (Number(draft.jumlah_transaksi_keluar) > 0 && Number(draft.jumlah_transaksi_masuk) === 0) {
+        onChange("jumlah_transaksi_masuk", draft.jumlah_transaksi_keluar);
+        onChange("jumlah_transaksi_keluar", 0);
+      }
+      if (!draft.keterangan || draft.keterangan === "pemeliharaan database & server") {
+        onChange("keterangan", "donasi masuk");
+      }
+    } else if (
+      cat === "Dana Keluar" ||
+      cat === "Pembayaran Tagihan" ||
+      cat === "Pembelian" ||
+      cat === "Operasional"
+    ) {
+      setTransactionType("keluar");
+      if (Number(draft.jumlah_transaksi_masuk) > 0 && Number(draft.jumlah_transaksi_keluar) === 0) {
+        onChange("jumlah_transaksi_keluar", draft.jumlah_transaksi_masuk);
+        onChange("jumlah_transaksi_masuk", 0);
+      }
+      if (cat === "Pembayaran Tagihan" && (!draft.keterangan || draft.keterangan === "donasi masuk")) {
+        onChange("keterangan", "tagihan bulan ini");
+      } else if (cat === "Operasional" && (!draft.keterangan || draft.keterangan === "donasi masuk")) {
+        onChange("keterangan", "biaya operasional");
+      } else if (cat === "Pembelian" && (!draft.keterangan || draft.keterangan === "donasi masuk")) {
+        onChange("keterangan", "pembelian");
+      }
+    }
   };
 
   if (!isOpen) {
@@ -170,6 +261,7 @@ export function TransaksiDonasiModal({
   const handleTypeChange = (type: "masuk" | "keluar") => {
     setTransactionType(type);
     if (type === "masuk") {
+      onChange("jenis_transaksi", "Dana Masuk");
       if (!draft.keterangan || draft.keterangan === "pemeliharaan database&server" || draft.keterangan === "biaya perpanjangan domain/server" || draft.keterangan === "pemeliharaan sistem & backup") {
         onChange("keterangan", "donasi masuk");
       }
@@ -178,8 +270,11 @@ export function TransaksiDonasiModal({
         onChange("jumlah_transaksi_keluar", 0);
       }
     } else {
+      if (activeCategory === "Dana Masuk") {
+        onChange("jenis_transaksi", "Dana Keluar");
+      }
       if (!draft.keterangan || draft.keterangan === "donasi masuk") {
-        onChange("keterangan", "pemeliharaan database&server");
+        onChange("keterangan", "pemeliharaan database & server");
       }
       if (Number(draft.jumlah_transaksi_masuk) > 0 && Number(draft.jumlah_transaksi_keluar) === 0) {
         onChange("jumlah_transaksi_keluar", draft.jumlah_transaksi_masuk);
@@ -227,7 +322,7 @@ export function TransaksiDonasiModal({
           {/* Tipe Transaksi Tab Selector */}
           <div>
             <label className="form-label text-xs fw-bold text-dark mb-1">
-              Tipe Transaksi
+              Arus Kas
             </label>
             <div className="btn-group w-100 rounded-3 shadow-sm p-1 bg-light border" role="group">
               <button
@@ -254,6 +349,44 @@ export function TransaksiDonasiModal({
                 <i className="bi bi-arrow-up-right me-1" />
                 Transaksi Keluar (Biaya/Operasional)
               </button>
+            </div>
+          </div>
+
+          {/* Kategori Transaksi (jenis_transaksi) */}
+          <div>
+            <div className="d-flex justify-content-between align-items-center mb-1">
+              <label className="form-label text-xs fw-bold text-dark mb-0 d-flex align-items-center gap-1.5">
+                <i className="bi bi-tags-fill text-primary" />
+                Kategori Transaksi (jenis_transaksi) <span className="text-danger">*</span>
+              </label>
+              <span className={`badge ${CATEGORY_CONFIG[activeCategory]?.badgeClass || "bg-light text-dark"} rounded-pill px-2 py-0.5 text-xxs fw-bold`}>
+                <i className={`bi ${CATEGORY_CONFIG[activeCategory]?.icon || "bi-tag"} me-1`} />
+                {activeCategory}
+              </span>
+            </div>
+
+            {/* Pill chips for the 6 requested categories */}
+            <div className="d-flex flex-wrap gap-1.5 p-2 bg-light rounded-3 border">
+              {JENIS_TRANSAKSI_OPTIONS.map((cat) => {
+                const isSelected = activeCategory === cat;
+                const cfg = CATEGORY_CONFIG[cat];
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => handleSelectCategory(cat)}
+                    className={`btn btn-xs rounded-pill px-2.5 py-1 text-xxs fw-semibold transition-all d-inline-flex align-items-center gap-1 ${
+                      isSelected
+                        ? (cfg?.activeClass || "btn-dark text-white")
+                        : "btn-white text-secondary border border-secondary-subtle bg-white hover-bg-light"
+                    }`}
+                  >
+                    <i className={`bi ${cfg?.icon || "bi-tag"}`} />
+                    <span>{cat}</span>
+                    {isSelected && <i className="bi bi-check-lg ms-0.5" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

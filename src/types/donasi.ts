@@ -13,6 +13,17 @@ export type DonasiDraft = {
   alamat_rekening: string;
 };
 
+export const JENIS_TRANSAKSI_OPTIONS = [
+  "Dana Masuk",
+  "Dana Keluar",
+  "Pembayaran Tagihan",
+  "Pembelian",
+  "Operasional",
+  "Lainnya",
+] as const;
+
+export type JenisTransaksiDonasi = (typeof JENIS_TRANSAKSI_OPTIONS)[number];
+
 export type DonasiTransaksiRecord = {
   id: string | number;
   nama_pengirim: string;
@@ -21,6 +32,7 @@ export type DonasiTransaksiRecord = {
   jumlah_transaksi_keluar: number;
   keterangan: string;
   hidden_nama_pengirim?: number;
+  jenis_transaksi?: string;
   created_at?: string;
   updated_at?: string;
 };
@@ -32,6 +44,7 @@ export type DonasiTransaksiDraft = {
   jumlah_transaksi_keluar: string | number;
   keterangan: string;
   hidden_nama_pengirim?: number;
+  jenis_transaksi?: string;
 };
 
 export type DonasiTransaksiTagihanRecord = {
@@ -42,12 +55,19 @@ export type DonasiTransaksiTagihanRecord = {
   keterangan: string;
   created_at?: string;
   updated_at?: string;
+  status?: string;
+  is_lunas?: number;
+  tanggal_bayar?: string | null;
 };
 
 export type DonasiTransaksiTagihanDraft = {
+  id?: string | number;
   nama_pengirim: string;
   tanggal: string;
   jumlah_tagihan: string | number;
   keterangan: string;
+  status?: string;
+  is_lunas?: number;
+  tanggal_bayar?: string | null;
 };
 

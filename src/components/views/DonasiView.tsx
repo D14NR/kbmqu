@@ -4,7 +4,51 @@ import type {
   DonasiTransaksiRecord,
   DonasiTransaksiTagihanRecord,
 } from "../../types/donasi";
+import { JENIS_TRANSAKSI_OPTIONS } from "../../types/donasi";
 import { isTagihanPaid, findMatchingPaymentTransaction } from "../../utils/donasi";
+
+export const getJenisTransaksiBadge = (jenis?: string, keluarNominal?: number) => {
+  const val = jenis || (keluarNominal && keluarNominal > 0 ? "Dana Keluar" : "Dana Masuk");
+  switch (val) {
+    case "Dana Masuk":
+      return (
+        <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+          <i className="bi bi-arrow-down-left-circle-fill" /> Dana Masuk
+        </span>
+      );
+    case "Dana Keluar":
+      return (
+        <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+          <i className="bi bi-arrow-up-right-circle-fill" /> Dana Keluar
+        </span>
+      );
+    case "Pembayaran Tagihan":
+      return (
+        <span className="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+          <i className="bi bi-receipt" /> Pembayaran Tagihan
+        </span>
+      );
+    case "Pembelian":
+      return (
+        <span className="badge bg-info-subtle text-info-emphasis border border-info-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+          <i className="bi bi-cart3" /> Pembelian
+        </span>
+      );
+    case "Operasional":
+      return (
+        <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+          <i className="bi bi-gear-fill" /> Operasional
+        </span>
+      );
+    case "Lainnya":
+    default:
+      return (
+        <span className="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2.5 py-1 text-xxs fw-bold d-inline-flex align-items-center gap-1">
+          <i className="bi bi-tag-fill" /> {val}
+        </span>
+      );
+  }
+};
 
 type DonasiViewProps = {
   loading: boolean;
@@ -23,6 +67,7 @@ type DonasiViewProps = {
   onEditTagihan?: (record: DonasiTransaksiTagihanRecord) => void;
   onDeleteTagihan?: (record: DonasiTransaksiTagihanRecord) => void;
   onPayTagihan?: (record: DonasiTransaksiTagihanRecord) => void;
+  onToggleTagihanStatus?: (record: DonasiTransaksiTagihanRecord) => void;
   onRefresh: () => void;
 };
 
@@ -43,11 +88,13 @@ export function DonasiView({
   onEditTagihan,
   onDeleteTagihan,
   onPayTagihan,
+  onToggleTagihanStatus,
   onRefresh,
 }: DonasiViewProps) {
   const [activeTab, setActiveTab] = useState<"rekening" | "transaksi" | "tagihan">("rekening");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "masuk" | "keluar">("all");
+  const [filterKategori, setFilterKategori] = useState<string>("all");
   const [filterTagihanStatus, setFilterTagihanStatus] = useState<"all" | "unpaid" | "paid">("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -221,12 +268,22 @@ export function DonasiView({
       result = result.filter((t) => Number(t.jumlah_transaksi_keluar) > 0);
     }
 
+    if (filterKategori !== "all") {
+      result = result.filter((t) => {
+        const cat =
+          t.jenis_transaksi ||
+          (Number(t.jumlah_transaksi_keluar) > 0 ? "Dana Keluar" : "Dana Masuk");
+        return cat === filterKategori;
+      });
+    }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
         (t) =>
           t.nama_pengirim.toLowerCase().includes(q) ||
           (t.keterangan && t.keterangan.toLowerCase().includes(q)) ||
+          (t.jenis_transaksi && t.jenis_transaksi.toLowerCase().includes(q)) ||
           t.tanggal.includes(q) ||
           String(t.jumlah_transaksi_masuk).includes(q) ||
           String(t.jumlah_transaksi_keluar).includes(q)
@@ -242,7 +299,7 @@ export function DonasiView({
       }
       return Number(b.id || 0) - Number(a.id || 0);
     });
-  }, [monthTransaksiRecords, filterType, searchQuery]);
+  }, [monthTransaksiRecords, filterType, filterKategori, searchQuery]);
 
   // Filter Transaksi Tagihan Berdasarkan Bulan Terpilih
   const monthTagihanRecords = useMemo(() => {
@@ -691,36 +748,62 @@ export function DonasiView({
                 )}
               </div>
 
-              {/* Tipe filter button group for Tab Transaksi */}
+              {/* Tipe & Kategori filter button group for Tab Transaksi */}
               {activeTab === "transaksi" && (
-                <div className="btn-group btn-group-sm rounded-3 border bg-light p-0.5" role="group">
-                  <button
-                    type="button"
-                    className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
-                      filterType === "all" ? "btn-dark text-white shadow-sm" : "btn-light text-muted border-0"
-                    }`}
-                    onClick={() => setFilterType("all")}
+                <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                  <div className="btn-group btn-group-sm rounded-3 border bg-light p-0.5" role="group">
+                    <button
+                      type="button"
+                      className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
+                        filterType === "all" ? "btn-dark text-white shadow-sm" : "btn-light text-muted border-0"
+                      }`}
+                      onClick={() => setFilterType("all")}
+                    >
+                      Semua Arus
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
+                        filterType === "masuk" ? "btn-success text-white shadow-sm" : "btn-light text-muted border-0"
+                      }`}
+                      onClick={() => setFilterType("masuk")}
+                    >
+                      Masuk
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
+                        filterType === "keluar" ? "btn-danger text-white shadow-sm" : "btn-light text-muted border-0"
+                      }`}
+                      onClick={() => setFilterType("keluar")}
+                    >
+                      Keluar
+                    </button>
+                  </div>
+
+                  {/* Filter Kategori (jenis_transaksi) */}
+                  <select
+                    className="form-select form-select-sm text-xxs rounded-3 border bg-light py-1.5 ps-2 pe-4 fw-semibold text-secondary shadow-none"
+                    style={{ width: "auto", minWidth: 145 }}
+                    value={filterKategori}
+                    onChange={(e) => setFilterKategori(e.target.value)}
+                    title="Filter Berdasarkan Kategori jenis_transaksi"
                   >
-                    Semua
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
-                      filterType === "masuk" ? "btn-success text-white shadow-sm" : "btn-light text-muted border-0"
-                    }`}
-                    onClick={() => setFilterType("masuk")}
-                  >
-                    Masuk
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-xs rounded-2 text-xxs fw-semibold px-2.5 py-1.5 ${
-                      filterType === "keluar" ? "btn-danger text-white shadow-sm" : "btn-light text-muted border-0"
-                    }`}
-                    onClick={() => setFilterType("keluar")}
-                  >
-                    Keluar
-                  </button>
+                    <option value="all">Semua Kategori ({monthTransaksiRecords.length})</option>
+                    {JENIS_TRANSAKSI_OPTIONS.map((cat) => {
+                      const count = monthTransaksiRecords.filter((t) => {
+                        const c =
+                          t.jenis_transaksi ||
+                          (Number(t.jumlah_transaksi_keluar) > 0 ? "Dana Keluar" : "Dana Masuk");
+                        return c === cat;
+                      }).length;
+                      return (
+                        <option key={cat} value={cat}>
+                          {cat} ({count})
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
               )}
 
@@ -1008,7 +1091,7 @@ export function DonasiView({
               </span>
             </div>
             <div className="text-xxs text-muted">
-              Skema: <code className="text-dark">id, nama_pengirim, tanggal, jumlah_transaksi_masuk, jumlah_transaksi_keluar, keterangan, created_at, updated_at</code>
+              Skema: <code className="text-dark">id, nama_pengirim, tanggal, jumlah_transaksi_masuk, jumlah_transaksi_keluar, keterangan, created_at, updated_at, hidden_nama_pengirim, jenis_transaksi</code>
             </div>
           </div>
 
@@ -1027,6 +1110,9 @@ export function DonasiView({
                     )}
                     <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 125 }}>
                       Tanggal
+                    </th>
+                    <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase text-center" style={{ width: 155 }}>
+                      Kategori (jenis_transaksi)
                     </th>
                     <th className="px-3 py-3 text-muted fw-semibold text-xxs text-uppercase">
                       Nama Pengirim / Pihak
@@ -1067,6 +1153,11 @@ export function DonasiView({
                           Awal Periode
                         </span>
                       </td>
+                      <td className="text-center px-3 py-2.5">
+                        <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0.5 text-xxs font-monospace">
+                          Saldo Awal
+                        </span>
+                      </td>
                       <td className="px-3 py-2.5">
                         <div className="d-flex align-items-center gap-1.5">
                           <i className="bi bi-wallet2 text-primary" />
@@ -1091,14 +1182,14 @@ export function DonasiView({
 
                   {loading ? (
                     <tr>
-                      <td colSpan={isAdmin ? 9 : 8} className="text-center py-5">
+                      <td colSpan={isAdmin ? 10 : 9} className="text-center py-5">
                         <div className="spinner-border spinner-border-sm text-success me-2" role="status" />
                         <span className="text-muted text-xs">Memuat data transaksi...</span>
                       </td>
                     </tr>
                   ) : filteredTransaksi.length === 0 ? (
                     <tr>
-                      <td colSpan={isAdmin ? 9 : 8} className="text-center py-5">
+                      <td colSpan={isAdmin ? 10 : 9} className="text-center py-5">
                         <div className="d-flex flex-column align-items-center justify-content-center">
                           <div
                             className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center mb-2"
@@ -1108,17 +1199,18 @@ export function DonasiView({
                           </div>
                           <h6 className="fw-bold text-dark mb-1 text-sm">Belum Ada Riwayat Transaksi</h6>
                           <p className="text-muted text-xs mb-3" style={{ maxWidth: 380 }}>
-                            {searchQuery || filterType !== "all"
+                            {searchQuery || filterType !== "all" || filterKategori !== "all"
                               ? "Tidak ada transaksi yang sesuai dengan filter atau kata kunci pencarian."
                               : "Riwayat donasi masuk dan biaya pemeliharaan server akan tercatat di sini."}
                           </p>
-                          {searchQuery || filterType !== "all" ? (
+                          {searchQuery || filterType !== "all" || filterKategori !== "all" ? (
                             <button
                               type="button"
                               className="btn btn-outline-secondary btn-xs rounded-pill px-3"
                               onClick={() => {
                                 setSearchQuery("");
                                 setFilterType("all");
+                                setFilterKategori("all");
                               }}
                             >
                               Reset Filter
@@ -1213,6 +1305,11 @@ export function DonasiView({
                                 </div>
                               );
                             })()}
+                          </td>
+
+                          {/* Kategori (jenis_transaksi) */}
+                          <td className="px-3 py-3 text-center text-nowrap">
+                            {getJenisTransaksiBadge(item.jenis_transaksi, keluar)}
                           </td>
 
                           {/* Nama Pengirim */}
@@ -1311,7 +1408,7 @@ export function DonasiView({
                 {/* Table Footer Summary */}
                 <tfoot className="table-light border-top">
                   <tr className="fw-bold text-xs">
-                    <td colSpan={isAdmin ? 5 : 4} className="text-end px-3 py-2.5 text-dark">
+                    <td colSpan={isAdmin ? 6 : 5} className="text-end px-3 py-2.5 text-dark">
                       Total Mutasi {selectedMonth === "all" ? "Seluruh Periode" : `Bulan ${formatMonthLabel(selectedMonth)}`}:
                     </td>
                     <td className="text-end px-3 py-2.5 text-success font-monospace">
@@ -1323,7 +1420,7 @@ export function DonasiView({
                     <td colSpan={2}></td>
                   </tr>
                   <tr className="bg-success-subtle bg-opacity-25 fw-bold text-xs border-top">
-                    <td colSpan={isAdmin ? 5 : 4} className="text-end px-3 py-2.5 text-dark">
+                    <td colSpan={isAdmin ? 6 : 5} className="text-end px-3 py-2.5 text-dark">
                       <span className="d-inline-flex align-items-center gap-1.5">
                         <i className="bi bi-wallet2 text-success fs-6" />
                         Total Kas Tersedia (Saldo Akhir):
@@ -1357,7 +1454,7 @@ export function DonasiView({
                 Total Tagihan: {formatRupiah(totalNominalTagihan)}
               </span>
               <span className="text-xxs text-muted d-none d-lg-inline">
-                Skema: <code className="text-dark">id, nama_pengirim, tanggal, jumlah_tagihan, keterangan, created_at, updated_at</code>
+                Skema: <code className="text-dark">id (uuid), nama_pengirim, tanggal, jumlah_tagihan, keterangan, status, is_lunas, tanggal_bayar, created_at, updated_at</code>
               </span>
             </div>
           </div>
@@ -1367,15 +1464,15 @@ export function DonasiView({
               <table className="table table-hover align-middle mb-0">
                 <thead className="table-light border-bottom sticky-top text-xxs text-muted text-uppercase fw-bold">
                   <tr>
-                    <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 60 }}>
+                    <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 80 }}>
                       No / ID
                     </th>
                     {isAdmin && (
-                      <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 175 }}>
+                      <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 195 }}>
                         Aksi
                       </th>
                     )}
-                    <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 140 }}>
+                    <th scope="col" className="px-3 py-2.5 text-center" style={{ width: 145 }}>
                       Status Pembayaran
                     </th>
                     <th scope="col" className="px-3 py-2.5" style={{ minWidth: 140 }}>
@@ -1428,14 +1525,18 @@ export function DonasiView({
                       const tagihanVal = Number(item.jumlah_tagihan) || 0;
                       const dt = formatDateTimeDisplay(item.tanggal, item.created_at);
                       const matchingTrx = findMatchingPaymentTransaction(item, transaksiRecords);
-                      const paid = Boolean(matchingTrx);
+                      const paid = isTagihanPaid(item, transaksiRecords);
+                      const isUuid = typeof item.id === "string" && item.id.length > 8;
 
                       return (
                         <tr key={String(item.id || idx)} className={paid ? "table-success-subtle bg-opacity-10" : ""}>
                           {/* No / ID */}
                           <td className="px-3 py-3 text-center">
-                            <span className="badge bg-light text-secondary border rounded-pill px-2 py-1 font-monospace text-xxs">
-                              #{item.id ?? idx + 1}
+                            <span
+                              className="badge bg-light text-secondary border rounded-pill px-2 py-1 font-monospace text-xxs"
+                              title={item.id ? `ID: ${item.id}` : undefined}
+                            >
+                              #{isUuid ? `${String(item.id).slice(0, 8)}...` : (item.id ?? idx + 1)}
                             </span>
                           </td>
 
@@ -1449,7 +1550,7 @@ export function DonasiView({
                                       type="button"
                                       onClick={() => onPayTagihan(item)}
                                       className="btn btn-outline-success btn-xs rounded-pill px-2.5 py-1 fw-bold d-inline-flex align-items-center gap-1 shadow-xs"
-                                      title="Tagihan sudah lunas. Klik jika ingin mencatat pembayaran tambahan/ulang"
+                                      title="Tagihan sudah lunas. Klik jika ingin mencatat pembayaran mutasi tambahan"
                                     >
                                       <i className="bi bi-check2-circle text-success" />
                                       <span>Lunas</span>
@@ -1465,6 +1566,16 @@ export function DonasiView({
                                       <span>Bayar</span>
                                     </button>
                                   )
+                                )}
+                                {onToggleTagihanStatus && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onToggleTagihanStatus(item)}
+                                    className={`btn btn-xs rounded-2 px-2 py-1 hover-shadow ${paid ? "btn-outline-warning" : "btn-outline-success"}`}
+                                    title={paid ? "Tandai tagihan sebagai Belum Dibayar" : "Tandai tagihan sebagai Sudah Dibayar"}
+                                  >
+                                    <i className={`bi ${paid ? "bi-arrow-counterclockwise" : "bi-check-circle"}`} />
+                                  </button>
                                 )}
                                 {onEditTagihan && (
                                   <button
@@ -1498,6 +1609,16 @@ export function DonasiView({
                                   <i className="bi bi-check-circle-fill" />
                                   <span>Sudah Dibayar</span>
                                 </span>
+                                {item.tanggal_bayar && (
+                                  <span
+                                    className="text-success text-xxs font-monospace"
+                                    style={{ fontSize: "0.65rem" }}
+                                    title={`Tanggal Bayar: ${item.tanggal_bayar}`}
+                                  >
+                                    <i className="bi bi-calendar-check me-0.5" />
+                                    {formatDateTimeDisplay(item.tanggal_bayar).date}
+                                  </span>
+                                )}
                                 {matchingTrx && (
                                   <span
                                     className="text-muted text-xxs font-monospace"

@@ -4,7 +4,7 @@ import type { DonasiTransaksiRecord, DonasiTransaksiTagihanRecord } from "../../
 import { isTagihanPaid } from "../../utils/donasi";
 
 // Durasi tampil otomatis sebelum di-hidden: 2.5 menit (150 detik)
-const AUTO_HIDE_SECONDS = 30;
+const AUTO_HIDE_SECONDS = 150;
 
 type DonationAccount = {
   id: string;
@@ -73,7 +73,17 @@ const getAccountType = (bankName: string, account: string) => {
   return "Nomor Rekening";
 };
 
-export function DatabaseMaintenanceBanner() {
+export type DatabaseMaintenanceBannerProps = {
+  tagihanList?: DonasiTransaksiTagihanRecord[];
+  transaksiList?: DonasiTransaksiRecord[];
+  onRefreshDonasi?: () => void;
+};
+
+export function DatabaseMaintenanceBanner({
+  tagihanList: externalTagihanList,
+  transaksiList: externalTransaksiList,
+  onRefreshDonasi,
+}: DatabaseMaintenanceBannerProps = {}) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailTransaksiOpen, setIsDetailTransaksiOpen] = useState(false);
   const [transaksiList, setTransaksiList] = useState<DonasiTransaksiRecord[]>([]);
@@ -115,6 +125,21 @@ export function DatabaseMaintenanceBanner() {
   const currentMonthKey = getCurrentMonthKey();
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
 
+  // Gunakan data dari props jika tersedia (sinkron real-time dengan App.tsx), atau fallback ke state lokal
+  const effectiveTagihanList = useMemo(() => {
+    if (externalTagihanList && externalTagihanList.length > 0) {
+      return externalTagihanList;
+    }
+    return tagihanList;
+  }, [externalTagihanList, tagihanList]);
+
+  const effectiveTransaksiList = useMemo(() => {
+    if (externalTransaksiList && externalTransaksiList.length > 0) {
+      return externalTransaksiList;
+    }
+    return transaksiList;
+  }, [externalTransaksiList, transaksiList]);
+
   const getTransactionMonthKey = (dateStr?: string, createdAt?: string): string => {
     const raw = dateStr || createdAt || "";
     if (!raw) return "";
@@ -149,22 +174,65 @@ export function DatabaseMaintenanceBanner() {
     return mKey <= monthKey;
   };
 
+  // Urutkan semua tagihan dari yang paling terbaru
+  const sortedTagihans = useMemo(() => {
+    return [...effectiveTagihanList].sort((a, b) => {
+      const dateA = new Date(a.tanggal || a.created_at || 0).getTime();
+      const dateB = new Date(b.tanggal || b.created_at || 0).getTime();
+      if (dateB !== dateA) return dateB - dateA;
+      return Number(b.id || 0) - Number(a.id || 0);
+    });
+  }, [effectiveTagihanList]);
+
+  // Daftar tagihan yang belum lunas / belum dibayar
+  const unpaidTagihans = useMemo(() => {
+    return sortedTagihans.filter((t) => !isTagihanPaid(t, effectiveTransaksiList));
+  }, [sortedTagihans, effectiveTransaksiList]);
+
+  // Tagihan yang tercatat di bulan berjalan (currentMonthKey)
+  const currentMonthTagihans = useMemo(() => {
+    return effectiveTagihanList.filter((t) => isDateInMonth(t.tanggal, currentMonthKey));
+  }, [effectiveTagihanList, currentMonthKey]);
+
+  // Tagihan terbaru yang belum lunas (prioritas utama)
+  const hasTagihanTerbaruBelumLunas = unpaidTagihans.length > 0;
+
+  // Banner donasi HANYA ditampilkan jika SUDAH ADA Tagihan Terbaru:
+  // 1. Ada tagihan terbaru yang belum lunas (hasTagihanTerbaruBelumLunas), ATAU
+  // 2. Ada tagihan untuk bulan ini (currentMonthTagihans.length > 0)
+  const hasTagihanTerbaru = hasTagihanTerbaruBelumLunas || currentMonthTagihans.length > 0;
+
+  // Tagihan yang menjadi target banner:
+  // Jika ada tagihan yang belum lunas, prioritaskan seluruh tagihan yang belum lunas
+  // Jika semua lunas tetapi ada tagihan bulan ini, gunakan tagihan bulan ini
+  const relevantTagihans = useMemo(() => {
+    if (unpaidTagihans.length > 0) {
+      return unpaidTagihans;
+    }
+    if (currentMonthTagihans.length > 0) {
+      return currentMonthTagihans;
+    }
+    return [];
+  }, [unpaidTagihans, currentMonthTagihans]);
+
+  const primaryTagihan = relevantTagihans[0] || sortedTagihans[0] || null;
+
   // Transaksi khusus BULAN INI (berjalan)
   const currentMonthTransaksiList = useMemo(() => {
-    return transaksiList.filter((item) => {
+    return effectiveTransaksiList.filter((item) => {
       const dateStr = item.tanggal || item.created_at || "";
       return isDateInMonth(dateStr, currentMonthKey);
     });
-  }, [transaksiList, currentMonthKey]);
+  }, [effectiveTransaksiList, currentMonthKey]);
 
   // Transaksi SEBELUM bulan ini (Sisa Kas Bulan Kemarin / Saldo Awal)
   const priorMonthTransaksiList = useMemo(() => {
-    return transaksiList.filter((item) => {
+    return effectiveTransaksiList.filter((item) => {
       const dateStr = item.tanggal || item.created_at || "";
       const mKey = getTransactionMonthKey(dateStr);
       return mKey && mKey < currentMonthKey;
     });
-  }, [transaksiList, currentMonthKey]);
+  }, [effectiveTransaksiList, currentMonthKey]);
 
   // Sisa Uang / Saldo Awal dari Bulan Kemarin
   const saldoAwalBulanIni = useMemo(() => {
@@ -188,65 +256,49 @@ export function DatabaseMaintenanceBanner() {
   // Total Kas Tersedia Riil Saat Ini = Sisa Bulan Kemarin + Mutasi Bersih Bulan Ini
   const totalKasTersediaSaatIni = saldoAwalBulanIni + saldoBersihBulanIni;
 
-  const priorMonthKey = useMemo(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    return `${year}-${month}`;
-  }, []);
-
+  // Target Nominal IDR diambil langsung dari tagihan terbaru (tanpa mock fiktif $15)
   const TARGET_MONTHLY_IDR = useMemo(() => {
-    const currentTagihan = tagihanList.filter((t) => isDateInMonth(t.tanggal, currentMonthKey));
-    const sum = currentTagihan.reduce((acc, t) => acc + (Number(t.jumlah_tagihan) || 0), 0);
-    if (sum === 0) {
-      const priorTagihan = tagihanList.filter((t) => isDateInMonth(t.tanggal, priorMonthKey));
-      const priorSum = priorTagihan.reduce((acc, t) => acc + (Number(t.jumlah_tagihan) || 0), 0);
-      return priorSum > 0 ? priorSum : 15 * usdRate;
+    if (relevantTagihans.length > 0) {
+      return relevantTagihans.reduce((acc, t) => acc + (Number(t.jumlah_tagihan) || 0), 0);
     }
-    return sum;
-  }, [tagihanList, currentMonthKey, priorMonthKey, usdRate]);
-
-  const relevantTagihans = useMemo(() => {
-    const current = tagihanList.filter((t) => isDateInMonth(t.tanggal, currentMonthKey));
-    if (current.length > 0) return current;
-    return tagihanList.filter((t) => isDateInMonth(t.tanggal, priorMonthKey));
-  }, [tagihanList, currentMonthKey, priorMonthKey]);
+    return 0;
+  }, [relevantTagihans]);
 
   const allRelevantBillsPaid = useMemo(() => {
     return (
       relevantTagihans.length > 0 &&
-      relevantTagihans.every((t) => isTagihanPaid(t, transaksiList))
+      relevantTagihans.every((t) => isTagihanPaid(t, effectiveTransaksiList))
     );
-  }, [relevantTagihans, transaksiList]);
+  }, [relevantTagihans, effectiveTransaksiList]);
 
   const paidBillsCount = useMemo(() => {
-    return relevantTagihans.filter((t) => isTagihanPaid(t, transaksiList)).length;
-  }, [relevantTagihans, transaksiList]);
+    return relevantTagihans.filter((t) => isTagihanPaid(t, effectiveTransaksiList)).length;
+  }, [relevantTagihans, effectiveTransaksiList]);
 
   const targetMonthLabel = useMemo(() => {
     if (relevantTagihans.length > 0) {
-      const isCurrent = relevantTagihans.some(t => isDateInMonth(t.tanggal, currentMonthKey));
-      return isCurrent ? "Bulan Ini" : "Bulan Kemarin";
+      const first = relevantTagihans[0];
+      const mKey = getTransactionMonthKey(first.tanggal, first.created_at);
+      if (mKey === currentMonthKey) return "Bulan Ini";
+      return formatMonthName(mKey);
     }
     return "Bulan Ini";
   }, [relevantTagihans, currentMonthKey]);
 
-  // Total Dana yang benar-benar tersedia untuk membayar tagihan:
-  // (Apa yang sudah dibayar bulan ini) + (Sisa uang tunai yang ada sekarang, jika positif)
+  // Total Dana yang dialokasikan untuk membayar tagihan
   const effectiveProgressIDR = currentMonthKeluar + Math.max(0, totalKasTersediaSaatIni);
 
   const isTargetAchieved =
     allRelevantBillsPaid ||
-    currentMonthKeluar >= TARGET_MONTHLY_IDR ||
-    totalKasTersediaSaatIni >= TARGET_MONTHLY_IDR ||
-    effectiveProgressIDR >= TARGET_MONTHLY_IDR;
+    (TARGET_MONTHLY_IDR > 0 && effectiveProgressIDR >= TARGET_MONTHLY_IDR);
 
   const effectiveSaldo = isTargetAchieved
     ? Math.max(TARGET_MONTHLY_IDR, effectiveProgressIDR)
     : Math.max(0, effectiveProgressIDR);
-    
-  const progressPercent = Math.min(100, Math.round((effectiveSaldo / TARGET_MONTHLY_IDR) * 100));
+
+  const progressPercent = TARGET_MONTHLY_IDR > 0
+    ? Math.min(100, Math.round((effectiveSaldo / TARGET_MONTHLY_IDR) * 100))
+    : 100;
   const sisaTarget = isTargetAchieved ? 0 : Math.max(0, TARGET_MONTHLY_IDR - effectiveSaldo);
 
   const [timeLeft, setTimeLeft] = useState<number>(() => {
@@ -272,6 +324,30 @@ export function DatabaseMaintenanceBanner() {
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  // Auto-bangunkan banner jika ada tagihan baru yang belum lunas
+  const latestUnpaidTagihanKey = useMemo(() => {
+    return unpaidTagihans
+      .map((t) => `${t.id}-${t.jumlah_tagihan}-${t.status}-${t.is_lunas}`)
+      .join("|");
+  }, [unpaidTagihans]);
+
+  useEffect(() => {
+    if (!latestUnpaidTagihanKey) return;
+    try {
+      const lastKey = sessionStorage.getItem("database_banner_last_unpaid_key");
+      if (lastKey !== latestUnpaidTagihanKey) {
+        // Tagihan baru atau status tagihan belum lunas berubah!
+        // Reset penutupan manual agar banner otomatis tampil memberi tahu pengguna
+        sessionStorage.setItem("database_banner_last_unpaid_key", latestUnpaidTagihanKey);
+        sessionStorage.removeItem("database_banner_manual_hidden");
+        sessionStorage.setItem("database_banner_start_time", Date.now().toString());
+        setTimeLeft(AUTO_HIDE_SECONDS);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [latestUnpaidTagihanKey]);
+
   // Banner diminimalkan menjadi floating icon jika waktu habis atau ditutup manual
   const isHidden = timeLeft <= 0;
 
@@ -295,6 +371,20 @@ export function DatabaseMaintenanceBanner() {
 
     return () => clearInterval(timer);
   }, [timeLeft]);
+
+  // Listener untuk event real-time ketika ada pembaruan tagihan atau donasi
+  useEffect(() => {
+    const handleTagihanUpdated = () => {
+      void fetchTransaksiList();
+      if (onRefreshDonasi) {
+        onRefreshDonasi();
+      }
+    };
+    window.addEventListener("donasi_tagihan_updated", handleTagihanUpdated);
+    return () => {
+      window.removeEventListener("donasi_tagihan_updated", handleTagihanUpdated);
+    };
+  }, [onRefreshDonasi]);
 
   const handleHide = () => {
     setTimeLeft(0);
@@ -397,6 +487,11 @@ export function DatabaseMaintenanceBanner() {
         ),
         keterangan: String(row.data?.["Keterangan"] || row.keterangan || "donasi masuk"),
         hidden_nama_pengirim: Number(row.data?.["Hidden Nama Pengirim"] ?? row.hidden_nama_pengirim ?? 0) ? 1 : 0,
+        jenis_transaksi: String(
+          row.data?.["Jenis Transaksi"] ||
+            row.jenis_transaksi ||
+            (Number(row.data?.["Jumlah Transaksi Keluar"] ?? row.jumlah_transaksi_keluar ?? 0) > 0 ? "Dana Keluar" : "Dana Masuk")
+        ),
         created_at: String(row.data?.["Created At"] || row.created_at || ""),
         updated_at: String(row.data?.["Updated At"] || row.updated_at || ""),
       }));
@@ -409,6 +504,9 @@ export function DatabaseMaintenanceBanner() {
         tanggal: String(row.data?.["Tanggal"] || row.tanggal || ""),
         jumlah_tagihan: Number(row.data?.["Jumlah Tagihan"] ?? row.jumlah_tagihan ?? 0),
         keterangan: String(row.data?.["Keterangan"] || row.keterangan || ""),
+        status: String(row.data?.["Status"] || row.status || "Belum Dibayar"),
+        is_lunas: Number(row.data?.["Is Lunas"] ?? row.is_lunas ?? 0) ? 1 : 0,
+        tanggal_bayar: row.data?.["Tanggal Bayar"] ?? row.tanggal_bayar ?? null,
         created_at: String(row.data?.["Created At"] || row.created_at || ""),
         updated_at: String(row.data?.["Updated At"] || row.updated_at || ""),
       }));
@@ -588,9 +686,9 @@ export function DatabaseMaintenanceBanner() {
 
   return (
     <>
-      {/* Jika Di-Hidden (otomatis setelah hitung mundur atau klik tombol Tutup/Hidden) */}
-      {isHidden ? (
-        /* Tampilkan floating icon Love di pojok kanan bawah */
+      {/* Banner donasi HANYA ditampilkan di bagian atas jika SUDAH ADA Tagihan Terbaru */}
+      {!hasTagihanTerbaru ? (
+        /* Jika belum ada tagihan terbaru, sembunyikan banner atas dan sediakan floating Love button di pojok bawah */
         <div
           id="database-maintenance-love-icon"
           className="position-fixed"
@@ -611,7 +709,35 @@ export function DatabaseMaintenanceBanner() {
               transition: "transform 0.2s ease, box-shadow 0.2s ease",
             }}
             onClick={() => setIsModalOpen(true)}
-            title="Donasi Pemeliharaan Database (Klik untuk rincian)"
+            title="Donasi & Transparansi Pemeliharaan Server (Klik untuk rincian)"
+            aria-label="Donasi Pemeliharaan Database"
+          >
+            <i className="bi bi-heart-fill text-danger fs-5" />
+          </button>
+        </div>
+      ) : isHidden ? (
+        /* Tampilkan floating icon Love di pojok kanan bawah jika waktu auto-hide habis atau ditutup manual */
+        <div
+          id="database-maintenance-love-icon"
+          className="position-fixed"
+          style={{
+            bottom: "24px",
+            right: "24px",
+            zIndex: 1040,
+          }}
+        >
+          <button
+            type="button"
+            className="btn btn-warning rounded-circle shadow-lg p-0 d-flex align-items-center justify-content-center border border-2 border-white"
+            style={{
+              width: "50px",
+              height: "50px",
+              boxShadow: "0 8px 20px rgba(245, 158, 11, 0.45)",
+              cursor: "pointer",
+              transition: "transform 0.2s ease, box-shadow 0.2s ease",
+            }}
+            onClick={() => setIsModalOpen(true)}
+            title="Tagihan Server Terbaru (Klik untuk rincian & donasi)"
             aria-label="Donasi Pemeliharaan Database"
           >
             <i className="bi bi-heart-fill text-danger fs-5" />
@@ -680,7 +806,7 @@ export function DatabaseMaintenanceBanner() {
           </div>
         </div>
       ) : (
-        /* Top Banner Container - JIKA TARGET DONASI BELUM TERPENUHI */
+        /* Top Banner Container - JIKA ADA TAGIHAN TERBARU YANG BELUM LUNAS */
         <div
           id="database-maintenance-banner"
           className="w-100 position-relative border-bottom shadow-sm"
@@ -691,21 +817,23 @@ export function DatabaseMaintenanceBanner() {
           }}
         >
           <div className="container-fluid px-3 px-md-4 py-2">
-            <div className="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2.5">
-              <div className="d-flex align-items-center gap-2.5">
+            <div className="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-2.5">
+              <div className="d-flex align-items-start gap-2.5 flex-grow-1 min-w-0">
                 <div
-                  className="rounded-circle bg-warning text-dark d-flex align-items-center justify-content-center shadow-sm flex-shrink-0"
-                  style={{ width: 36, height: 36 }}
+                  className="rounded-circle bg-warning text-dark d-flex align-items-center justify-content-center shadow-sm flex-shrink-0 mt-0.5"
+                  style={{ width: 38, height: 38 }}
                 >
-                  <i className="bi bi-database-fill-gear fs-6" />
+                  <i className="bi bi-database-fill-gear fs-5" />
                 </div>
-                <div>
+                <div className="flex-grow-1 min-w-0">
                   <div className="d-flex align-items-center gap-2 flex-wrap">
                     <span className="badge bg-warning text-dark border border-warning-subtle fw-bold rounded-pill px-2 py-0.5 text-xxs">
-                      PENGUMUMAN KHUSUS
+                      TAGIHAN TERBARU
                     </span>
-                    <h6 className="mb-0 fw-bold text-dark text-sm">
-                      Mohon Bantuannya untuk Pemeliharaan Database prabayar
+                    <h6 className="mb-0 fw-bold text-dark text-sm text-truncate">
+                      {primaryTagihan
+                        ? `${primaryTagihan.keterangan || "Pemeliharaan Server Database"} (${formatUSD(TARGET_MONTHLY_IDR)})`
+                        : `Tagihan Pemeliharaan Server Database (${formatUSD(TARGET_MONTHLY_IDR)})`}
                     </h6>
                     <span
                       className="badge bg-white text-secondary border border-warning-subtle rounded-pill px-2 py-0.5 text-xxs d-inline-flex align-items-center gap-1"
@@ -715,21 +843,65 @@ export function DatabaseMaintenanceBanner() {
                       <span>Auto-hidden {formatCountdown(timeLeft)}</span>
                     </span>
                   </div>
-                  <p className="mb-0 text-secondary text-xs mt-0.5">
-                    Sistem aplikasi ini beroperasi menggunakan layanan database Cloudflare prabayar. Bantuan dan partisipasi sukarela Anda sangat berharga demi kelancaran operasional bersama.
-                  </p>
+
+                  {/* Rincian Tagihan Terbaru yang jelas dan transparan */}
+                  <div className="d-flex align-items-center gap-3 text-xs text-secondary mt-1 flex-wrap">
+                    {primaryTagihan?.tanggal && (
+                      <span className="d-inline-flex align-items-center gap-1">
+                        <i className="bi bi-calendar-event text-primary" />
+                        <span className="text-muted">Tanggal:</span>
+                        <strong className="text-dark">{formatDateDisplay(primaryTagihan.tanggal)}</strong>
+                      </span>
+                    )}
+                    {primaryTagihan?.nama_pengirim && (
+                      <span className="d-inline-flex align-items-center gap-1">
+                        <i className="bi bi-building text-secondary" />
+                        <span className="text-muted">Vendor:</span>
+                        <strong className="text-dark">{primaryTagihan.nama_pengirim}</strong>
+                      </span>
+                    )}
+                    <span className="d-inline-flex align-items-center gap-1 text-danger fw-semibold">
+                      <i className="bi bi-receipt" />
+                      <span>Jumlah Tagihan:</span>
+                      <strong>{formatRupiah(TARGET_MONTHLY_IDR)}</strong>
+                      <span className="text-muted">({formatUSD(TARGET_MONTHLY_IDR)})</span>
+                    </span>
+                    <span className="d-inline-flex align-items-center gap-1 text-success fw-semibold">
+                      <span>Terkumpul:</span>
+                      <strong>{formatUSD(effectiveSaldo)}</strong>
+                      <span className="text-muted">({progressPercent}%)</span>
+                    </span>
+                    {sisaTarget > 0 && (
+                      <span className="d-inline-flex align-items-center gap-1 text-danger fw-semibold">
+                        <span>Kekurangan:</span>
+                        <strong>{formatUSD(sisaTarget)}</strong>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="d-flex align-items-center gap-2 ms-md-auto flex-shrink-0">
+              <div className="d-flex align-items-center gap-2 ms-lg-auto flex-shrink-0 mt-2 mt-lg-0">
                 <button
                   type="button"
                   className="btn btn-warning btn-sm fw-bold text-dark px-3 py-1 rounded-3 shadow-sm d-flex align-items-center gap-1.5"
                   onClick={() => setIsModalOpen(true)}
-                  title="Buka Informasi Donasi"
+                  title="Buka Informasi Donasi & Rekening"
                 >
                   <i className="bi bi-heart-fill text-danger" />
                   <span>Donasi</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline-primary btn-sm fw-bold px-2.5 py-1 rounded-3 shadow-sm d-flex align-items-center gap-1.5"
+                  onClick={() => {
+                    setIsDetailTransaksiOpen(true);
+                    void fetchTransaksiList();
+                  }}
+                  title="Lihat Rincian Transaksi Donasi"
+                >
+                  <i className="bi bi-receipt-cutoff" />
+                  <span>Detail Transaksi</span>
                 </button>
                 <button
                   type="button"
@@ -1440,7 +1612,14 @@ export function DatabaseMaintenanceBanner() {
                                 </div>
                               </td>
                               <td className="px-2.5 py-2 text-muted text-xxs">
-                                {item.keterangan || "donasi masuk"}
+                                <div className="d-flex align-items-center flex-wrap gap-1">
+                                  <span>{item.keterangan || "donasi masuk"}</span>
+                                  {item.jenis_transaksi && item.jenis_transaksi !== "Dana Masuk" && (
+                                    <span className="badge bg-light text-secondary border rounded-pill px-1.5 py-0 text-xxs">
+                                      {item.jenis_transaksi}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="text-end px-2.5 py-2">
                                 {masuk > 0 ? (

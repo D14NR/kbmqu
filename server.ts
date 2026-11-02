@@ -85,6 +85,8 @@ dbStore.set("donasi_transaksi", [
     jumlah_transaksi_masuk: 100000,
     jumlah_transaksi_keluar: 0,
     keterangan: "donasi masuk",
+    hidden_nama_pengirim: 0,
+    jenis_transaksi: "Dana Masuk",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -95,6 +97,8 @@ dbStore.set("donasi_transaksi", [
     jumlah_transaksi_masuk: 250000,
     jumlah_transaksi_keluar: 0,
     keterangan: "donasi masuk",
+    hidden_nama_pengirim: 1,
+    jenis_transaksi: "Dana Masuk",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -105,6 +109,8 @@ dbStore.set("donasi_transaksi", [
     jumlah_transaksi_masuk: 0,
     jumlah_transaksi_keluar: 50000,
     keterangan: "pemeliharaan database & server",
+    hidden_nama_pengirim: 0,
+    jenis_transaksi: "Pembayaran Tagihan",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -112,20 +118,26 @@ dbStore.set("donasi_transaksi", [
 
 dbStore.set("donasi_transaksi_tagihan", [
   {
-    id: 1,
+    id: "f3c83091-6c2e-4054-94c3-29408544d001",
     nama_pengirim: "Cloudflare D1 & Host",
     tanggal: "2026-09-03",
     jumlah_tagihan: 50000,
     keterangan: "tagihan bulan ini",
+    status: "Belum Dibayar",
+    is_lunas: 0,
+    tanggal_bayar: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
   {
-    id: 2,
+    id: "e4a77022-7d3f-4165-85d4-30519655e002",
     nama_pengirim: "Cloudflare Worker & Database",
     tanggal: "2026-10-01",
     jumlah_tagihan: 75000,
     keterangan: "tagihan bulan ini",
+    status: "Belum Dibayar",
+    is_lunas: 0,
+    tanggal_bayar: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -167,12 +179,32 @@ app.use("/db", async (req, res, next) => {
         "Content-Type": "application/json",
       },
     };
-    // For donasi_transaksi_tagihan, compute the accurate next integer id before proxying to prevent UNIQUE constraint error
+    // For donasi_transaksi_tagihan, ensure UUID is assigned if not provided
     if (
       req.method === "POST" &&
       req.url.includes("donasi_transaksi_tagihan")
     ) {
       req.body = req.body || {};
+      if (!req.body.id) {
+        req.body.id = crypto.randomUUID();
+      }
+    }
+
+    if (req.method !== "GET" && req.method !== "HEAD" && req.body) {
+      fetchOptions.body = JSON.stringify(req.body);
+    }
+    
+    let remoteRes = await fetch(targetUrl, fetchOptions);
+    let data = await remoteRes.text();
+    
+    // If D1 returns SQLITE_MISMATCH (because the table in D1 is INTEGER PRIMARY KEY AUTOINCREMENT)
+    // or UNIQUE constraint error, retry with calculated integer id
+    if (
+      !remoteRes.ok &&
+      req.method === "POST" &&
+      req.url.includes("donasi_transaksi_tagihan") &&
+      (data.includes("SQLITE_MISMATCH") || data.includes("datatype mismatch") || data.includes("UNIQUE constraint failed"))
+    ) {
       try {
         const listRes = await fetch(`${baseUrl}/db/donasi_transaksi_tagihan`);
         let maxId = 0;
@@ -186,19 +218,20 @@ app.use("/db", async (req, res, next) => {
         maxId = Math.max(maxId, localMax);
 
         req.body.id = maxId + 1;
-      } catch {
-        req.body.id = Date.now();
+        fetchOptions.body = JSON.stringify(req.body);
+        const retryRes = await fetch(targetUrl, fetchOptions);
+        const retryData = await retryRes.text();
+        if (retryRes.ok) {
+          res.status(retryRes.status);
+          res.setHeader("Content-Type", "application/json");
+          return res.send(retryData);
+        }
+      } catch (retryErr) {
+        console.error("Retry with integer ID failed:", retryErr);
       }
     }
 
-    if (req.method !== "GET" && req.method !== "HEAD" && req.body) {
-      fetchOptions.body = JSON.stringify(req.body);
-    }
-    
-    const remoteRes = await fetch(targetUrl, fetchOptions);
-    const data = await remoteRes.text();
-    
-    // If table is not permitted yet, returns SQLITE_MISMATCH, or duplicate key error, retry or fallback to local store
+    // If table is not permitted yet, returns error, fallback to local store
     if (!remoteRes.ok) {
       if (
         data.includes("UNIQUE constraint failed") ||
@@ -207,25 +240,6 @@ app.use("/db", async (req, res, next) => {
         data.includes("tidak diizinkan") ||
         remoteRes.status === 404
       ) {
-        if (data.includes("UNIQUE constraint failed") && req.method === "POST" && req.url.includes("donasi_transaksi_tagihan")) {
-          try {
-            const listRes2 = await fetch(`${baseUrl}/db/donasi_transaksi_tagihan`);
-            if (listRes2.ok) {
-              const listJson2 = await listRes2.json();
-              const rows2 = Array.isArray(listJson2) ? listJson2 : (listJson2?.data || []);
-              const currentMax = rows2.reduce((max: number, r: any) => Math.max(max, Number(r.id) || 0), 0);
-              req.body.id = Math.max(currentMax + 1, Number(req.body.id || 0) + 1);
-              fetchOptions.body = JSON.stringify(req.body);
-              const retryRes = await fetch(targetUrl, fetchOptions);
-              const retryData = await retryRes.text();
-              if (retryRes.ok) {
-                res.status(retryRes.status);
-                res.setHeader("Content-Type", "application/json");
-                return res.send(retryData);
-              }
-            }
-          } catch {}
-        }
         return next();
       }
     }
@@ -276,10 +290,10 @@ app.post("/db/:table", (req, res) => {
     const rows = getTableRows(table);
     const body = req.body || {};
     
-    // Auto-increment logic for donasi_transaksi & donasi_transaksi_tagihan, UUID for others
+    // Auto-increment logic for donasi_transaksi, UUID for donasi_transaksi_tagihan & others
     let newId = body.id;
     if (!newId) {
-      if (table === 'donasi_transaksi' || table === 'donasi_transaksi_tagihan') {
+      if (table === 'donasi_transaksi') {
         const maxId = rows.reduce((max, r) => Math.max(max, Number(r.id) || 0), 0);
         newId = maxId + 1;
       } else {
@@ -289,6 +303,11 @@ app.post("/db/:table", (req, res) => {
 
     const newRow = {
       id: newId,
+      status: body.status || (table === 'donasi_transaksi_tagihan' ? 'Belum Dibayar' : undefined),
+      is_lunas: body.is_lunas !== undefined ? Number(body.is_lunas) : (table === 'donasi_transaksi_tagihan' ? 0 : undefined),
+      tanggal_bayar: body.tanggal_bayar ?? null,
+      jenis_transaksi: body.jenis_transaksi || (table === 'donasi_transaksi' ? (Number(body.jumlah_transaksi_keluar) > 0 ? 'Dana Keluar' : 'Dana Masuk') : undefined),
+      hidden_nama_pengirim: table === 'donasi_transaksi' ? (Number(body.hidden_nama_pengirim || 0) ? 1 : 0) : undefined,
       ...body,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -366,7 +385,7 @@ app.post("/db/:table/replace", (req, res) => {
     const newRows = rows.map((r: any, idx: number) => {
       let newId = r.id;
       if (!newId) {
-        if (table === 'donasi_transaksi' || table === 'donasi_transaksi_tagihan') {
+        if (table === 'donasi_transaksi') {
           const currentMaxId = dbStore.get(table)?.reduce((max: number, row: any) => Math.max(max, Number(row.id) || 0), 0) || 0;
           newId = currentMaxId + idx + 1;
         } else {

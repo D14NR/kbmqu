@@ -117,8 +117,8 @@ const parseJsonBody = async (request) => {
 const buildInsertSql = (table, row) => {
   const normalizedRow = { ...row };
 
-  // Generate UUID if not provided, EXCEPT for tables with AUTOINCREMENT id
-  if (!normalizedRow.id && table !== 'donasi_transaksi' && table !== 'donasi_transaksi_tagihan') {
+  // Generate UUID if not provided, EXCEPT for tables with AUTOINCREMENT id (donasi_transaksi)
+  if (!normalizedRow.id && table !== 'donasi_transaksi') {
     normalizedRow.id = crypto.randomUUID();
   }
 

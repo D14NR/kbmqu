@@ -106,5 +106,12 @@ export function isTagihanPaid(
   tagihan: DonasiTransaksiTagihanRecord,
   transaksiList: DonasiTransaksiRecord[]
 ): boolean {
+  if (
+    tagihan.is_lunas === 1 ||
+    tagihan.status === "Sudah Dibayar" ||
+    tagihan.status === "Lunas"
+  ) {
+    return true;
+  }
   return Boolean(findMatchingPaymentTransaction(tagihan, transaksiList));
 }
