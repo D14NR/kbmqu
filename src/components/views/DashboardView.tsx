@@ -15,6 +15,8 @@ type DashboardRequestItem = {
 type DashboardScheduleItem = {
   id: string;
   tanggal: string;
+  dateKey?: string;
+  timeStart?: number;
   waktu: string;
   mapel: string;
   pengajar: string;
@@ -107,12 +109,23 @@ export function DashboardView({
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [activeApprovalTab, setActiveApprovalTab] = useState<"permintaan" | "izin">("permintaan");
 
+  // Pagination states to prevent heavy DOM rendering and device memory exhaustion
+  const [cardsLimit, setCardsLimit] = useState(18);
+  const [tablePage, setTablePage] = useState(1);
+  const TABLE_PAGE_SIZE = 25;
+
   const selectedScheduleKey =
     scheduleMode === "today"
       ? todayKey
       : scheduleMode === "tomorrow"
       ? tomorrowKey
       : customScheduleDate;
+
+  // Reset pagination when date or filters change
+  useEffect(() => {
+    setCardsLimit(18);
+    setTablePage(1);
+  }, [selectedScheduleKey, searchQuery, filterType]);
 
   // Format Indonesian date
   const formattedFullDate = useMemo(() => {
@@ -140,11 +153,14 @@ export function DashboardView({
       ? "Besok"
       : formattedFullDate;
 
-  // Filter schedules by date
+  // Filter schedules by date (O(1) comparison using precomputed dateKey)
   const dateSchedules = useMemo(() => {
     return (dashboardSchedules || []).filter((item) => {
       if (!(item.pengajar || "").trim()) {
         return false;
+      }
+      if (item.dateKey) {
+        return item.dateKey === selectedScheduleKey;
       }
       const parsedDate = parseFlexibleDate(item.tanggal || "");
       return parsedDate && formatLocalDate(parsedDate) === selectedScheduleKey;
@@ -153,13 +169,20 @@ export function DashboardView({
 
   // Filter by search & type
   const filteredSchedules = useMemo(() => {
+    if (!searchQuery.trim() && filterType === "all") {
+      return dateSchedules;
+    }
+    const qLower = searchQuery.trim().toLowerCase();
+
     return dateSchedules.filter((item) => {
       const matchesSearch =
-        !searchQuery.trim() ||
-        (item.pengajar || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.mapel || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.kelas || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.cabang || "").toLowerCase().includes(searchQuery.toLowerCase());
+        !qLower ||
+        (item.pengajar || "").toLowerCase().includes(qLower) ||
+        (item.mapel || "").toLowerCase().includes(qLower) ||
+        (item.kelas || "").toLowerCase().includes(qLower) ||
+        (item.cabang || "").toLowerCase().includes(qLower);
+
+      if (!matchesSearch) return false;
 
       const sourceLabelLower = (item.sourceLabel || "").toLowerCase();
       const matchesType =
@@ -167,35 +190,40 @@ export function DashboardView({
         (filterType === "reguler" && sourceLabelLower.includes("reguler")) ||
         (filterType === "khusus" && (sourceLabelLower.includes("khusus") || sourceLabelLower.includes("tambahan")));
 
-      return matchesSearch && matchesType;
+      return matchesType;
     });
   }, [dateSchedules, searchQuery, filterType]);
 
-  // Group schedules by teacher
+  // Group schedules by teacher (O(1) timeStart comparison without regex in sort)
   const scheduleGroups = useMemo(() => {
     const sorted = [...filteredSchedules].sort((a, b) => {
       const pa = (a.pengajar || "").toLowerCase();
       const pb = (b.pengajar || "").toLowerCase();
       if (pa !== pb) return pa.localeCompare(pb);
-      const aStart = parseRangeFromString(a.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER;
-      const bStart = parseRangeFromString(b.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER;
+      const aStart = a.timeStart ?? (parseRangeFromString(a.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER);
+      const bStart = b.timeStart ?? (parseRangeFromString(b.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER);
       return aStart - bStart;
     });
 
     const groups = new Map<string, typeof sorted>();
-    sorted.forEach((s) => {
+    for (let i = 0; i < sorted.length; i++) {
+      const s = sorted[i];
       const key = s.pengajar || "(Tanpa Pengajar)";
-      if (!groups.has(key)) groups.set(key, [] as typeof sorted);
-      groups.get(key)!.push(s);
-    });
+      let arr = groups.get(key);
+      if (!arr) {
+        arr = [];
+        groups.set(key, arr);
+      }
+      arr.push(s);
+    }
     return groups;
   }, [filteredSchedules]);
 
   // Chronological list for table view
   const chronologicalSchedules = useMemo(() => {
     return [...filteredSchedules].sort((a, b) => {
-      const aStart = parseRangeFromString(a.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER;
-      const bStart = parseRangeFromString(b.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER;
+      const aStart = a.timeStart ?? (parseRangeFromString(a.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER);
+      const bStart = b.timeStart ?? (parseRangeFromString(b.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER);
       if (aStart !== bStart) return aStart - bStart;
       return (a.pengajar || "").localeCompare(b.pengajar || "");
     });
@@ -262,7 +290,6 @@ export function DashboardView({
   useEffect(() => {
     if (!showFinancialSummary) return;
     if (transaksiDonasi && transaksiDonasi.length > 0) {
-      setInternalTransaksi(transaksiDonasi);
       return;
     }
 
@@ -1239,97 +1266,207 @@ export function DashboardView({
               )}
             </div>
           ) : viewMode === "cards" ? (
-            /* Cards View */
-            <div className="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
-              {Array.from(scheduleGroups.entries()).map(([pengajar, items]) => {
-                const avatarColor = getAvatarBg(pengajar);
-                const initials = getInitials(pengajar);
+            /* Cards View with incremental loading to prevent RAM spikes */
+            (() => {
+              const scheduleGroupEntries = Array.from(scheduleGroups.entries());
+              const visibleEntries = scheduleGroupEntries.slice(0, cardsLimit);
+              const remainingCount = scheduleGroupEntries.length - visibleEntries.length;
 
-                return (
-                  <div key={pengajar} className="col">
-                    <div className="card h-100 border shadow-sm rounded-3 bg-white">
-                      {/* Teacher Header */}
-                      <div className="card-header bg-white py-2.5 px-3 border-bottom d-flex align-items-center justify-content-between">
-                        <div className="d-flex align-items-center gap-2 text-truncate">
-                          <div
-                            className="text-white fw-bold d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
-                            style={{
-                              width: 36,
-                              height: 36,
-                              minWidth: 36,
-                              minHeight: 36,
-                              backgroundColor: avatarColor,
-                              fontSize: "12px",
-                            }}
-                          >
-                            {initials}
-                          </div>
-                          <div className="text-truncate">
-                            <div className="fw-bold text-dark text-truncate" title={pengajar}>
-                              {pengajar}
+              return (
+                <>
+                  <div className="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+                    {visibleEntries.map(([pengajar, items]) => {
+                      const avatarColor = getAvatarBg(pengajar);
+                      const initials = getInitials(pengajar);
+
+                      return (
+                        <div key={pengajar} className="col">
+                          <div className="card h-100 border shadow-sm rounded-3 bg-white">
+                            {/* Teacher Header */}
+                            <div className="card-header bg-white py-2.5 px-3 border-bottom d-flex align-items-center justify-content-between">
+                              <div className="d-flex align-items-center gap-2 text-truncate">
+                                <div
+                                  className="text-white fw-bold d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
+                                  style={{
+                                    width: 36,
+                                    height: 36,
+                                    minWidth: 36,
+                                    minHeight: 36,
+                                    backgroundColor: avatarColor,
+                                    fontSize: "12px",
+                                  }}
+                                >
+                                  {initials}
+                                </div>
+                                <div className="text-truncate">
+                                  <div className="fw-bold text-dark text-truncate" title={pengajar}>
+                                    {pengajar}
+                                  </div>
+                                  <div className="text-muted text-xxs d-flex align-items-center gap-1">
+                                    <span><i className="bi bi-clock me-0.5" />{items.length} Sesi</span>
+                                    {items[0]?.cabang && (
+                                      <span>• <i className="bi bi-geo-alt me-0.5" />{items[0].cabang}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-1">
+                                {items.length} Sesi
+                              </span>
                             </div>
-                            <div className="text-muted text-xxs d-flex align-items-center gap-1">
-                              <span><i className="bi bi-clock me-0.5" />{items.length} Sesi</span>
-                              {items[0]?.cabang && (
-                                <span>• <i className="bi bi-geo-alt me-0.5" />{items[0].cabang}</span>
-                              )}
+
+                            {/* Sessions List */}
+                            <div className="card-body p-2.5">
+                              <div className="d-flex flex-column gap-2">
+                                {items.map((item) => {
+                                  const tagStyle = getTagStyle(item.mapel || "default", "mapel");
+                                  const isReguler = (item.sourceLabel || "").toLowerCase().includes("reguler");
+
+                                  return (
+                                    <div
+                                      key={item.id}
+                                      className="p-2 rounded-2 border bg-light d-flex align-items-start justify-content-between gap-2"
+                                    >
+                                      <div className="d-flex align-items-start gap-2 flex-grow-1">
+                                        {/* Jam Sesi */}
+                                        <div
+                                          className="px-2 py-1 bg-white border rounded text-dark font-monospace fw-semibold text-center flex-shrink-0 mt-1"
+                                          style={{ fontSize: "11px", minWidth: 80 }}
+                                        >
+                                          <i className="bi bi-clock me-1 text-primary" />
+                                          {item.waktu || "-"}
+                                        </div>
+
+                                        {/* Mapel & Kelas */}
+                                        <div className="d-flex flex-wrap gap-1.5 flex-grow-1">
+                                          <span
+                                            className="badge px-2 py-1 rounded border fw-semibold text-wrap text-start"
+                                            style={{
+                                              backgroundColor: tagStyle.backgroundColor || "#e2e8f0",
+                                              borderColor: tagStyle.borderColor || "#cbd5e1",
+                                              color: tagStyle.color || "#1e293b",
+                                              lineHeight: "1.3",
+                                            }}
+                                            title={item.mapel}
+                                          >
+                                            {item.mapel || "-"}
+                                          </span>
+                                          <span 
+                                            className="badge bg-white text-dark border px-2 py-1 rounded text-wrap text-start"
+                                            style={{ lineHeight: "1.3" }}
+                                          >
+                                            {item.kelas || "-"}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {/* Jenis KBM */}
+                                      <span
+                                        className={`badge px-2 py-1 rounded-pill flex-shrink-0 mt-1 ${
+                                          isReguler
+                                            ? "bg-secondary-subtle text-secondary border border-secondary-subtle"
+                                            : "bg-info-subtle text-info border border-info-subtle"
+                                        }`}
+                                      >
+                                        {item.sourceLabel}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
 
-                        <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-1">
-                          {items.length} Sesi
-                        </span>
-                      </div>
+                  {remainingCount > 0 && (
+                    <div className="mt-3 text-center">
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm px-4 py-2 rounded-pill shadow-xs fw-semibold"
+                        onClick={() => setCardsLimit((prev) => prev + 18)}
+                      >
+                        <i className="bi bi-arrow-down-circle me-1.5" />
+                        Tampilkan {Math.min(remainingCount, 18)} Pengajar Lainnya ({remainingCount} Tersisa)
+                      </button>
+                    </div>
+                  )}
+                </>
+              );
+            })()
+          ) : (
+            /* Table View with pagination */
+            (() => {
+              const totalTablePages = Math.ceil(chronologicalSchedules.length / TABLE_PAGE_SIZE) || 1;
+              const safeTablePage = Math.min(tablePage, totalTablePages);
+              const startIndex = (safeTablePage - 1) * TABLE_PAGE_SIZE;
+              const pageSchedules = chronologicalSchedules.slice(startIndex, startIndex + TABLE_PAGE_SIZE);
 
-                      {/* Sessions List */}
-                      <div className="card-body p-2.5">
-                        <div className="d-flex flex-column gap-2">
-                          {items.map((item) => {
-                            const tagStyle = getTagStyle(item.mapel || "default", "mapel");
-                            const isReguler = (item.sourceLabel || "").toLowerCase().includes("reguler");
+              return (
+                <div className="bg-white rounded-3 border overflow-hidden shadow-xs">
+                  <div className="table-responsive">
+                    <table className="table table-hover align-middle mb-0 small">
+                      <thead className="table-light">
+                        <tr>
+                          <th className="ps-3" style={{ width: 120 }}>Waktu</th>
+                          <th>Mata Pelajaran</th>
+                          <th>Kelas</th>
+                          <th>Pengajar</th>
+                          <th>Cabang</th>
+                          <th className="pe-3" style={{ width: 110 }}>Jenis KBM</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pageSchedules.map((item) => {
+                          const tagStyle = getTagStyle(item.mapel || "default", "mapel");
+                          const isReguler = (item.sourceLabel || "").toLowerCase().includes("reguler");
 
-                            return (
-                              <div
-                                key={item.id}
-                                className="p-2 rounded-2 border bg-light d-flex align-items-start justify-content-between gap-2"
-                              >
-                                <div className="d-flex align-items-start gap-2 flex-grow-1">
-                                  {/* Jam Sesi */}
-                                  <div
-                                    className="px-2 py-1 bg-white border rounded text-dark font-monospace fw-semibold text-center flex-shrink-0 mt-1"
-                                    style={{ fontSize: "11px", minWidth: 80 }}
-                                  >
-                                    <i className="bi bi-clock me-1 text-primary" />
-                                    {item.waktu || "-"}
-                                  </div>
-
-                                  {/* Mapel & Kelas */}
-                                  <div className="d-flex flex-wrap gap-1.5 flex-grow-1">
-                                    <span
-                                      className="badge px-2 py-1 rounded border fw-semibold text-wrap text-start"
-                                      style={{
-                                        backgroundColor: tagStyle.backgroundColor || "#e2e8f0",
-                                        borderColor: tagStyle.borderColor || "#cbd5e1",
-                                        color: tagStyle.color || "#1e293b",
-                                        lineHeight: "1.3",
-                                      }}
-                                      title={item.mapel}
-                                    >
-                                      {item.mapel || "-"}
-                                    </span>
-                                    <span 
-                                      className="badge bg-white text-dark border px-2 py-1 rounded text-wrap text-start"
-                                      style={{ lineHeight: "1.3" }}
-                                    >
-                                      {item.kelas || "-"}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Jenis KBM */}
+                          return (
+                            <tr key={item.id}>
+                              <td className="ps-3 font-monospace fw-semibold text-primary">
+                                <i className="bi bi-clock me-1 text-muted" />
+                                {item.waktu || "-"}
+                              </td>
+                              <td>
                                 <span
-                                  className={`badge px-2 py-1 rounded-pill flex-shrink-0 mt-1 ${
+                                  className="badge px-2 py-1 rounded-pill border fw-semibold"
+                                  style={{
+                                    backgroundColor: tagStyle.backgroundColor || "#e2e8f0",
+                                    borderColor: tagStyle.borderColor || "#cbd5e1",
+                                    color: tagStyle.color || "#1e293b",
+                                  }}
+                                >
+                                  {item.mapel || "-"}
+                                </span>
+                              </td>
+                              <td>
+                                <strong className="text-dark">{item.kelas || "-"}</strong>
+                              </td>
+                              <td>
+                                <div className="d-flex align-items-center gap-2">
+                                  <div
+                                    className="text-white fw-bold d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
+                                    style={{
+                                      width: 26,
+                                      height: 26,
+                                      backgroundColor: getAvatarBg(item.pengajar),
+                                      fontSize: "10px",
+                                    }}
+                                  >
+                                    {getInitials(item.pengajar)}
+                                  </div>
+                                  <span className="fw-semibold text-dark">{item.pengajar || "-"}</span>
+                                </div>
+                              </td>
+                              <td>
+                                <span className="text-muted">{item.cabang || "-"}</span>
+                              </td>
+                              <td className="pe-3">
+                                <span
+                                  className={`badge px-2 py-1 rounded-pill ${
                                     isReguler
                                       ? "bg-secondary-subtle text-secondary border border-secondary-subtle"
                                       : "bg-info-subtle text-info border border-info-subtle"
@@ -1337,92 +1474,45 @@ export function DashboardView({
                                 >
                                   {item.sourceLabel}
                                 </span>
-                              </div>
-                            );
-                          })}
-                        </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {totalTablePages > 1 && (
+                    <div className="p-2.5 border-top d-flex flex-wrap align-items-center justify-content-between gap-2 bg-light">
+                      <span className="text-muted text-xxs ps-2">
+                        Menampilkan {startIndex + 1} - {Math.min(startIndex + TABLE_PAGE_SIZE, chronologicalSchedules.length)} dari {chronologicalSchedules.length} sesi
+                      </span>
+                      <div className="btn-group btn-group-sm">
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm py-0.5 px-2.5 bg-white"
+                          disabled={safeTablePage <= 1}
+                          onClick={() => setTablePage((p) => Math.max(1, p - 1))}
+                        >
+                          <i className="bi bi-chevron-left" />
+                        </button>
+                        <span className="btn btn-light btn-sm py-0.5 px-3 border text-xxs fw-semibold disabled">
+                          Halaman {safeTablePage} / {totalTablePages}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm py-0.5 px-2.5 bg-white"
+                          disabled={safeTablePage >= totalTablePages}
+                          onClick={() => setTablePage((p) => Math.min(totalTablePages, p + 1))}
+                        >
+                          <i className="bi bi-chevron-right" />
+                        </button>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            /* Table View */
-            <div className="table-responsive bg-white rounded-3 border">
-              <table className="table table-hover align-middle mb-0 small">
-                <thead className="table-light">
-                  <tr>
-                    <th className="ps-3" style={{ width: 120 }}>Waktu</th>
-                    <th>Mata Pelajaran</th>
-                    <th>Kelas</th>
-                    <th>Pengajar</th>
-                    <th>Cabang</th>
-                    <th className="pe-3" style={{ width: 110 }}>Jenis KBM</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {chronologicalSchedules.map((item) => {
-                    const tagStyle = getTagStyle(item.mapel || "default", "mapel");
-                    const isReguler = (item.sourceLabel || "").toLowerCase().includes("reguler");
-
-                    return (
-                      <tr key={item.id}>
-                        <td className="ps-3 font-monospace fw-semibold text-primary">
-                          <i className="bi bi-clock me-1 text-muted" />
-                          {item.waktu || "-"}
-                        </td>
-                        <td>
-                          <span
-                            className="badge px-2 py-1 rounded-pill border fw-semibold"
-                            style={{
-                              backgroundColor: tagStyle.backgroundColor || "#e2e8f0",
-                              borderColor: tagStyle.borderColor || "#cbd5e1",
-                              color: tagStyle.color || "#1e293b",
-                            }}
-                          >
-                            {item.mapel || "-"}
-                          </span>
-                        </td>
-                        <td>
-                          <strong className="text-dark">{item.kelas || "-"}</strong>
-                        </td>
-                        <td>
-                          <div className="d-flex align-items-center gap-2">
-                            <div
-                              className="text-white fw-bold d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
-                              style={{
-                                width: 26,
-                                height: 26,
-                                backgroundColor: getAvatarBg(item.pengajar),
-                                fontSize: "10px",
-                              }}
-                            >
-                              {getInitials(item.pengajar)}
-                            </div>
-                            <span className="fw-semibold text-dark">{item.pengajar || "-"}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <span className="text-muted">{item.cabang || "-"}</span>
-                        </td>
-                        <td className="pe-3">
-                          <span
-                            className={`badge px-2 py-1 rounded-pill ${
-                              isReguler
-                                ? "bg-secondary-subtle text-secondary border border-secondary-subtle"
-                                : "bg-info-subtle text-info border border-info-subtle"
-                            }`}
-                          >
-                            {item.sourceLabel}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  )}
+                </div>
+              );
+            })()
           )}
         </div>
       </div>

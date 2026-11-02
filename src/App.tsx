@@ -841,6 +841,15 @@ export function App() {
     }, {});
   }, [mapelRecords]);
 
+  const mapelCategoryByKode = useMemo(() => {
+    return Object.fromEntries(
+      mapelRecords.map((r) => [
+        (r.Kode_Mapel || r.kode_mapel || r.kode || "").toLowerCase(),
+        r.Kategori || r.kategori || r.kategory || "UMUM",
+      ])
+    );
+  }, [mapelRecords]);
+
   const buildPengajarOption = (record: Record<string, string>) => {
     const kode = (record["Kode Pengajar"] || record["kode_pengajar"] || "").trim();
     const nama = (
@@ -2669,44 +2678,64 @@ export function App() {
   }, [filteredPermintaanRecords]);
 
   const dashboardScheduleItems = useMemo(() => {
+    if (activeKey !== "dashboard") {
+      return [];
+    }
+
     const scheduleItems: Array<RecordItem & { sourceLabel: string }> = [
       ...(records.bulanIni ?? []).map((item) => ({ ...item, sourceLabel: "Jadwal Reguler" })),
       ...(records.jadwalTambahanPelayanan ?? []).map((item) => ({ ...item, sourceLabel: "Jadwal Tambahan & Pelayanan" })),
     ];
 
-    return scheduleItems
-      .filter((item) => {
-        const parsedDate = parseFlexibleDate(item["tanggalSheet"] || item["tanggal"] || "");
-        if (!parsedDate) {
-          return false;
-        }
-        if (!(item["mapel"] || "").trim() && !(item["pengajar"] || "").trim() && !(item["waktu"] || "").trim()) {
-          return false;
-        }
-        if (!(item["pengajar"] || "").trim()) {
-          return false;
-        }
-        if (restrictedCabang && normalizeText(item["cabang"] || "") !== normalizeText(restrictedCabang)) {
-          return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const aStart = parseRangeFromString(a["waktu"] || "")?.start ?? Number.MAX_SAFE_INTEGER;
-        const bStart = parseRangeFromString(b["waktu"] || "")?.start ?? Number.MAX_SAFE_INTEGER;
-        return aStart - bStart;
-      })
-      .map((item, index) => ({
+    const result: Array<{
+      id: string;
+      tanggal: string;
+      dateKey: string;
+      timeStart: number;
+      waktu: string;
+      mapel: string;
+      pengajar: string;
+      kelas: string;
+      cabang: string;
+      sourceLabel: string;
+    }> = [];
+
+    const normRestricted = restrictedCabang ? normalizeText(restrictedCabang) : "";
+
+    for (let index = 0; index < scheduleItems.length; index++) {
+      const item = scheduleItems[index];
+      const pengajar = (item["pengajar"] || "").trim();
+      if (!pengajar) continue;
+
+      if (normRestricted && normalizeText(item["cabang"] || "") !== normRestricted) {
+        continue;
+      }
+
+      const rawTanggal = item["tanggalSheet"] || item["tanggal"] || "";
+      const parsedDate = parseFlexibleDate(rawTanggal);
+      if (!parsedDate) continue;
+
+      const dateKey = formatLocalDate(parsedDate);
+      const rawWaktu = item["waktu"] || "";
+      const timeStart = parseRangeFromString(rawWaktu)?.start ?? Number.MAX_SAFE_INTEGER;
+
+      result.push({
         id: item.id || `${item.sourceLabel}-${index}`,
-        tanggal: item["tanggalSheet"] || item["tanggal"] || "",
-        waktu: item["waktu"] || "",
+        tanggal: rawTanggal,
+        dateKey,
+        timeStart,
+        waktu: rawWaktu,
         mapel: item["mapel"] || "",
-        pengajar: item["pengajar"] || "",
+        pengajar,
         kelas: [item["kelas"] || "", item["sekolah"] || ""].filter(Boolean).join("\n"),
         cabang: item["cabang"] || "",
         sourceLabel: item.sourceLabel,
-      }));
-  }, [records.bulanIni, records.jadwalTambahanPelayanan, restrictedCabang]);
+      });
+    }
+
+    result.sort((a, b) => a.timeStart - b.timeStart);
+    return result;
+  }, [activeKey, records.bulanIni, records.jadwalTambahanPelayanan, restrictedCabang]);
 
   const dashboardIzinRequests = useMemo(() => {
     return filteredIzinRecords
@@ -5111,10 +5140,6 @@ export function App() {
       }));
       setTransaksiTagihanRecords(normalizedTagihan);
 
-      try {
-        window.dispatchEvent(new CustomEvent("donasi_tagihan_updated"));
-      } catch {}
-
       setDonasiStatus({
         loading: false,
         error: "",
@@ -5824,36 +5849,81 @@ export function App() {
       return false;
     };
 
-    const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
+    const REALTIME_BG_SYNC_INTERVAL_MS = 45 * 1000; // 45s interval for active visible tabs
 
     const intervalId = window.setInterval(() => {
       if (shouldSkipBackgroundSync()) {
         return;
       }
       void refreshAllData(false, true, true);
-    }, FIFTEEN_MINUTES_MS);
+    }, REALTIME_BG_SYNC_INTERVAL_MS);
 
     const handleVisibilityOrFocus = () => {
       if (document.hidden) return;
       const now = Date.now();
       const elapsed = now - lastRefreshAllTimestampRef.current;
-      if (lastRefreshAllTimestampRef.current > 0 && elapsed >= FIFTEEN_MINUTES_MS) {
+      if (lastRefreshAllTimestampRef.current > 0 && elapsed >= REALTIME_BG_SYNC_INTERVAL_MS) {
         if (!shouldSkipBackgroundSync()) {
           void refreshAllData(false, true, true);
         }
       }
     };
 
+    // Instant real-time listener: updates views immediately when any tab or mutation changes data
+    const handleDataMutated = (e: Event) => {
+      const customEvent = e as CustomEvent<{ bucket: string; timestamp: number }>;
+      const bucket = customEvent.detail?.bucket;
+      if (!bucket) return;
+
+      if (bucket === "jadwal_kbm" || bucket === "jadwal_reguler" || bucket === "jadwal_khusus") {
+        if (
+          activeKey === "bulanIni" ||
+          activeKey === "jadwalTambahanPelayanan" ||
+          activeKey === "dashboard" ||
+          activeKey === "monitoringKelas" ||
+          activeKey === "printJadwal"
+        ) {
+          void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true, forceFresh: true });
+        }
+      } else if (bucket === "donasi" || bucket === "donasi_transaksi" || bucket === "donasi_transaksi_tagihan") {
+        void handleLoadDonasi({ silent: true, forceFresh: true });
+      } else if (bucket === "pengajar") {
+        void handleLoadPengajar({ silent: true, forceFresh: true });
+      } else if (bucket === "mata_pelajaran") {
+        void handleLoadMapel({ silent: true, forceFresh: true });
+      } else if (bucket === "izin_pengajar") {
+        void handleLoadIzinPengajar({ silent: true, forceFresh: true });
+      } else if (bucket === "permintaan_pengajar_antar_cabang" || bucket === "permintaan_pengajar") {
+        void handleLoadPermintaanPengajar({ silent: true, forceFresh: true });
+      } else if (bucket === "penempatan_pengajar_dicabang") {
+        void handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+      } else if (bucket === "accounts_cabang") {
+        void handleLoadAccountsCabang({ silent: true, forceFresh: true });
+      }
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityOrFocus);
     window.addEventListener("focus", handleVisibilityOrFocus);
+    window.addEventListener("kbm_data_mutated", handleDataMutated);
 
     return () => {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
       window.removeEventListener("focus", handleVisibilityOrFocus);
+      window.removeEventListener("kbm_data_mutated", handleDataMutated);
     };
   }, [
     authSession,
+    activeKey,
+    activeScheduleKey,
+    handleLoadFromSheet,
+    handleLoadDonasi,
+    handleLoadPengajar,
+    handleLoadMapel,
+    handleLoadIzinPengajar,
+    handleLoadPermintaanPengajar,
+    handleLoadPenempatanPengajar,
+    handleLoadAccountsCabang,
     editingSlot,
     isClassModalOpen,
     isMapelModalOpen,
@@ -8864,17 +8934,9 @@ export function App() {
     setSheetStatus((prev) => ({ ...prev, saving: false }));
     pushToast("Data berhasil disimpan.", "success");
 
-    // 2. Perform delta computation in Web Worker and database save non-blockingly (fire-and-forget)
+    // 2. Perform database save non-blockingly (fire-and-forget)
     void (async () => {
       try {
-        const bucket = dataBucket[scheduleSheetByKey[activeScheduleKey]];
-        const serverRows = await listRows(bucket, true);
-        const localItems = records[activeScheduleKey] ?? [];
-        
-        // Compute delta via Web Worker (non-blocking background thread)
-        const delta = await syncWorkerClient.computeDelta(localItems, serverRows);
-        console.info("Delta-update computed via Web Worker:", delta);
-
         if (entryId) {
           await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
           if (copiedSheetRecords.length > 0) {
@@ -9352,10 +9414,7 @@ export function App() {
                         loading={sheetStatus.loading} 
                         rows={monitoringRows} 
                         mapelNameByKode={mapelNameByKode} 
-                        mapelCategoryByKode={Object.fromEntries(mapelRecords.map(r => [
-                          (r.Kode_Mapel || r.kode_mapel || r.kode || "").toLowerCase(),
-                          (r.Kategori || r.kategori || r.kategory || "UMUM")
-                        ]))}
+                        mapelCategoryByKode={mapelCategoryByKode}
                       />
                     ) : activeKey === "mataPelajaran" ? (
                       <MapelTableView

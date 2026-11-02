@@ -507,15 +507,52 @@ const normalizeData = (value: unknown) => {
   );
 };
 
-const READ_CACHE_TTL_MS = 1 * 60 * 1000; // 1 minute cache TTL for real-time updates as requested
-const READ_CACHE_STORAGE_KEY = "kbm_read_cache_v1";
+const READ_CACHE_TTL_MS = 60 * 1000; // 1 minute cache TTL
 const readCache = new Map<string, { expiresAt: number; rows: DbRow[] }>();
+const inFlightTableRequests = new Map<string, Promise<any[]>>();
+
+// Real-time BroadcastChannel for instantaneous zero-CPU cross-tab and in-tab synchronization
+let realtimeBroadcastChannel: BroadcastChannel | null = null;
+try {
+  if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+    realtimeBroadcastChannel = new BroadcastChannel("kbm_realtime_sync");
+    realtimeBroadcastChannel.onmessage = (event) => {
+      const data = event?.data;
+      if (data && data.bucket) {
+        for (const key of getVirtualBuckets(data.bucket)) {
+          readCache.delete(key);
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("kbm_data_mutated", { detail: data }));
+        }
+      }
+    };
+  }
+} catch {
+  realtimeBroadcastChannel = null;
+}
+
+export const broadcastDataChange = (bucket: string, action = "mutation") => {
+  const payload = { bucket, action, timestamp: Date.now() };
+  if (realtimeBroadcastChannel) {
+    try {
+      realtimeBroadcastChannel.postMessage(payload);
+    } catch {}
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("kbm_data_mutated", { detail: payload }));
+  }
+};
 
 export const clearAllReadCache = () => {
   readCache.clear();
+  inFlightTableRequests.clear();
   if (typeof window !== "undefined" && window.localStorage) {
     try {
-      window.localStorage.removeItem(READ_CACHE_STORAGE_KEY);
+      for (const bucket of Object.keys(bucketTableMap)) {
+        window.localStorage.removeItem(`kbm_cache_${bucket}`);
+      }
+      window.localStorage.removeItem("kbm_read_cache_v1");
     } catch (_error) {
       // Ignore localStorage error
     }
@@ -543,17 +580,18 @@ const getCachedRows = (bucket: string) => {
     return null;
   }
 
+  // Light per-bucket partitioned cache instead of one giant JSON string
   try {
-    const raw = window.localStorage.getItem(READ_CACHE_STORAGE_KEY);
+    const raw = window.localStorage.getItem(`kbm_cache_${bucket}`);
     if (!raw) {
       readCache.delete(bucket);
       return null;
     }
 
-    const parsed = JSON.parse(raw) as Record<string, { expiresAt: number; rows: DbRow[] }>;
-    const cached = parsed[bucket];
+    const cached = JSON.parse(raw) as { expiresAt: number; rows: DbRow[] };
     if (!cached || cached.expiresAt <= Date.now()) {
       readCache.delete(bucket);
+      window.localStorage.removeItem(`kbm_cache_${bucket}`);
       return null;
     }
 
@@ -569,43 +607,33 @@ const persistCachedRows = (bucket: string, rows: DbRow[]) => {
   const expiresAt = Date.now() + READ_CACHE_TTL_MS;
   readCache.set(bucket, { expiresAt, rows });
 
-  if (typeof window === "undefined" || !window.localStorage) {
+  // Only store in localStorage if rows array is reasonable in size (< 1500 items) to prevent RAM/Quota bloat
+  if (typeof window === "undefined" || !window.localStorage || rows.length > 1500) {
     return;
   }
 
   try {
-    const raw = window.localStorage.getItem(READ_CACHE_STORAGE_KEY);
-    const current = raw ? (JSON.parse(raw) as Record<string, { expiresAt: number; rows: DbRow[] }>) : {};
-    current[bucket] = { expiresAt, rows };
-    window.localStorage.setItem(READ_CACHE_STORAGE_KEY, JSON.stringify(current));
+    window.localStorage.setItem(
+      `kbm_cache_${bucket}`,
+      JSON.stringify({ expiresAt, rows })
+    );
   } catch (_error) {
-    // Ignore cache persistence errors, fallback to memory cache only.
+    // Ignore storage quota errors, in-memory cache is fully active
   }
 };
 
 export const invalidateReadCacheForBucket = (bucket: string) => {
   for (const key of getVirtualBuckets(bucket)) {
     readCache.delete(key);
-  }
-
-  if (typeof window === "undefined" || !window.localStorage) {
-    return;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(READ_CACHE_STORAGE_KEY);
-    if (!raw) {
-      return;
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        window.localStorage.removeItem(`kbm_cache_${key}`);
+      } catch (_e) {}
     }
-
-    const current = JSON.parse(raw) as Record<string, { expiresAt: number; rows: DbRow[] }>;
-    for (const key of getVirtualBuckets(bucket)) {
-      delete current[key];
-    }
-    window.localStorage.setItem(READ_CACHE_STORAGE_KEY, JSON.stringify(current));
-  } catch (_error) {
-    // Ignore invalid cache metadata.
   }
+
+  // Broadcast real-time change to all listeners & open tabs
+  broadcastDataChange(bucket);
 };
 
 const apiRequest = async <T>(path: string, method: string = "GET", body?: unknown) => {
@@ -635,7 +663,18 @@ export const listRows = async (bucket: string, forceFresh = false) => {
   }
 
   const schema = schemas[bucket as BucketName];
-  const data = await apiRequest<any[]>(`/db/${schema.table}`);
+  const table = schema.table;
+
+  // In-flight deduplication: reuse in-flight fetch for the same underlying table
+  let inFlight = inFlightTableRequests.get(table);
+  if (!inFlight) {
+    inFlight = apiRequest<any[]>(`/db/${table}`).finally(() => {
+      inFlightTableRequests.delete(table);
+    });
+    inFlightTableRequests.set(table, inFlight);
+  }
+
+  const data = await inFlight;
 
   const rows = (data || []).map((row) => ({
     id: encodeId(bucket, String(row.id || "")),

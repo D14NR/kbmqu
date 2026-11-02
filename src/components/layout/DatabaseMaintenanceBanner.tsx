@@ -375,16 +375,16 @@ export function DatabaseMaintenanceBanner({
   // Listener untuk event real-time ketika ada pembaruan tagihan atau donasi
   useEffect(() => {
     const handleTagihanUpdated = () => {
-      void fetchTransaksiList();
-      if (onRefreshDonasi) {
-        onRefreshDonasi();
+      // Hanya lakukan fetch internal jika data tidak disediakan dari parent props
+      if (!externalTagihanList || !externalTransaksiList) {
+        void fetchTransaksiList();
       }
     };
     window.addEventListener("donasi_tagihan_updated", handleTagihanUpdated);
     return () => {
       window.removeEventListener("donasi_tagihan_updated", handleTagihanUpdated);
     };
-  }, [onRefreshDonasi]);
+  }, [externalTagihanList, externalTransaksiList]);
 
   const handleHide = () => {
     setTimeLeft(0);
@@ -519,8 +519,10 @@ export function DatabaseMaintenanceBanner({
   };
 
   useEffect(() => {
-    void fetchTransaksiList();
-  }, []);
+    if (!externalTagihanList || !externalTransaksiList) {
+      void fetchTransaksiList();
+    }
+  }, [externalTagihanList, externalTransaksiList]);
 
   useEffect(() => {
     if (isDetailTransaksiOpen || isModalOpen) {
