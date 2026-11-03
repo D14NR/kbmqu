@@ -495,6 +495,7 @@ export function App() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const lastRefreshAllTimestampRef = useRef<number>(0);
   const isSyncingRef = useRef<boolean>(false);
+  const backgroundMenuRefreshInFlightRef = useRef(false);
 
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const sidebarCollapsed = sidebarWidth <= 140;
@@ -586,6 +587,7 @@ export function App() {
 
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
   const [isRefreshingCurrent, setIsRefreshingCurrent] = useState(false);
+  const [isRefreshingActiveMenu, setIsRefreshingActiveMenu] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isExportClassModalOpen, setIsExportClassModalOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -5935,16 +5937,31 @@ export function App() {
 
     const REALTIME_BG_SYNC_INTERVAL_MS = 60 * 1000; // 60s for focus sync
 
+    const refreshActiveMenuInBackground = () => {
+      if (
+        backgroundMenuRefreshInFlightRef.current ||
+        isSyncingRef.current ||
+        isRefreshingCurrent ||
+        shouldSkipBackgroundSync()
+      ) {
+        return;
+      }
+
+      backgroundMenuRefreshInFlightRef.current = true;
+      setIsRefreshingActiveMenu(true);
+      void handleLoadMenuData(activeKey, { forceFresh: true, silent: true }).finally(() => {
+        backgroundMenuRefreshInFlightRef.current = false;
+        lastRefreshAllTimestampRef.current = Date.now();
+        setIsRefreshingActiveMenu(false);
+      });
+    };
+
     const handleVisibilityOrFocus = () => {
       if (document.hidden) return;
       const now = Date.now();
       const elapsed = now - lastRefreshAllTimestampRef.current;
       if (lastRefreshAllTimestampRef.current > 0 && elapsed >= REALTIME_BG_SYNC_INTERVAL_MS) {
-        if (!shouldSkipBackgroundSync()) {
-          void handleLoadMenuData(activeKey, { forceFresh: true, silent: true }).finally(() => {
-            lastRefreshAllTimestampRef.current = Date.now();
-          });
-        }
+        refreshActiveMenuInBackground();
       }
     };
 
@@ -6035,6 +6052,7 @@ export function App() {
     confirmDialog.open,
     isPendingNotificationModalOpen,
     isMenuTransitioning,
+    isRefreshingCurrent,
   ]);
 
   type ImportMode =
@@ -10000,6 +10018,7 @@ export function App() {
       <RouteProgressBar
         isNavigating={
           isMenuTransitioning ||
+          isRefreshingActiveMenu ||
           isRefreshingCurrent ||
           isRefreshingAll ||
           sheetStatus.loading ||
