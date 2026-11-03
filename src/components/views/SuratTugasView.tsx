@@ -1,8 +1,8 @@
 import { useMemo, useState, useEffect } from "react";
 import { useInView } from "react-intersection-observer";
-import Select from "react-select";
+import AsyncSelect from "react-select/async";
 import { sesiHeaders, formatSessionParts, parseRangeFromString } from "../../utils/schedule";
-import type { SelectOption } from "../../types/app";
+import { useDebouncedOptionLoader, type RemoteSelectOption } from "../../utils/useDebouncedOptionLoader";
 
 export type SuratDayRow = {
   dayLabel: string;
@@ -20,7 +20,7 @@ export type SuratTugasViewProps = {
   monthOptions?: Array<{ value: string; label: string }>;
   onSelectMonthKey?: (monthKey: string) => void;
   onSelectPengajarKode?: (kode: string) => void;
-  pengajarOptions?: SelectOption[];
+  loadPengajarOptions: (query: string) => Promise<RemoteSelectOption[]>;
   allPengajarRecords?: Record<string, string>[];
   allSuratRecordsByMonth?: Record<string, string>[];
   mapelNameByKode?: Record<string, string>;
@@ -57,7 +57,7 @@ export function SuratTugasView({
   monthOptions = [],
   onSelectMonthKey,
   onSelectPengajarKode,
-  pengajarOptions = [],
+  loadPengajarOptions,
   allPengajarRecords = [],
   allSuratRecordsByMonth = [],
   mapelNameByKode = {},
@@ -72,6 +72,7 @@ export function SuratTugasView({
   const [docNotesEnabled, setDocNotesEnabled] = useState(true);
   const [docSignatureEnabled, setDocSignatureEnabled] = useState(true);
   const [customLetterNumber, setCustomLetterNumber] = useState("");
+  const loadPengajarOptionsDebounced = useDebouncedOptionLoader(loadPengajarOptions);
 
   const [visibleLimit, setVisibleLimit] = useState(20);
   const { ref: loadMoreRef, inView } = useInView({
@@ -562,14 +563,22 @@ export function SuratTugasView({
                   </button>
                 )}
               </label>
-              <Select
+              <AsyncSelect<RemoteSelectOption, false>
                 value={
                   selectedPengajarKode
-                    ? pengajarOptions.find((opt) => opt.value === selectedPengajarKode) || null
+                    ? {
+                        value: selectedPengajarKode,
+                        label: selectedPengajar?.Nama
+                          ? `${selectedPengajarKode} - ${selectedPengajar.Nama}`
+                          : selectedPengajarKode,
+                      }
                     : null
                 }
                 onChange={(opt) => onSelectPengajarKode?.(opt?.value || "")}
-                options={pengajarOptions}
+                loadOptions={loadPengajarOptionsDebounced}
+                defaultOptions
+                cacheOptions
+                filterOption={null}
                 placeholder={selectedMonthKey ? "Ketik nama / kode pengajar..." : "Pilih bulan terlebih dahulu"}
                 isClearable
                 isSearchable

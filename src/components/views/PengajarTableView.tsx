@@ -7,6 +7,9 @@ type PengajarTableViewProps = {
   loading: boolean;
   records: Record<string, string>[];
   query: string;
+  hasMore?: boolean;
+  onQueryChange?: (query: string) => void;
+  onLoadMore?: () => Promise<void>;
   onAdd: () => void;
   onEdit: (record: Record<string, string>) => void;
   onDelete: (record: Record<string, string>) => void;
@@ -43,6 +46,9 @@ export function PengajarTableView({
   loading,
   records,
   query: externalQuery,
+  hasMore = false,
+  onQueryChange,
+  onLoadMore,
   onAdd,
   onEdit,
   onDelete,
@@ -54,6 +60,11 @@ export function PengajarTableView({
   const [sortBy, setSortBy] = useState<SortOption>("name-asc");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  useEffect(() => {
+    setSearchTerm(externalQuery || "");
+  }, [externalQuery]);
 
   const togglePasswordVisibility = (id: string) => {
     setVisiblePasswords((prev) => ({
@@ -172,10 +183,16 @@ export function PengajarTableView({
   });
 
   useEffect(() => {
-    if (inView) {
-      setVisibleLimit((prev) => prev + 20);
+    if (!inView) return;
+    if (visibleLimit < processedRecords.length) {
+      setVisibleLimit((prev) => Math.min(prev + 20, processedRecords.length));
+      return;
     }
-  }, [inView]);
+    if (hasMore && onLoadMore && !isLoadingMore) {
+      setIsLoadingMore(true);
+      void onLoadMore().finally(() => setIsLoadingMore(false));
+    }
+  }, [inView, visibleLimit, processedRecords.length, hasMore, onLoadMore, isLoadingMore]);
 
   // Reset limit when search or filters change
   useEffect(() => {
@@ -200,7 +217,7 @@ export function PengajarTableView({
                 <i className="bi bi-people-fill fs-4" />
               </div>
               <div>
-                <div className="text-muted text-xxs fw-semibold text-uppercase">Total Pengajar</div>
+                <div className="text-muted text-xxs fw-semibold text-uppercase">Pengajar Dimuat</div>
                 <div className="h4 fw-bold text-dark mb-0">{totalPengajar} <span className="text-xs fw-normal text-muted">Guru</span></div>
               </div>
             </div>
@@ -276,7 +293,10 @@ export function PengajarTableView({
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  onQueryChange?.(e.target.value);
+                }}
                 placeholder="Cari nama, kode, nomor WA, atau email..."
                 className="form-control border-start-0"
               />
@@ -284,7 +304,10 @@ export function PengajarTableView({
                 <button
                   type="button"
                   className="btn btn-outline-secondary border-start-0 border-end"
-                  onClick={() => setSearchTerm("")}
+                  onClick={() => {
+                    setSearchTerm("");
+                    onQueryChange?.("");
+                  }}
                   title="Hapus pencarian"
                 >
                   <i className="bi bi-x" />
@@ -403,6 +426,7 @@ export function PengajarTableView({
                 className="btn btn-outline-secondary btn-sm rounded-3"
                 onClick={() => {
                   setSearchTerm("");
+                  onQueryChange?.("");
                   setSelectedDomisili("");
                   setSelectedBidang("");
                 }}
@@ -832,12 +856,13 @@ export function PengajarTableView({
         </div>
       )}
       
-      {totalFiltered > visibleLimit && (
+      {(totalFiltered > visibleLimit || (hasMore && visibleLimit >= processedRecords.length)) && (
         <div ref={loadMoreRef} className="py-4 text-center">
-          <div className="spinner-border spinner-border-sm text-primary" role="status">
-            <span className="visually-hidden">Loading more...</span>
-          </div>
-          <p className="text-muted text-xxs mt-2">Memuat lebih banyak pengajar...</p>
+          {isLoadingMore ? (
+            <div className="spinner-border spinner-border-sm text-primary" role="status" />
+          ) : (
+            <span className="text-muted text-xxs">Gulir untuk memuat pengajar berikutnya</span>
+          )}
         </div>
       )}
     </div>

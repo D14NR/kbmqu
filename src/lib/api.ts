@@ -68,7 +68,7 @@ export const apiFetch = async <T>(path: string, init: RequestInit = {}) => {
 };
 
 export const checkDatabaseConnection = async () => {
-  const response = await fetch(`${apiBaseUrl}/db/accounts_cabang`, {
+  const response = await fetch(`${apiBaseUrl}/db/accounts_cabang?_limit=1`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",

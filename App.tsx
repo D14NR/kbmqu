@@ -92,6 +92,7 @@ import {
   insertRow,
   invalidateReadCacheForBucket,
   listRows,
+  listRowsFiltered,
   replaceBucketRows,
   updateRow,
   type DbRow,
@@ -104,6 +105,7 @@ export function App() {
     formatLocalDate(new Date(date.getFullYear(), date.getMonth(), 1)).slice(0, 7);
 
   const normalizeText = (value: string) => value.trim().toLowerCase();
+  const DATA_PAGE_SIZE = 100;
   const normalizeValueKey = (value: string) =>
     normalizeText(String(value || "")).replace(/[^a-z0-9]+/g, "");
   const toRecord = (row: DbRow) => row.data;
@@ -182,36 +184,50 @@ export function App() {
   });
   const [copyTargetDates, setCopyTargetDates] = useState<string[]>([]);
   const [query, setQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
+  const searchRequestRef = useRef(0);
+  const previousSearchMenuRef = useRef(activeKey);
+  const hasInitializedSearchRef = useRef(false);
 
-  // Debounced search for on-demand fetching
   useEffect(() => {
-    if (!query.trim()) {
-      setIsSearching(false);
-      return;
-    }
+    const isInitialEffect = !hasInitializedSearchRef.current;
+    hasInitializedSearchRef.current = true;
+    const menuChanged = previousSearchMenuRef.current !== activeKey;
+    previousSearchMenuRef.current = activeKey;
 
     const searchableKeys = ["mataPelajaran", "pengajar", "penempatanPengajar"];
-    if (!searchableKeys.includes(activeKey)) return;
+    if (!searchableKeys.includes(activeKey)) {
+      searchRequestRef.current += 1;
+      return;
+    }
+    const requestId = ++searchRequestRef.current;
+    const search = query.trim();
+    if (isInitialEffect || (menuChanged && !search)) return;
 
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      try {
+    const load = async () => {
+      if (search.length === 0 || search.length >= 2) {
         if (activeKey === "pengajar") {
-          await handleLoadPengajar({ silent: true, search: query });
+          await handleLoadPengajar({ silent: true, search: search || undefined, requestId, paged: true });
         } else if (activeKey === "mataPelajaran") {
-          await handleLoadMapel({ silent: true, search: query });
-        } else if (activeKey === "penempatanPengajar") {
-          await handleLoadPenempatanPengajar({ silent: true, search: query });
+          await handleLoadMapel({ silent: true, search: search || undefined, requestId, paged: true });
+        } else {
+          await handleLoadPenempatanPengajar({ silent: true, search: search || undefined, requestId });
         }
-      } catch (error) {
-        console.error("Search error:", error);
-      } finally {
-        setIsSearching(false);
+      } else if (activeKey === "pengajar") {
+        setPengajarRecords([]);
+        setPengajarHasMore(false);
+      } else if (activeKey === "mataPelajaran") {
+        setMapelRecords([]);
+        setMapelHasMore(false);
+      } else {
+        setPenempatanRecords([]);
       }
-    }, 500); // 500ms debounce
+    };
 
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(() => {
+      void load().catch((error) => console.error("Search error:", error));
+    }, search ? 400 : 0);
+
+    return () => window.clearTimeout(timer);
   }, [query, activeKey]);
 
   useEffect(() => {
@@ -247,6 +263,7 @@ export function App() {
   });
   const [mapelHeaders, setMapelHeaders] = useState<string[]>([]);
   const [mapelRecords, setMapelRecords] = useState<Record<string, string>[]>([]);
+  const [mapelHasMore, setMapelHasMore] = useState(false);
   const [pengajarStatus, setPengajarStatus] = useState({
     loading: false,
     error: "",
@@ -254,6 +271,7 @@ export function App() {
   });
   const [pengajarHeaders, setPengajarHeaders] = useState<string[]>([]);
   const [pengajarRecords, setPengajarRecords] = useState<Record<string, string>[]>([]);
+  const [pengajarHasMore, setPengajarHasMore] = useState(false);
   const [suratTugasStatus, setSuratTugasStatus] = useState({
     loading: false,
     error: "",
@@ -345,13 +363,15 @@ export function App() {
       const result = rows.map((item, index) => {
         const d = item.data;
         const pengajar = (d["Pengajar"] || d["Nama Pengajar"] || "").trim();
+        const tanggal = d["Tanggal"] || "";
+        const parsedDate = parseFlexibleDate(tanggal);
         const rawWaktu = d["Waktu"] || "";
         const timeStart = parseRangeFromString(rawWaktu)?.start ?? Number.MAX_SAFE_INTEGER;
         
         return {
           id: item.id || `dash-${date}-${index}`,
-          tanggal: d["Tanggal"] || "",
-          dateKey: date,
+          tanggal,
+          dateKey: parsedDate ? formatLocalDate(parsedDate) : "",
           timeStart,
           waktu: rawWaktu,
           mapel: d["Mapel"] || d["Mata Pelajaran"] || "",
@@ -564,24 +584,6 @@ export function App() {
   const [loginError, setLoginError] = useState("");
   const [toasts, setToasts] = useState<AppToast[]>([]);
 
-  // On app start, try to load holidays from DB and populate localStorage so UI syncs
-  useEffect(() => {
-    let mounted = true;
-    const loadHolidaysFromDb = async () => {
-      try {
-        const rows = await listRows("libur_nasional");
-        if (!mounted) return;
-        const items = rows.map((r) => ({ date: r.data.Tanggal || r.data.tanggal || "", label: r.data.Keterangan || r.data.keterangan_libur || "" }));
-        setLocalNationalHolidays(items.filter((it) => it.date));
-      } catch (_e) {
-        // ignore DB read errors; keep localStorage defaults
-      }
-    };
-    void loadHolidaysFromDb();
-    return () => {
-      mounted = false;
-    };
-  }, []);
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
   const [isRefreshingCurrent, setIsRefreshingCurrent] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -889,13 +891,6 @@ export function App() {
     }
   };
 
-  const mapelOptions = useMemo(() => {
-    return mapelRecords.map((record) => ({
-      value: record["Mapel"] || record["Mata Pelajaran"] || "",
-      label: `${record["Kode_Mapel"] || record["Singkatan"] || ""} - ${record["Mapel"] || record["Mata Pelajaran"] || ""}`
-    })).filter(opt => opt.value);
-  }, [mapelRecords]);
-
   const mapelNameByKode = useMemo(() => {
     return mapelRecords.reduce<Record<string, string>>((acc, record) => {
       const kode = (record["Kode_Mapel"] || record["Singkatan"] || "").trim();
@@ -929,26 +924,6 @@ export function App() {
     );
   }, [mapelRecords]);
 
-  const buildPengajarOption = (record: Record<string, string>) => {
-    const kode = (record["Kode Pengajar"] || record["kode_pengajar"] || "").trim();
-    const nama = (
-      (record["Nama"] || record["nama"] || record["Nama Pengajar"] || record["nama_pengajar"] || "")
-    ).trim();
-    if (!kode) {
-      return null;
-    }
-    return {
-      value: kode,
-      label: nama ? `${kode} - ${nama}` : kode,
-    } satisfies { value: string; label: string };
-  };
-
-  const pengajarOptions = useMemo(() => {
-    return pengajarRecords
-      .map(buildPengajarOption)
-      .filter((option): option is { value: string; label: string } => Boolean(option));
-  }, [pengajarRecords]);
-
   const pengajarByKode = useMemo(() => {
     return pengajarRecords.reduce<Record<string, Record<string, string>>>((acc, record) => {
       const kode = normalizeText(record["Kode Pengajar"] || "");
@@ -958,21 +933,6 @@ export function App() {
       return acc;
     }, {});
   }, [pengajarRecords]);
-
-  const pengajarIzinOptions = useMemo(() => {
-    const source = restrictedCabang
-      ? pengajarRecords.filter(
-          (record) => normalizeText(record["Domisili"] || "") === normalizeText(restrictedCabang)
-        )
-      : pengajarRecords;
-
-    return source
-      .map((record) => ({
-        value: (record["Kode Pengajar"] || "").trim().toLowerCase(),
-        label: `${record["Kode Pengajar"] || ""} - ${record["Nama"] || ""}`,
-      }))
-      .filter((option) => option.value);
-  }, [pengajarRecords, restrictedCabang]);
 
   const normalizeToken = (value: string) =>
     value
@@ -1232,76 +1192,65 @@ export function App() {
     [normalizeDateValue]
   );
 
-  const filteredPengajarOptions = useMemo(() => {
-    const selectedMapelValue = draft.mapel.trim();
-    if (!selectedMapelValue) {
-      return pengajarOptions;
-    }
+  const loadMapelOptions = async (query: string) => {
+    if (query.length === 1) return [];
+    const rows = await listRowsFiltered("mata_pelajaran", {
+      ...(query.length >= 2 ? { _search: query } : {}),
+      _limit: 50,
+    });
+    return rows
+      .map((row) => mapMapelRecord(toRecord(row)))
+      .map((record) => ({
+        value: record.Mapel || "",
+        label: `${record.Kode_Mapel || ""} - ${record.Mapel || ""}`,
+      }))
+      .filter((option) => option.value);
+  };
 
-    const selectedMapelName = mapelNameByKode[selectedMapelValue.toLowerCase()] || "";
-    const selectedMapelKode = selectedMapelValue;
-    const targetKode = normalizeToken(selectedMapelKode);
-    const targetName = normalizeToken(selectedMapelName);
+  const loadSchedulePengajarOptions = async (query: string) => {
+    if (query.length === 1) return [];
+    const selectedMapelValue = draft.mapel.trim();
+    const subjectTerms = Array.from(new Set([
+      selectedMapelValue,
+      mapelKodeByName[selectedMapelValue.toLowerCase()] || "",
+    ].filter(Boolean)));
+    const rowSets = await Promise.all(subjectTerms.map((subject) =>
+      listRowsFiltered("pengajar", {
+        ...(query.length >= 2 ? { _search: query } : {}),
+        search_bidang_studi_mata_pelajaran: subject,
+        _limit: 50,
+      })
+    ));
+    const rows = Array.from(new Map(rowSets.flat().map((row) => [row.id, row])).values());
+    const targetKode = normalizeToken(selectedMapelValue);
+    const targetName = normalizeToken(mapelNameByKode[selectedMapelValue.toLowerCase()] || "");
     const targetNameFromLabel = normalizeToken(mapelKodeByName[selectedMapelValue.toLowerCase()] || "");
 
-    const baseOptions = pengajarRecords
+    return rows
+      .map((row) => toRecord(row))
       .filter((record) => {
         const bidangStudi = (record["Bidang Studi"] || "").trim();
-        if (!bidangStudi) {
-          return false;
-        }
-
-        const tokens = bidangStudi
-          .split(/[,;/|]+/)
-          .map((token) => normalizeToken(token))
-          .filter(Boolean);
-
-        if (tokens.includes(targetKode)) {
-          return true;
-        }
-        if (targetName && tokens.includes(targetName)) {
-          return true;
-        }
-        if (targetNameFromLabel && tokens.includes(targetNameFromLabel)) {
-          return true;
-        }
-
-        const bidangNormalized = normalizeToken(bidangStudi);
-        return Boolean(
-          (targetKode && bidangNormalized.includes(targetKode)) ||
-          (targetName && bidangNormalized.includes(targetName)) ||
-          (targetNameFromLabel && bidangNormalized.includes(targetNameFromLabel))
-        );
+        if (!bidangStudi) return false;
+        const tokens = bidangStudi.split(/[,;/|]+/).map(normalizeToken).filter(Boolean);
+        const normalized = normalizeToken(bidangStudi);
+        return tokens.includes(targetKode) ||
+          Boolean(targetName && (tokens.includes(targetName) || normalized.includes(targetName))) ||
+          Boolean(targetNameFromLabel && (tokens.includes(targetNameFromLabel) || normalized.includes(targetNameFromLabel))) ||
+          Boolean(targetKode && normalized.includes(targetKode));
       })
       .map((record) => ({
         value: record["Kode Pengajar"] || "",
-        label: `${record["Kode Pengajar"] || ""} - ${record["Nama"] || ""}`,
+        label: `${record["Kode Pengajar"] || ""} - ${record.Nama || ""}`,
       }))
-      .filter((option) => option.value);
-
-    if (!editingSlot) {
-      return baseOptions;
-    }
-
-    return baseOptions.filter((option) =>
-      isPengajarAvailableForScheduleSlot(
+      .filter((option) => option.value)
+      .filter((option) => !editingSlot || isPengajarAvailableForScheduleSlot(
         option.value,
         editingSlot.cabang,
         editingSlot.tanggal,
         draft.waktuMulai,
         draft.waktuSelesai
-      )
-    );
-  }, [
-    draft.mapel,
-    draft.waktuMulai,
-    draft.waktuSelesai,
-    editingSlot,
-    mapelNameByKode,
-    pengajarOptions,
-    pengajarRecords,
-    penempatanRecords,
-  ]);
+      ));
+  };
 
   const cabangOptions = useMemo(() => {
     const accountsToUse = databaseAccounts.length > 0 ? databaseAccounts : loginAccounts;
@@ -1329,39 +1278,58 @@ export function App() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [activeScheduleKey, cabangOptions, records, restrictedCabang]);
 
-  const pengajarPenempatanOptions = useMemo(() => {
-    const branchMatches = restrictedCabang
-      ? pengajarRecords.filter(
-          (record) => normalizeText(record["Domisili"] || record["domisili"] || "") === normalizeText(restrictedCabang)
-        )
-      : pengajarRecords;
-
-    const source = branchMatches.length > 0 ? branchMatches : pengajarRecords;
-
-    return source
-      .map(buildPengajarOption)
-      .filter((option): option is { value: string; label: string } => Boolean(option));
-  }, [pengajarRecords, restrictedCabang]);
-
-  const pengajarPermintaanOptions = useMemo(() => {
-    return pengajarRecords
-      .filter((record) => {
-        if (!restrictedCabang) {
-          return true;
-        }
-        return normalizeText(record["Domisili"] || "") !== normalizeText(restrictedCabang);
-      })
+  const loadRemotePengajarOptions = async (
+    query: string,
+    filters: Record<string, string | number | boolean> = {}
+  ) => {
+    if (query.length === 1) return [];
+    const rows = await listRowsFiltered("pengajar", {
+      ...filters,
+      ...(query.length >= 2 ? { _search: query } : {}),
+      _limit: 50,
+    });
+    return rows
+      .map((row) => toRecord(row))
       .map((record) => {
-        const kode = (record["Kode Pengajar"] || "").trim();
-        const nama = (record["Nama"] || "").trim();
-        const domisili = (record["Domisili"] || "").trim();
-        return {
-          value: kode,
-          label: `${kode} - ${nama} - ${domisili}`,
-        };
+        const value = (record["Kode Pengajar"] || record.kode_pengajar || "").trim();
+        const nama = (record.Nama || record["Nama Pengajar"] || record.nama_pengajar || "").trim();
+        const domisili = (record.Domisili || record.domisili || "").trim();
+        return { value, label: nama ? `${value} - ${nama}` : value, domisili };
       })
       .filter((option) => option.value);
-  }, [pengajarRecords, restrictedCabang]);
+  };
+
+  const loadIzinPengajarOptions = async (query: string) => {
+    const options = await loadRemotePengajarOptions(
+      query,
+      restrictedCabang ? { domisili: restrictedCabang } : {}
+    );
+    return restrictedCabang
+      ? options.filter((option) => normalizeText(option.domisili || "") === normalizeText(restrictedCabang))
+      : options;
+  };
+
+  const loadPenempatanPengajarOptions = async (query: string) => {
+    const options = await loadRemotePengajarOptions(
+      query,
+      restrictedCabang ? { domisili: restrictedCabang } : {}
+    );
+    if (!restrictedCabang) return options;
+    const branchMatches = options.filter(
+      (option) => normalizeText(option.domisili || "") === normalizeText(restrictedCabang)
+    );
+    return branchMatches.length > 0 ? branchMatches : options;
+  };
+
+  const loadPermintaanPengajarOptions = async (query: string) => {
+    const options = await loadRemotePengajarOptions(
+      query,
+      restrictedCabang ? { domisili_not: restrictedCabang } : {}
+    );
+    return options
+      .filter((option) => !restrictedCabang || normalizeText(option.domisili || "") !== normalizeText(restrictedCabang))
+      .map((option) => ({ ...option, label: `${option.label} - ${option.domisili || ""}` }));
+  };
 
   const sanitizePasswordInput = (value: string) =>
     value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
@@ -2572,6 +2540,10 @@ export function App() {
   ]);
 
   const monitoringRows = useMemo(() => {
+    if (activeKey !== "monitoringKelas") {
+      return [];
+    }
+
     const allowedDates = new Set(monthScheduleDates.map((slot) => slot.date));
     return monthScheduleGroups.map((group) => {
       const mapelCounter = new Map<string, number>();
@@ -2647,7 +2619,7 @@ export function App() {
         mapelDetailsByKode,
       };
     });
-  }, [monthScheduleDates, monthScheduleGroups, pengajarByKode]);
+  }, [activeKey, monthScheduleDates, monthScheduleGroups, pengajarByKode]);
 
   const filteredMapelRecords = useMemo(() => {
     if (!query.trim()) {
@@ -3003,11 +2975,7 @@ export function App() {
         }
       }
 
-      await handleLoadIzinPengajar();
-      await Promise.all([
-        handleLoadFromSheet("bulanIni", { preserveUiState: true }),
-        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true }),
-      ]);
+      await handleLoadMenuData(activeKey, { forceFresh: true, silent: true });
       pushToast(`Status izin ${item.namaPengajar || "pengajar"} diperbarui ke ${status}.`, "success");
     } catch (error) {
       setIzinStatus((prev) => ({
@@ -3020,21 +2988,17 @@ export function App() {
   };
 
   const suratTugasRecords = useMemo(() => {
-    // Compute surat tugas records from jadwal reguler and jadwal khusus
     try {
-      const regulerItems = records.bulanIni ?? [];
-      const khususItems = records.jadwalTambahanPelayanan ?? [];
-      const allItems = [...regulerItems, ...khususItems];
+      const allItems = [
+        ...(records.bulanIni ?? []),
+        ...(records.jadwalTambahanPelayanan ?? []),
+      ];
+      const grouped = new Map<string, Array<{ text: string; timestamp?: string }>>();
 
       const formatUpdatedLabel = (timestamp?: string) => {
-        // Format: "Update-27 Apr 2026 14:19"
-        if (!timestamp) {
-          return "";
-        }
+        if (!timestamp) return "";
         const date = new Date(timestamp);
-        if (Number.isNaN(date.getTime())) {
-          return "";
-        }
+        if (Number.isNaN(date.getTime())) return "";
         const day = date.getDate();
         const month = date.toLocaleDateString("id-ID", { month: "short" });
         const year = date.getFullYear();
@@ -3046,10 +3010,8 @@ export function App() {
         return `Update-${day} ${month} ${year} ${time}`;
       };
 
-      const grouped = new Map<string, Array<{ text: string; timestamp?: string }>>();
-      allItems.forEach((item: any) => {
-        const rawPengajar = (item.pengajar || "").trim();
-        const kodePengajar = resolvePengajarCode(rawPengajar) || rawPengajar;
+      allItems.forEach((item) => {
+        const kodePengajar = resolvePengajarCode(item.pengajar || "") || (item.pengajar || "").trim();
         const mapel = (item.mapel || "").trim();
         const waktu = (item.waktu || "").trim();
         const cabang = (item.cabang || "").trim();
@@ -3057,33 +3019,31 @@ export function App() {
         const sekolah = (item.sekolah || "").trim();
         const rawTanggal = resolveCanonicalDate(item.tanggal || "");
         const tanggalLabel = formatSheetTanggal(rawTanggal || item.tanggal || "");
-        if (!kodePengajar || !tanggalLabel || !mapel || !waktu) {
-          return;
-        }
-        const kelasBaseLabel = [kelas, sekolah].filter(Boolean).join(" ");
-        // Do not include raw gabungWith payload in the sesi text. Gabung classes
-        // are handled and merged in the SuratTugas view so keep the base label only.
-        const kelasLabel = kelasBaseLabel;
+        if (!kodePengajar || !tanggalLabel || !mapel || !waktu) return;
+
+        const kelasLabel = [kelas, sekolah].filter(Boolean).join(" ");
         const updateLabel = formatUpdatedLabel(item.updatedAt || item.createdAt);
-        const sesiText = `${waktu}/${mapel}-${kelasLabel}/${cabang}${
-          updateLabel ? ` ${updateLabel}` : ""
-        }`;
+        const sesiText = `${waktu}/${mapel}-${kelasLabel}/${cabang}${updateLabel ? ` ${updateLabel}` : ""}`;
         const key = `${normalizeValueKey(kodePengajar)}||${normalizeValueKey(tanggalLabel)}`;
         const list = grouped.get(key) ?? [];
         list.push({ text: sesiText, timestamp: item.updatedAt || item.createdAt });
         grouped.set(key, list);
       });
 
-      const suratRows = Array.from(grouped.entries()).map(([key, sesiList]) => {
+      return Array.from(grouped.entries()).map(([key, sesiList]) => {
         const [kodeKey, tanggalKey] = key.split("||");
         const template = allItems.find(
-          (item: any) =>
+          (item) =>
             normalizeValueKey(resolvePengajarCode(item.pengajar || "") || item.pengajar || "") === kodeKey &&
             normalizeValueKey(formatSheetTanggal(resolveCanonicalDate(item.tanggal || "") || item.tanggal || "")) === tanggalKey
         );
-        const tanggalLabel = template ? formatSheetTanggal(resolveCanonicalDate(template.tanggal || "") || template.tanggal || "") : "";
+        const tanggalLabel = template
+          ? formatSheetTanggal(resolveCanonicalDate(template.tanggal || "") || template.tanggal || "")
+          : "";
         const row: Record<string, string> = {
-          "Kode Pengajar": template ? (resolvePengajarCode(template.pengajar || "") || template.pengajar || "") : kodeKey,
+          "Kode Pengajar": template
+            ? resolvePengajarCode(template.pengajar || "") || template.pengajar || ""
+            : kodeKey,
           Tanggal: tanggalLabel,
         };
         for (let index = 0; index < 10; index += 1) {
@@ -3091,13 +3051,11 @@ export function App() {
         }
         return row;
       });
-
-      return suratRows;
     } catch (error) {
       console.error("Error computing surat tugas records:", error);
       return [];
     }
-  }, [records.bulanIni, records.jadwalTambahanPelayanan]);
+  }, [records.bulanIni, records.jadwalTambahanPelayanan, resolveCanonicalDate, resolvePengajarCode]);
 
   const suratTugasRecordsByMonth = useMemo(() => {
     if (!selectedSuratTugasMonthKey) {
@@ -3115,40 +3073,30 @@ export function App() {
     );
   }, [selectedSuratTugasMonthKey, suratTugasCalendar.dateKeys, suratTugasRecords]);
 
-  const suratTugasPengajarOptions = useMemo(() => {
-    if (!selectedSuratTugasMonthKey) {
-      return [];
-    }
+  const loadSuratTugasPengajarOptions = async (query: string) => {
+    if (!selectedSuratTugasMonthKey || query.trim().length === 1) return [];
+    const lowered = query.trim().toLowerCase();
+    const options = new Map<string, { value: string; label: string; domisili?: string }>();
 
-    const optionMap = new Map<string, { value: string; label: string }>();
-    const optionKeyMap = new Map<string, string>();
-
-    pengajarRecords.forEach((record) => {
-      const kode = (record["Kode Pengajar"] || "").trim();
-      const nama = (record["Nama"] || "").trim();
-      if (!kode) {
-        return;
-      }
-      const key = kode.toLowerCase();
-      optionKeyMap.set(key, kode);
-      optionMap.set(kode, {
-        value: kode,
-        label: nama ? `${nama} (${kode})` : kode,
-      });
+    (await loadRemotePengajarOptions(query)).forEach((option) => {
+      options.set(option.value.toLowerCase(), option);
     });
 
     suratTugasRecordsByMonth.forEach((record) => {
       const kode = (record["Kode Pengajar"] || "").trim();
+      const nama = (record["Nama Pengajar"] || "").trim();
       const key = kode.toLowerCase();
-      if (!kode || optionKeyMap.has(key)) {
-        return;
+      if (
+        kode &&
+        !options.has(key) &&
+        (kode.toLowerCase().includes(lowered) || nama.toLowerCase().includes(lowered))
+      ) {
+        options.set(key, { value: kode, label: nama ? `${kode} - ${nama}` : kode });
       }
-      optionKeyMap.set(key, kode);
-      optionMap.set(kode, { value: kode, label: kode });
     });
 
-    return Array.from(optionMap.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [pengajarRecords, selectedSuratTugasMonthKey, suratTugasRecordsByMonth]);
+    return Array.from(options.values()).slice(0, 50);
+  };
 
   const filteredSuratTugasRecords = useMemo(() => {
     return suratTugasRecordsByMonth.filter((record) => {
@@ -3234,6 +3182,11 @@ export function App() {
       if (scheduleKey === "bulanIni") {
         // Only fetch for the selected month to save memory/RAM
         rows = await listRowsFiltered(bucket, { starts_with_tanggal: selectedMonthKey });
+      } else if (scheduleKey === "jadwalTambahanPelayanan" && tambahanScheduleDates.length > 0) {
+        rows = await listRowsFiltered(bucket, {
+          tanggal_gte: tambahanScheduleDates[0].date,
+          tanggal_lte: tambahanScheduleDates[tambahanScheduleDates.length - 1].date,
+        });
       } else {
         rows = await listRows(bucket, Boolean(options?.forceFresh));
       }
@@ -3313,7 +3266,7 @@ export function App() {
     }
   };
 
-  const handleLoadMapel = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string }) => {
+  const handleLoadMapel = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string; requestId?: number; offset?: number; append?: boolean; paged?: boolean }) => {
     if (!options?.silent) {
       setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
@@ -3324,16 +3277,27 @@ export function App() {
       }
       
       const { listRows, listRowsFiltered } = await import("./lib/database");
-      let rows;
-      if (options?.search) {
-        rows = await listRowsFiltered(bucket, { search_mata_pelajaran: options.search });
-      } else {
-        rows = await listRows(bucket, Boolean(options?.forceFresh));
-      }
-      const parsed = rows.map((row) => toRecord(row));
+      const shouldPage = Boolean(options?.paged || options?.search || options?.append);
+      const rows = shouldPage
+        ? await listRowsFiltered(bucket, {
+            ...(options?.search ? { _search: options.search } : {}),
+            _limit: DATA_PAGE_SIZE + 1,
+            _offset: options?.offset || 0,
+          })
+        : await listRows(bucket, Boolean(options?.forceFresh));
+      const hasMore = shouldPage && rows.length > DATA_PAGE_SIZE;
+      const pageRows = shouldPage ? rows.slice(0, DATA_PAGE_SIZE) : rows;
+      const parsed = pageRows.map((row) => toRecord(row));
       const normalized = parsed.map((row) => mapMapelRecord(row));
+      if (options?.requestId !== undefined && options.requestId !== searchRequestRef.current) return;
+      setMapelHasMore(hasMore);
       setMapelHeaders(mapelHeadersExpected);
       setMapelRecords((prev) => {
+        if (options?.append) {
+          const byCode = new Map(prev.map((record) => [record.Kode_Mapel || record.Mapel, record]));
+          normalized.forEach((record) => byCode.set(record.Kode_Mapel || record.Mapel, record));
+          return Array.from(byCode.values());
+        }
         if (
           !options?.forceFresh &&
           prev.length === normalized.length &&
@@ -3357,6 +3321,7 @@ export function App() {
         lastSync: new Date().toLocaleString("id-ID"),
       });
     } catch (error) {
+      if (options?.requestId !== undefined && options.requestId !== searchRequestRef.current) return;
       setMapelStatus((prev) => ({
         ...prev,
         loading: false,
@@ -3552,13 +3517,10 @@ export function App() {
           })
         );
 
-        // Muat ulang data terbaru secara hening di latar belakang
-        void handleLoadFromSheet("bulanIni", { silent: true });
-        void handleLoadPengajar({ silent: true });
       }
 
       setIsMapelModalOpen(false);
-      void handleLoadMapel({ silent: true });
+      void handleLoadMenuData(activeKey, { forceFresh: true, silent: true });
       pushToast(
         hasChanged
           ? "Data mata pelajaran & seluruh jadwal dan data pengajar terkait berhasil diperbarui otomatis (Cascade Update)."
@@ -3604,7 +3566,7 @@ export function App() {
     );
   };
 
-  const handleLoadPengajar = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string }) => {
+  const handleLoadPengajar = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string; requestId?: number; offset?: number; append?: boolean; paged?: boolean }) => {
     if (!options?.silent) {
       setPengajarStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
@@ -3615,17 +3577,20 @@ export function App() {
       }
       
       const { listRows, listRowsFiltered } = await import("./lib/database");
-      let rows;
-      if (options?.search) {
-        // Use a generic search filter that the server-side proxy or fallback can handle
-        rows = await listRowsFiltered(bucket, { search_nama_pengajar: options.search });
-      } else {
-        rows = await listRows(bucket, Boolean(options?.forceFresh));
-      }
+      const shouldPage = Boolean(options?.paged || options?.search || options?.append);
+      const rows = shouldPage
+        ? await listRowsFiltered(bucket, {
+            ...(options?.search ? { _search: options.search } : {}),
+            _limit: DATA_PAGE_SIZE + 1,
+            _offset: options?.offset || 0,
+          })
+        : await listRows(bucket, Boolean(options?.forceFresh));
+      const hasMore = shouldPage && rows.length > DATA_PAGE_SIZE;
+      const pageRows = shouldPage ? rows.slice(0, DATA_PAGE_SIZE) : rows;
       
       const expectedHeaders = ["Kode Pengajar", "NIP", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
 
-      const records = rows
+      const records = pageRows
         .map((row) => toRecord(row))
         .filter((record) => {
           const candidateKeys = ["Kode Pengajar", "kode_pengajar", "Kode", "kode", "Nama", "nama"];
@@ -3675,8 +3640,15 @@ export function App() {
           return normalized;
         });
 
+      if (options?.requestId !== undefined && options.requestId !== searchRequestRef.current) return;
+      setPengajarHasMore(hasMore);
       setPengajarHeaders(expectedHeaders);
       setPengajarRecords((prev) => {
+        if (options?.append) {
+          const byCode = new Map(prev.map((record) => [record["Kode Pengajar"], record]));
+          records.forEach((record) => byCode.set(record["Kode Pengajar"], record));
+          return Array.from(byCode.values());
+        }
         if (
           prev.length === records.length &&
           prev.every((curr, i) => {
@@ -3702,6 +3674,7 @@ export function App() {
         lastSync: new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
       });
     } catch (error) {
+      if (options?.requestId !== undefined && options.requestId !== searchRequestRef.current) return;
       setPengajarStatus((prev) => ({
         ...prev,
         loading: false,
@@ -4075,16 +4048,7 @@ export function App() {
       setEditingPengajarOldKode(null);
       setEditingPengajarOldNama(null);
 
-      // Reload all datasets in state silently in background
-      void Promise.all([
-        handleLoadPengajar({ silent: true }),
-        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
-        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
-        handleLoadPenempatanPengajar({ silent: true }),
-        handleLoadIzinPengajar({ silent: true }),
-        handleLoadPermintaanPengajar({ silent: true }),
-        handleLoadSuratTugas({ silent: true }),
-      ]);
+      void handleLoadMenuData(activeKey, { forceFresh: true, silent: true });
 
       pushToast("Data pengajar dan seluruh tabel terkait berhasil diperbarui.", "success");
     } catch (error) {
@@ -4114,12 +4078,7 @@ export function App() {
             .map((row) => row.id);
           await deleteRowsByIds(targetIds);
 
-          void Promise.all([
-            handleLoadPengajar({ silent: true }),
-            handleLoadPenempatanPengajar({ silent: true }),
-            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
-            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
-          ]);
+          void handleLoadMenuData(activeKey, { forceFresh: true, silent: true });
           pushToast("Data pengajar berhasil dihapus.", "success");
         } catch (error) {
           setPengajarStatus((prev) => ({
@@ -4162,7 +4121,7 @@ export function App() {
     };
   };
 
-  const handleLoadPenempatanPengajar = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string }) => {
+  const handleLoadPenempatanPengajar = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string; requestId?: number }) => {
     if (!options?.silent) {
       setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
     }
@@ -4175,7 +4134,7 @@ export function App() {
       const { listRows, listRowsFiltered } = await import("./lib/database");
       let rows;
       if (options?.search) {
-        rows = await listRowsFiltered(bucket, { search_nama_pengajar: options.search });
+        rows = await listRowsFiltered(bucket, { _search: options.search, _limit: 100 });
       } else {
         rows = await listRows(bucket, Boolean(options?.forceFresh));
       }
@@ -4195,6 +4154,7 @@ export function App() {
         });
       });
 
+      if (options?.requestId !== undefined && options.requestId !== searchRequestRef.current) return;
       setPenempatanRecords((prev) => {
         if (
           prev.length === normalized.length &&
@@ -4223,6 +4183,7 @@ export function App() {
         lastSync: new Date().toLocaleString("id-ID"),
       });
     } catch (error) {
+      if (options?.requestId !== undefined && options.requestId !== searchRequestRef.current) return;
       setPenempatanStatus((prev) => ({
         ...prev,
         loading: false,
@@ -4702,13 +4663,15 @@ export function App() {
           prev.length === normalized.length &&
           prev.every((curr, i) => {
             const next = normalized[i];
+            const current = curr as Record<string, string>;
+            const incoming = next as Record<string, string> | undefined;
             return (
-              next &&
-              curr.ID === next.ID &&
-              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
-              curr["Keterangan Status"] === next["Keterangan Status"] &&
-              curr["Tanggal Mulai"] === next["Tanggal Mulai"] &&
-              curr["Tanggal Selesai"] === next["Tanggal Selesai"]
+              incoming &&
+              String(current._id ?? current.ID ?? current.id ?? "") === String(incoming._id ?? incoming.ID ?? incoming.id ?? "") &&
+              current["Kode Pengajar"] === incoming["Kode Pengajar"] &&
+              current["Keterangan Status"] === incoming["Keterangan Status"] &&
+              current["Tanggal Mulai"] === incoming["Tanggal Mulai"] &&
+              current["Tanggal Selesai"] === incoming["Tanggal Selesai"]
             );
           })
         ) {
@@ -4994,12 +4957,14 @@ export function App() {
           prev.length === normalized.length &&
           prev.every((curr, i) => {
             const next = normalized[i];
+            const current = curr as Record<string, string>;
+            const incoming = next as Record<string, string> | undefined;
             return (
-              next &&
-              curr.id === next.id &&
-              curr.Username === next.Username &&
-              curr.Roll === next.Roll &&
-              curr.Cabang === next.Cabang
+              incoming &&
+              current.id === incoming.id &&
+              current.Username === incoming.Username &&
+              current.Roll === incoming.Roll &&
+              current.Cabang === incoming.Cabang
             );
           })
         ) {
@@ -5647,11 +5612,15 @@ export function App() {
     );
   };
 
-  useEffect(() => {
-    if (activeKey === "donasi" || activeKey === "dashboard") {
-      void handleLoadDonasi({ silent: true });
-    }
-  }, [activeKey, isAdmin]);
+  const handleLoadNationalHolidays = async (forceFresh = false) => {
+    if (forceFresh) invalidateReadCacheForBucket("libur_nasional");
+    const rows = await listRows("libur_nasional", forceFresh);
+    const items = rows.map((row) => ({
+      date: row.data.Tanggal || row.data.tanggal || "",
+      label: row.data.Keterangan || row.data.keterangan_libur || "",
+    }));
+    setLocalNationalHolidays(items.filter((item) => item.date));
+  };
 
   const refreshAllData = async (
     showToast = false,
@@ -5695,6 +5664,7 @@ export function App() {
         handleLoadPermintaanPengajar(opts),
         handleLoadAccountsCabang(opts),
         handleLoadDonasi(opts),
+        handleLoadNationalHolidays(bypassCache),
       ]);
       lastRefreshAllTimestampRef.current = Date.now();
       if (showToast) {
@@ -5731,6 +5701,10 @@ export function App() {
             handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
             handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
             handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadPenempatanPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadPermintaanPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadIzinPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadNationalHolidays(Boolean(options.forceFresh)),
           ]);
           break;
         case "jadwalTambahanPelayanan":
@@ -5738,6 +5712,10 @@ export function App() {
             handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
             handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
             handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadPenempatanPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadPermintaanPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadIzinPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadNationalHolidays(Boolean(options.forceFresh)),
           ]);
           break;
         case "monitoringKelas":
@@ -5746,6 +5724,7 @@ export function App() {
             handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
             handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
             handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
           ]);
           break;
         case "hapusJadwal":
@@ -5755,37 +5734,26 @@ export function App() {
           ]);
           break;
         case "mataPelajaran":
-          await handleLoadMapel({ silent: options.silent, forceFresh: options.forceFresh });
+          await handleLoadMapel({ silent: options.silent, forceFresh: options.forceFresh, paged: true });
           break;
         case "pengajar":
-          await Promise.all([
-            handleLoadPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
-            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
-          ]);
+          await handleLoadPengajar({ silent: options.silent, forceFresh: options.forceFresh, paged: true });
           break;
         case "penempatanPengajar":
-          await Promise.all([
-            handleLoadPenempatanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
-            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
-          ]);
+          await handleLoadPenempatanPengajar({ silent: options.silent, forceFresh: options.forceFresh });
           break;
         case "izinPengajar":
-          await Promise.all([
-            handleLoadIzinPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
-            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
-          ]);
+          await handleLoadIzinPengajar({ silent: options.silent, forceFresh: options.forceFresh });
           break;
         case "permintaanPengajarAntarCabang":
-          await Promise.all([
-            handleLoadPermintaanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
-            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
-          ]);
+          await handleLoadPermintaanPengajar({ silent: options.silent, forceFresh: options.forceFresh });
           break;
         case "suratTugasMengajar":
           await Promise.all([
             handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
             handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
             handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
             handleLoadSuratTugas({ silent: options.silent }),
           ]);
           break;
@@ -5793,18 +5761,26 @@ export function App() {
         case "accountsCabang":
           await handleLoadAccountsCabang({ silent: options.silent, forceFresh: options.forceFresh });
           break;
-        case "dashboard":
-          await Promise.all([
+        case "dashboard": {
+          const dashboardLoads = [
             handleLoadPermintaanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
             handleLoadIzinPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
-            handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh }),
-          ]);
+          ];
+          if (isAdmin) {
+            dashboardLoads.push(handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh }));
+          }
+          await Promise.all(dashboardLoads);
           break;
+        }
         case "donasi":
           await handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh });
           break;
+        case "liburNasional":
+          await handleLoadNationalHolidays(Boolean(options.forceFresh));
+          break;
+        case "settings":
+          break;
         default:
-          await handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh });
           break;
       }
     } catch (err: any) {
@@ -5851,6 +5827,41 @@ export function App() {
       
       return next;
     });
+
+    const scheduleReferenceMenus = [
+      "bulanIni",
+      "jadwalTambahanPelayanan",
+      "monitoringKelas",
+      "printJadwal",
+      "suratTugasMengajar",
+    ];
+    if (key !== "pengajar" && !scheduleReferenceMenus.includes(key)) {
+      setPengajarRecords([]);
+    }
+    if (key !== "mataPelajaran" && !scheduleReferenceMenus.includes(key)) {
+      setMapelRecords([]);
+    }
+    const scheduleEditingMenus = ["bulanIni", "jadwalTambahanPelayanan"];
+    if (key !== "penempatanPengajar" && !scheduleEditingMenus.includes(key)) {
+      setPenempatanRecords([]);
+    }
+    if (key !== "izinPengajar" && key !== "dashboard" && !scheduleEditingMenus.includes(key)) {
+      setIzinRecords([]);
+    }
+    if (key !== "permintaanPengajarAntarCabang" && key !== "dashboard" && !scheduleEditingMenus.includes(key)) {
+      setPermintaanRecords([]);
+    }
+    if (key !== "accounts_cabang" && key !== "accountsCabang") {
+      setAccountsCabangRecords([]);
+    }
+    if (key !== "donasi" && key !== "dashboard") {
+      setDonasiRecords([]);
+      setTransaksiDonasiRecords([]);
+      setTransaksiTagihanRecords([]);
+    }
+    if (key !== "dashboard") {
+      setDashboardDateSchedules([]);
+    }
   };
 
   // Muat data menu dari cache lokal (tanpa freeze) saat berpindah menu
@@ -5955,23 +5966,35 @@ export function App() {
           void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true, forceFresh: true });
         }
       } else if (bucket === "donasi" || bucket === "donasi_transaksi" || bucket === "donasi_transaksi_tagihan") {
-        void handleLoadDonasi({ silent: true, forceFresh: true });
-        if (activeKey === "dashboard") {
-          // If on dashboard, also refresh the summary data
+        if (activeKey === "dashboard" || activeKey === "donasi") {
           void handleLoadDonasi({ silent: true, forceFresh: true });
         }
       } else if (bucket === "pengajar") {
-        void handleLoadPengajar({ silent: true, forceFresh: true });
+        if (["pengajar", "bulanIni", "jadwalTambahanPelayanan", "monitoringKelas", "printJadwal", "suratTugasMengajar"].includes(activeKey)) {
+          void handleLoadPengajar({ silent: true, forceFresh: true });
+        }
       } else if (bucket === "mata_pelajaran") {
-        void handleLoadMapel({ silent: true, forceFresh: true });
+        if (["mataPelajaran", "bulanIni", "jadwalTambahanPelayanan", "monitoringKelas", "printJadwal", "suratTugasMengajar"].includes(activeKey)) {
+          void handleLoadMapel({ silent: true, forceFresh: true });
+        }
       } else if (bucket === "izin_pengajar") {
-        void handleLoadIzinPengajar({ silent: true, forceFresh: true });
+        if (["izinPengajar", "dashboard", "bulanIni", "jadwalTambahanPelayanan"].includes(activeKey)) {
+          void handleLoadIzinPengajar({ silent: true, forceFresh: true });
+        }
       } else if (bucket === "permintaan_pengajar_antar_cabang" || bucket === "permintaan_pengajar") {
-        void handleLoadPermintaanPengajar({ silent: true, forceFresh: true });
+        if (["permintaanPengajarAntarCabang", "dashboard", "bulanIni", "jadwalTambahanPelayanan"].includes(activeKey)) {
+          void handleLoadPermintaanPengajar({ silent: true, forceFresh: true });
+        }
       } else if (bucket === "penempatan_pengajar_dicabang") {
-        void handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+        if (["penempatanPengajar", "bulanIni", "jadwalTambahanPelayanan"].includes(activeKey)) {
+          void handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+        }
       } else if (bucket === "accounts_cabang") {
-        void handleLoadAccountsCabang({ silent: true, forceFresh: true });
+        if (activeKey === "accounts_cabang") {
+          void handleLoadAccountsCabang({ silent: true, forceFresh: true });
+        }
+      } else if (bucket === "libur_nasional" && activeKey === "liburNasional") {
+        void handleLoadNationalHolidays(true);
       }
     };
 
@@ -5996,6 +6019,7 @@ export function App() {
     handleLoadPermintaanPengajar,
     handleLoadPenempatanPengajar,
     handleLoadAccountsCabang,
+    handleLoadNationalHolidays,
     editingSlot,
     isClassModalOpen,
     isMapelModalOpen,
@@ -6625,7 +6649,7 @@ export function App() {
             : String((row as any).nip || (row as any).NIP || "");
 
           const jenisKbm = String(
-            (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler")
+            (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? "Reguler"
           ).trim();
 
           return {
@@ -6875,7 +6899,7 @@ export function App() {
             });
 
       await replaceBucketRows(target.bucket, rowsToSave);
-      await refreshAllData(false, true);
+      await handleLoadMenuData(activeKey, { forceFresh: true, silent: true });
       pushToast(`Import ${target.label} berhasil (${rowsToSave.length} baris).`, "success");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "Import Excel gagal diproses.", "error");
@@ -7099,16 +7123,47 @@ export function App() {
 
   const normalizeLoginValue = (value: string) => String(value ?? "").trim().toLowerCase();
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     const username = normalizeLoginValue(loginUsername);
     const sanitizedWa = sanitizeWhatsappDigits(loginUsername);
     const password = String(loginPassword ?? "").trim();
-    const accountsToUse = [...databaseAccounts, ...loginAccounts];
-    const matched = accountsToUse.find((account) => {
+    const matchesLogin = (account: LoginAccount) => {
       const accUser = normalizeLoginValue(account.username);
       const userMatch = accUser === username || (Boolean(sanitizedWa) && accUser === sanitizedWa);
       return userMatch && String(account.password ?? "").trim() === password;
-    });
+    };
+
+    let matched = loginAccounts.find(matchesLogin);
+    if (!matched) {
+      try {
+        const searchTerms = Array.from(new Set([loginUsername.trim(), sanitizedWa].filter(Boolean)));
+        const results = await Promise.all(searchTerms.map((term) => Promise.all([
+          listRowsFiltered("accounts_cabang", { _search: term, _limit: 20 }),
+          listRowsFiltered("pengajar", { _search: term, _limit: 20 }),
+        ])));
+        const remoteAccounts: LoginAccount[] = results.flatMap(([accountRows, pengajarRows]) => [
+          ...accountRows.map((row) => ({
+            id: row.id,
+            username: row.data.Username || row.data.username || "",
+            password: row.data.Password || row.data.password || "",
+            roll: row.data.Roll || row.data.roll || "cabang",
+            cabang: row.data.Cabang || row.data.cabang || "",
+          })),
+          ...pengajarRows.map((row) => ({
+            id: row.id,
+            username: sanitizeWhatsappDigits(
+              row.data.Username || row.data.username || row.data["No.WhatsApp"] || row.data.no_whatsapp || ""
+            ) || row.data.Username || row.data.username || row.data["No.WhatsApp"] || row.data.no_whatsapp || "",
+            password: row.data.Password || row.data.password || row.data.password_hash || "",
+            roll: "pengajar",
+            cabang: row.data.Domisili || row.data.domisili || "",
+          })),
+        ]);
+        matched = remoteAccounts.find(matchesLogin);
+      } catch (_error) {
+        matched = undefined;
+      }
+    }
 
     if (!matched) {
       setLoginError("Username atau password tidak sesuai.");
@@ -7282,6 +7337,7 @@ export function App() {
       }
 
       clearStaleLocalCache();
+      clearAllReadCache();
       updateLastCacheCleanedAt();
 
       const storedSession = localStorage.getItem(authStorageKey);
@@ -7317,38 +7373,22 @@ export function App() {
     };
   }, []);
 
-  const loadAccountsFromDb = useCallback(async () => {
+  const loadAccountsFromDb = useCallback(async (loadDirectory = true) => {
     try {
-      const rows = await listRows("accounts_cabang");
-      const accounts: LoginAccount[] = rows.map((r) => ({
-        id: r.id,
-        username: r.data.Username || r.data.username || "",
-        password: r.data.Password || r.data.password || "",
-        roll: r.data.Roll || r.data.roll || "cabang",
-        cabang: r.data.Cabang || r.data.cabang || "",
-      }));
-      const validAccounts = accounts.filter((a) => a.username && a.password);
-      setDatabaseAccounts(validAccounts);
-
-      // Also get pengajar accounts to validate pengajar login passwords
-      let pengajarAccounts: LoginAccount[] = [];
-      try {
-        const pRows = await listRows(dataBucket["Data Pengajar"]);
-        pengajarAccounts = pRows
-          .filter((r) => (r.data.Username || r.data.username || r.data["No.WhatsApp"] || r.data.no_whatsapp) && (r.data.Password || r.data.password || r.data.password_hash))
-          .map((r) => {
-            const rawUser = String(r.data.Username || r.data.username || r.data["No.WhatsApp"] || r.data.no_whatsapp || "");
-            const sanitizedUser = sanitizeWhatsappDigits(rawUser) || rawUser;
-            return {
-              username: sanitizedUser,
-              password: r.data.Password || r.data.password || r.data.password_hash,
-              roll: "pengajar",
-              cabang: r.data.Domisili || r.data.domisili || "",
-            };
-          });
-      } catch (_e) {}
-
-      const allMergedAccounts = [...validAccounts, ...pengajarAccounts, ...loginAccounts];
+      let validAccounts: LoginAccount[] = [];
+      if (loadDirectory) {
+        const rows = await listRows("accounts_cabang");
+        validAccounts = rows
+          .map((row) => ({
+            id: row.id,
+            username: row.data.Username || row.data.username || "",
+            password: row.data.Password || row.data.password || "",
+            roll: row.data.Roll || row.data.roll || "cabang",
+            cabang: row.data.Cabang || row.data.cabang || "",
+          }))
+          .filter((account) => account.username && account.password);
+        setDatabaseAccounts(validAccounts);
+      }
 
       // If user is currently logged in, check if their session is still valid
       try {
@@ -7356,9 +7396,45 @@ export function App() {
         if (storedSession) {
           const parsed = JSON.parse(storedSession) as AuthSession;
           if (parsed?.username) {
-            const matched = allMergedAccounts.find(
+            let matched = [...validAccounts, ...loginAccounts].find(
               (acc) => normalizeLoginValue(acc.username) === normalizeLoginValue(parsed.username)
             );
+
+            if (!matched) {
+              const accountRows = await listRowsFiltered("accounts_cabang", {
+                _search: parsed.username,
+                _limit: 20,
+              });
+              matched = accountRows
+                .map((row) => ({
+                  id: row.id,
+                  username: row.data.Username || row.data.username || "",
+                  password: row.data.Password || row.data.password || "",
+                  roll: row.data.Roll || row.data.roll || "cabang",
+                  cabang: row.data.Cabang || row.data.cabang || "",
+                }))
+                .find((account) => normalizeLoginValue(account.username) === normalizeLoginValue(parsed.username));
+            }
+
+            if (!matched) {
+              const teacherRows = await listRowsFiltered("pengajar", {
+                _search: parsed.username,
+                _limit: 20,
+              });
+              matched = teacherRows
+                .map((row) => {
+                  const rawUsername = row.data.Username || row.data.username || row.data["No.WhatsApp"] || row.data.no_whatsapp || "";
+                  return {
+                    id: row.id,
+                    username: sanitizeWhatsappDigits(rawUsername) || rawUsername,
+                    password: row.data.Password || row.data.password || row.data.password_hash || "",
+                    roll: "pengajar",
+                    cabang: row.data.Domisili || row.data.domisili || "",
+                  };
+                })
+                .find((account) => normalizeLoginValue(account.username) === normalizeLoginValue(parsed.username));
+            }
+
             if (matched) {
               const currentDbPass = String(matched.password ?? "").trim();
 
@@ -7518,15 +7594,17 @@ export function App() {
   };
 
   useEffect(() => {
-    void loadAccountsFromDb();
-  }, [loadAccountsFromDb]);
+    if (authSession?.username) {
+      void loadAccountsFromDb();
+    }
+  }, [authSession?.username, loadAccountsFromDb]);
 
   // Periodic heartbeat to auto-logout any active session whose password was changed on another device
   useEffect(() => {
     if (!authSession?.username) return;
     const interval = window.setInterval(() => {
       if (!document.hidden) {
-        void loadAccountsFromDb();
+        void loadAccountsFromDb(false);
       }
     }, 60000);
     return () => window.clearInterval(interval);
@@ -9372,7 +9450,6 @@ export function App() {
                     selectedMonthKey={selectedMonthKey}
                     selectedSuratTugasMonthKey={selectedSuratTugasMonthKey}
                     selectedSuratTugasKode={selectedSuratTugasKode}
-                    suratTugasPengajarOptions={suratTugasPengajarOptions}
                     sheetStatus={sheetStatus}
                     mapelStatus={mapelStatus}
                     pengajarStatus={pengajarStatus}
@@ -9513,6 +9590,17 @@ export function App() {
                         headers={mapelHeaders}
                         loading={mapelStatus.loading}
                         records={filteredMapelRecords}
+                        query={query}
+                        hasMore={mapelHasMore}
+                        onQueryChange={setQuery}
+                        onLoadMore={() => handleLoadMapel({
+                          silent: true,
+                          search: query.trim() || undefined,
+                          requestId: searchRequestRef.current,
+                          paged: true,
+                          offset: mapelRecords.length,
+                          append: true,
+                        })}
                         onAdd={() => handleOpenMapelModal()}
                         onEdit={handleOpenMapelModal}
                         onDelete={handleDeleteMapel}
@@ -9522,7 +9610,17 @@ export function App() {
                         headers={pengajarHeaders}
                         loading={pengajarStatus.loading}
                         records={filteredPengajarRecords}
-                        query=""
+                        query={query}
+                        hasMore={pengajarHasMore}
+                        onQueryChange={setQuery}
+                        onLoadMore={() => handleLoadPengajar({
+                          silent: true,
+                          search: query.trim() || undefined,
+                          requestId: searchRequestRef.current,
+                          paged: true,
+                          offset: pengajarRecords.length,
+                          append: true,
+                        })}
                         onAdd={() => handleOpenPengajarModal()}
                         onEdit={handleOpenPengajarModal}
                         onDelete={handleDeletePengajar}
@@ -9606,7 +9704,7 @@ export function App() {
                         monthOptions={monthOptions}
                         onSelectMonthKey={setSelectedSuratTugasMonthKey}
                         onSelectPengajarKode={setSelectedSuratTugasKode}
-                        pengajarOptions={suratTugasPengajarOptions}
+                        loadPengajarOptions={loadSuratTugasPengajarOptions}
                         allPengajarRecords={pengajarRecords}
                         allSuratRecordsByMonth={suratTugasRecordsByMonth}
                         mapelNameByKode={mapelNameByKode}
@@ -9700,8 +9798,8 @@ export function App() {
         editingSlot={editingSlot}
         dateLabel={activeScheduleDates.find((slot) => slot.date === editingSlot?.tanggal)?.label || ""}
         draft={draft}
-        mapelOptions={mapelOptions}
-        pengajarOptions={filteredPengajarOptions}
+        loadMapelOptions={loadMapelOptions}
+        loadPengajarOptions={loadSchedulePengajarOptions}
         copyDateOptions={copyDateOptions}
         selectedCopyDates={copyTargetDates}
         pengajarAvailabilityWarning={pengajarAvailabilityInfo.warning}
@@ -9747,7 +9845,7 @@ export function App() {
         cabangLabel={restrictedCabang || authSession?.cabang || pengajarDraft.Domisili || "-"}
         isDomisiliLocked={Boolean(restrictedCabang)}
         domisiliOptions={cabangOptions}
-        bidangStudiOptions={mapelOptions}
+        loadBidangStudiOptions={loadMapelOptions}
         error={pengajarError}
         loading={pengajarStatus.loading}
         onClose={() => setIsPengajarModalOpen(false)}
@@ -9763,7 +9861,7 @@ export function App() {
         loading={penempatanStatus.loading}
         error={penempatanError}
         draft={penempatanDraft}
-        pengajarOptions={pengajarPenempatanOptions}
+        loadPengajarOptions={loadPenempatanPengajarOptions}
         cabangOptions={cabangOptions}
         isDomisiliLocked={Boolean(restrictedCabang)}
         onClose={() => {
@@ -9782,7 +9880,7 @@ export function App() {
         loading={izinStatus.loading}
         error={izinError}
         draft={izinDraft}
-        pengajarOptions={pengajarIzinOptions}
+        loadPengajarOptions={loadIzinPengajarOptions}
         cabangOptions={cabangOptions}
         isDomisiliLocked={Boolean(restrictedCabang)}
         onClose={() => {
@@ -9799,7 +9897,7 @@ export function App() {
         error={permintaanError}
         isAdmin={isAdmin}
         draft={permintaanDraft}
-        pengajarOptions={pengajarPermintaanOptions}
+        loadPengajarOptions={loadPermintaanPengajarOptions}
         onClose={() => {
           setIsPermintaanModalOpen(false);
           setPermintaanError("");

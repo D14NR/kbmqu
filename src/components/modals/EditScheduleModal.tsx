@@ -1,6 +1,8 @@
 import Select from "react-select";
+import AsyncSelect from "react-select/async";
 import { useEffect, useMemo, useState } from "react";
 import type { EditingSlot, SelectOption } from "../../types/app";
+import { useDebouncedOptionLoader, type RemoteSelectOption } from "../../utils/useDebouncedOptionLoader";
 
 type EditScheduleModalProps = {
   editingSlot: EditingSlot | null;
@@ -11,8 +13,8 @@ type EditScheduleModalProps = {
     waktuMulai: string;
     waktuSelesai: string;
   };
-  mapelOptions: SelectOption[];
-  pengajarOptions: SelectOption[];
+  loadMapelOptions: (query: string) => Promise<RemoteSelectOption[]>;
+  loadPengajarOptions: (query: string) => Promise<RemoteSelectOption[]>;
   copyDateOptions: SelectOption[];
   selectedCopyDates: string[];
   pengajarAvailabilityWarning: string;
@@ -89,8 +91,8 @@ export function EditScheduleModal({
   editingSlot,
   dateLabel,
   draft,
-  mapelOptions,
-  pengajarOptions,
+  loadMapelOptions,
+  loadPengajarOptions,
   copyDateOptions,
   selectedCopyDates,
   pengajarAvailabilityWarning,
@@ -113,6 +115,8 @@ export function EditScheduleModal({
 }: EditScheduleModalProps) {
   const [isLocalSaving, setIsLocalSaving] = useState(false);
   const [isLocalDeleting, setIsLocalDeleting] = useState(false);
+  const loadMapelOptionsDebounced = useDebouncedOptionLoader(loadMapelOptions);
+  const loadPengajarOptionsDebounced = useDebouncedOptionLoader(loadPengajarOptions);
 
   useEffect(() => {
     setIsLocalSaving(false);
@@ -331,17 +335,20 @@ export function EditScheduleModal({
                 </div>
               </div>
 
-              <Select
+              <AsyncSelect<RemoteSelectOption, false>
                 value={
                   draft.mapel
-                    ? mapelOptions.find((opt) => opt.value === draft.mapel) || {
+                    ? {
                         value: draft.mapel,
                         label: draft.mapel,
                       }
                     : null
                 }
                 onChange={(option) => onDraftChange("mapel", option?.value || "")}
-                options={mapelOptions}
+                loadOptions={loadMapelOptionsDebounced}
+                defaultOptions
+                cacheOptions
+                filterOption={null}
                 placeholder="Pilih atau ketik mata pelajaran..."
                 isClearable
                 isSearchable
@@ -394,17 +401,20 @@ export function EditScheduleModal({
                 <i className="bi bi-person-badge text-primary" />
                 Pengajar (Guru) <span className="text-danger">*</span>
               </label>
-              <Select
+              <AsyncSelect<RemoteSelectOption, false>
                 value={
                   draft.pengajar
-                    ? pengajarOptions.find((opt) => opt.value === draft.pengajar) || {
+                    ? {
                         value: draft.pengajar,
                         label: draft.pengajar,
                       }
                     : null
                 }
                 onChange={(option) => onDraftChange("pengajar", option?.value || "")}
-                options={pengajarOptions}
+                loadOptions={loadPengajarOptionsDebounced}
+                defaultOptions
+                cacheOptions
+                filterOption={null}
                 placeholder={draft.mapel ? "Pilih pengajar yang tersedia..." : "Pilih mata pelajaran terlebih dahulu"}
                 isClearable
                 isSearchable

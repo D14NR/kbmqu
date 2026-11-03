@@ -1,5 +1,6 @@
 import Select from "react-select";
-import type { SelectOption } from "../../types/app";
+import AsyncSelect from "react-select/async";
+import { useDebouncedOptionLoader, type RemoteSelectOption } from "../../utils/useDebouncedOptionLoader";
 
 export type PermintaanDraft = {
   id: string;
@@ -19,7 +20,7 @@ type PermintaanPengajarModalProps = {
   error: string;
   isAdmin: boolean;
   draft: PermintaanDraft;
-  pengajarOptions: SelectOption[];
+  loadPengajarOptions: (query: string) => Promise<RemoteSelectOption[]>;
   onClose: () => void;
   onSave: () => void;
   onDraftChange: (next: PermintaanDraft) => void;
@@ -61,17 +62,18 @@ export function PermintaanPengajarModal({
   error,
   isAdmin,
   draft,
-  pengajarOptions,
+  loadPengajarOptions,
   onClose,
   onSave,
   onDraftChange,
 }: PermintaanPengajarModalProps) {
+  const loadPengajarOptionsDebounced = useDebouncedOptionLoader(loadPengajarOptions);
   if (!isOpen) {
     return null;
   }
 
   const selectedPengajar = draft.kodePengajar
-    ? pengajarOptions.find((option) => option.value === draft.kodePengajar) || {
+    ? {
         value: draft.kodePengajar,
         label: `${draft.kodePengajar} - ${draft.namaPengajar}`,
       }
@@ -125,7 +127,7 @@ export function PermintaanPengajarModal({
                   <i className="bi bi-person-bounding-box text-primary" />
                   Pengajar yang Diminta
                 </label>
-                <Select
+                <AsyncSelect<RemoteSelectOption, false>
                   value={selectedPengajar}
                   onChange={(option) => {
                     const label = option?.label || "";
@@ -140,7 +142,10 @@ export function PermintaanPengajarModal({
                       dariCabang: domisili, 
                     });
                   }}
-                  options={pengajarOptions}
+                  loadOptions={loadPengajarOptionsDebounced}
+                  defaultOptions
+                  cacheOptions
+                  filterOption={null}
                   placeholder="Ketik untuk mencari guru..."
                   isClearable
                   isSearchable

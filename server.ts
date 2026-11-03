@@ -267,9 +267,27 @@ app.get("/db/:table", (req, res) => {
 
     // Basic filtering based on query parameters
     const query = req.query;
+    const searchTerm = String(query._search || "").trim().toLowerCase();
+    const searchableFields: Record<string, string[]> = {
+      pengajar: ["kode_pengajar", "nama_pengajar", "username", "no_whatsapp", "bidang_studi_mata_pelajaran"],
+      mata_pelajaran: ["mata_pelajaran", "kode_mata_pelajaran", "kategory"],
+      penempatan_pengajar_dicabang: ["kode_pengajar", "nama_pengajar", "domisili"],
+      izin_pengajar: ["kode_pengajar", "nama_pengajar", "domisili"],
+      permintaan_pengajar_antar_cabang: ["kode_pengajar", "nama_pengajar", "dari_cabang", "cabang_peminta"],
+      accounts_cabang: ["username", "cabang"],
+    };
+    const fields = searchableFields[table] || [];
+
+    if (searchTerm && fields.length > 0) {
+      rows = rows.filter((row) =>
+        fields.some((field) => String(row[field] ?? "").toLowerCase().includes(searchTerm))
+      );
+    }
+
     if (Object.keys(query).length > 0) {
       rows = rows.filter((row) => {
         return Object.entries(query).every(([key, value]) => {
+          if (key.startsWith("_")) return true;
           if (value === undefined || value === null) return true;
           const rowValue = String(row[key] ?? "").toLowerCase();
           const searchValue = String(value).toLowerCase();
@@ -287,10 +305,31 @@ app.get("/db/:table", (req, res) => {
             const actualRowValue = String(row[actualKey] ?? "").toLowerCase();
             return actualRowValue.includes(searchValue);
           }
+
+          if (key.endsWith("_not")) {
+            const actualKey = key.slice(0, -4);
+            return String(row[actualKey] ?? "").toLowerCase() !== searchValue;
+          }
+
+          if (key.endsWith("_gte")) {
+            const actualKey = key.slice(0, -4);
+            return String(row[actualKey] ?? "") >= String(value);
+          }
+
+          if (key.endsWith("_lte")) {
+            const actualKey = key.slice(0, -4);
+            return String(row[actualKey] ?? "") <= String(value);
+          }
           
           return rowValue === searchValue;
         });
       });
+    }
+
+    const limit = Number.parseInt(String(query._limit || ""), 10);
+    const offset = Number.parseInt(String(query._offset || "0"), 10);
+    if (Number.isFinite(limit) && limit >= 0) {
+      rows = rows.slice(Number.isFinite(offset) && offset > 0 ? offset : 0, (Number.isFinite(offset) && offset > 0 ? offset : 0) + limit);
     }
 
     res.json({ success: true, data: rows, count: rows.length });

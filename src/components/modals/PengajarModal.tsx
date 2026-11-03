@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import Select from "react-select";
-import type { SelectOption } from "../../types/app";
+import AsyncSelect from "react-select/async";
+import { useDebouncedOptionLoader, type RemoteSelectOption } from "../../utils/useDebouncedOptionLoader";
 import { createPengajarOnboardingMessage, formatWhatsAppUrl, sanitizeWhatsappDigits } from "../../utils/phone";
 
 type PengajarDraft = {
@@ -22,7 +23,7 @@ type PengajarModalProps = {
   cabangLabel: string;
   isDomisiliLocked: boolean;
   domisiliOptions: string[];
-  bidangStudiOptions: SelectOption[];
+  loadBidangStudiOptions: (query: string) => Promise<RemoteSelectOption[]>;
   error: string;
   loading: boolean;
   onClose: () => void;
@@ -120,7 +121,7 @@ export function PengajarModal({
   cabangLabel,
   isDomisiliLocked,
   domisiliOptions,
-  bidangStudiOptions,
+  loadBidangStudiOptions,
   error,
   loading,
   onClose,
@@ -132,6 +133,7 @@ export function PengajarModal({
   const [showPassword, setShowPassword] = useState(false);
   const [copiedMessage, setCopiedMessage] = useState(false);
   const [activeTab, setActiveTab] = useState<"profile" | "account">("profile");
+  const loadBidangStudiOptionsDebounced = useDebouncedOptionLoader(loadBidangStudiOptions);
 
   if (!isOpen) {
     return null;
@@ -142,8 +144,7 @@ export function PengajarModal({
     .map((item) => item.trim())
     .filter(Boolean);
   const selectedBidangStudi = bidangStudiValues.map((value) => {
-    const matched = bidangStudiOptions.find((option) => option.value.toLowerCase() === value.toLowerCase());
-    return matched || { value, label: value };
+    return { value, label: value };
   });
 
   const getOnboardingMessage = () => {
@@ -411,10 +412,13 @@ export function PengajarModal({
                   </label>
                   <span className="text-muted text-xxs">Bisa pilih lebih dari satu</span>
                 </div>
-                <Select
+                <AsyncSelect<RemoteSelectOption, true>
                   isMulti
                   isSearchable
-                  options={bidangStudiOptions}
+                  loadOptions={loadBidangStudiOptionsDebounced}
+                  defaultOptions
+                  cacheOptions
+                  filterOption={null}
                   value={selectedBidangStudi}
                   placeholder="Pilih mata pelajaran yang dikuasai..."
                   noOptionsMessage={() => "Data mata pelajaran tidak ditemukan"}

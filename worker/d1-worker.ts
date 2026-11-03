@@ -298,6 +298,21 @@ export default {
         const orderBy = params.get("_orderBy") || "id";
         const orderDir = (params.get("_orderDir") || "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
         const isCountOnly = params.get("_count") === "true";
+        const searchTerm = params.get("_search")?.trim();
+        const searchableColumns: Record<string, string[]> = {
+          pengajar: ["kode_pengajar", "nama_pengajar", "username", "no_whatsapp", "bidang_studi_mata_pelajaran"],
+          mata_pelajaran: ["mata_pelajaran", "kode_mata_pelajaran", "kategory"],
+          penempatan_pengajar_dicabang: ["kode_pengajar", "nama_pengajar", "domisili"],
+          izin_pengajar: ["kode_pengajar", "nama_pengajar", "domisili"],
+          permintaan_pengajar_antar_cabang: ["kode_pengajar", "nama_pengajar", "dari_cabang", "cabang_peminta"],
+          accounts_cabang: ["username", "cabang"],
+        };
+
+        const searchColumns = searchableColumns[table] || [];
+        if (searchTerm && searchColumns.length > 0) {
+          whereClauses.push(`(${searchColumns.map((column) => `${quoteIdent(column)} LIKE ?`).join(" OR ")})`);
+          queryValues.push(...searchColumns.map(() => `%${searchTerm}%`));
+        }
 
         // Filter parameters (all others)
         for (const [key, value] of params.entries()) {
@@ -312,6 +327,18 @@ export default {
             const actualKey = key.replace("search_", "");
             whereClauses.push(`${quoteIdent(actualKey)} LIKE ?`);
             queryValues.push(`%${value}%`);
+          } else if (key.endsWith("_not")) {
+            const actualKey = key.slice(0, -4);
+            whereClauses.push(`${quoteIdent(actualKey)} <> ?`);
+            queryValues.push(value);
+          } else if (key.endsWith("_gte")) {
+            const actualKey = key.slice(0, -4);
+            whereClauses.push(`${quoteIdent(actualKey)} >= ?`);
+            queryValues.push(value);
+          } else if (key.endsWith("_lte")) {
+            const actualKey = key.slice(0, -4);
+            whereClauses.push(`${quoteIdent(actualKey)} <= ?`);
+            queryValues.push(value);
           } else if (key.endsWith("_like")) {
             const actualKey = key.replace("_like", "");
             whereClauses.push(`${quoteIdent(actualKey)} LIKE ?`);

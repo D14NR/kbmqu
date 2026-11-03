@@ -24,6 +24,9 @@ const allowedTables = new Set([
     "informasi_sistem",
     "surat_tugas_pengajar",
     "penempatan_pengajar_dicabang",
+    "donasi",
+    "donasi_transaksi",
+    "donasi_transaksi_tagihan",
 ]);
 const jsonResponse = (body, status = 200) => {
     return new Response(JSON.stringify(body), {
@@ -181,11 +184,78 @@ export default {
             // ======================================================
             if (request.method === "GET" &&
                 segments.length === 2) {
-                const rows = await execute(env, `
-            SELECT *
-            FROM ${quoteIdent(table)}
-            ORDER BY id ASC
-          `);
+                const params = url.searchParams;
+                const whereClauses = [];
+                const queryValues = [];
+                const limit = params.get("_limit");
+                const offset = params.get("_offset");
+                const orderBy = params.get("_orderBy") || "id";
+                const orderDir = (params.get("_orderDir") || "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
+                const isCountOnly = params.get("_count") === "true";
+                const searchTerm = params.get("_search")?.trim();
+                const searchableColumns = {
+                    pengajar: ["kode_pengajar", "nama_pengajar", "username", "no_whatsapp", "bidang_studi_mata_pelajaran"],
+                    mata_pelajaran: ["mata_pelajaran", "kode_mata_pelajaran", "kategory"],
+                    penempatan_pengajar_dicabang: ["kode_pengajar", "nama_pengajar", "domisili"],
+                    izin_pengajar: ["kode_pengajar", "nama_pengajar", "domisili"],
+                    permintaan_pengajar_antar_cabang: ["kode_pengajar", "nama_pengajar", "dari_cabang", "cabang_peminta"],
+                    accounts_cabang: ["username", "cabang"],
+                };
+                const searchColumns = searchableColumns[table] || [];
+                if (searchTerm && searchColumns.length > 0) {
+                    whereClauses.push(`(${searchColumns.map((column) => `${quoteIdent(column)} LIKE ?`).join(" OR ")})`);
+                    queryValues.push(...searchColumns.map(() => `%${searchTerm}%`));
+                }
+                for (const [key, value] of params.entries()) {
+                    if (key.startsWith("_") || value === "") continue;
+                    if (key.startsWith("starts_with_")) {
+                        const actualKey = key.replace("starts_with_", "");
+                        whereClauses.push(`${quoteIdent(actualKey)} LIKE ?`);
+                        queryValues.push(`${value}%`);
+                    } else if (key.startsWith("search_")) {
+                        const actualKey = key.replace("search_", "");
+                        whereClauses.push(`${quoteIdent(actualKey)} LIKE ?`);
+                        queryValues.push(`%${value}%`);
+                    } else if (key.endsWith("_gte")) {
+                    else if (key.endsWith("_not")) {
+                        const actualKey = key.slice(0, -4);
+                        whereClauses.push(`${quoteIdent(actualKey)} <> ?`);
+                        queryValues.push(value);
+                    }
+                        const actualKey = key.slice(0, -4);
+                        whereClauses.push(`${quoteIdent(actualKey)} >= ?`);
+                        queryValues.push(value);
+                    } else if (key.endsWith("_lte")) {
+                        const actualKey = key.slice(0, -4);
+                        whereClauses.push(`${quoteIdent(actualKey)} <= ?`);
+                        queryValues.push(value);
+                    } else if (key.endsWith("_like")) {
+                        const actualKey = key.slice(0, -5);
+                        whereClauses.push(`${quoteIdent(actualKey)} LIKE ?`);
+                        queryValues.push(`%${value}%`);
+                    } else {
+                        whereClauses.push(`${quoteIdent(key)} = ?`);
+                        queryValues.push(value);
+                    }
+                }
+                const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
+                if (isCountOnly) {
+                    const countResult = await execute(env, `SELECT COUNT(*) as total FROM ${quoteIdent(table)} ${whereSql}`, queryValues);
+                    return jsonResponse({ success: true, total: countResult[0]?.total ?? 0 });
+                }
+                let sql = `SELECT * FROM ${quoteIdent(table)} ${whereSql} ORDER BY ${quoteIdent(orderBy)} ${orderDir}`;
+                const parsedLimit = limit === null ? null : Number.parseInt(limit, 10);
+                const parsedOffset = offset === null ? null : Number.parseInt(offset, 10);
+                if (parsedLimit !== null && Number.isFinite(parsedLimit) && parsedLimit >= 0) {
+                    sql += " LIMIT ?";
+                    queryValues.push(parsedLimit);
+                }
+                if (parsedOffset !== null && Number.isFinite(parsedOffset) && parsedOffset > 0) {
+                    if (parsedLimit === null) sql += " LIMIT -1";
+                    sql += " OFFSET ?";
+                    queryValues.push(parsedOffset);
+                }
+                const rows = await execute(env, sql, queryValues);
                 return jsonResponse({
                     success: true,
                     data: rows,

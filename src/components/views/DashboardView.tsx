@@ -183,13 +183,14 @@ export const DashboardView = React.memo(function DashboardView(props: DashboardV
       if (!(item.pengajar || "").trim()) {
         return false;
       }
-      if (item.dateKey) {
-        return item.dateKey === selectedScheduleKey;
-      }
       const parsedDate = parseFlexibleDate(item.tanggal || "");
-      return parsedDate && formatLocalDate(parsedDate) === selectedScheduleKey;
+      const matchesDate = item.dateKey
+        ? item.dateKey === selectedScheduleKey
+        : Boolean(parsedDate && formatLocalDate(parsedDate) === selectedScheduleKey);
+      const matchesBranch = isAdmin || !userCabang || normalizeText(item.cabang) === normalizeText(userCabang);
+      return matchesDate && matchesBranch;
     });
-  }, [dashboardSchedules, selectedScheduleKey]);
+  }, [dashboardSchedules, selectedScheduleKey, userCabang, isAdmin]);
 
   // Filter by search & type
   const filteredSchedules = useMemo(() => {

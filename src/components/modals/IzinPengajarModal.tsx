@@ -1,5 +1,6 @@
 import Select from "react-select";
-import type { SelectOption } from "../../types/app";
+import AsyncSelect from "react-select/async";
+import { useDebouncedOptionLoader, type RemoteSelectOption } from "../../utils/useDebouncedOptionLoader";
 
 export type IzinPengajarDraft = {
   kodePengajar: string;
@@ -20,7 +21,7 @@ type IzinPengajarModalProps = {
   loading: boolean;
   error: string;
   draft: IzinPengajarDraft;
-  pengajarOptions: SelectOption[];
+  loadPengajarOptions: (query: string) => Promise<RemoteSelectOption[]>;
   cabangOptions: string[];
   isDomisiliLocked: boolean;
   onClose: () => void;
@@ -88,20 +89,21 @@ export function IzinPengajarModal({
   loading,
   error,
   draft,
-  pengajarOptions,
+  loadPengajarOptions,
   cabangOptions,
   isDomisiliLocked,
   onClose,
   onDraftChange,
   onSave,
 }: IzinPengajarModalProps) {
+  const loadPengajarOptionsDebounced = useDebouncedOptionLoader(loadPengajarOptions);
   if (!isOpen) {
     return null;
   }
 
   const selectedPengajar =
     draft.kodePengajar
-      ? pengajarOptions.find((option) => option.value === draft.kodePengajar) || {
+      ? {
           value: draft.kodePengajar,
           label: `${draft.kodePengajar} - ${draft.namaPengajar}`,
         }
@@ -185,7 +187,7 @@ export function IzinPengajarModal({
                   <i className="bi bi-person-badge text-primary" />
                   Pilih Pengajar
                 </label>
-                <Select
+                <AsyncSelect<RemoteSelectOption, false>
                   value={selectedPengajar}
                   onChange={(option) => {
                     const label = option?.label || "";
@@ -197,7 +199,10 @@ export function IzinPengajarModal({
                       namaPengajar,
                     });
                   }}
-                  options={pengajarOptions}
+                  loadOptions={loadPengajarOptionsDebounced}
+                  defaultOptions
+                  cacheOptions
+                  filterOption={null}
                   placeholder="Cari nama atau kode pengajar..."
                   isClearable
                   isSearchable

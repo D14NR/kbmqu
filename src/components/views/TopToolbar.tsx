@@ -1,4 +1,4 @@
-import type { SelectOption, StatusState } from "../../types/app";
+import type { StatusState } from "../../types/app";
 
 type TopToolbarProps = {
   activeKey: string;
@@ -11,7 +11,6 @@ type TopToolbarProps = {
   selectedMonthKey: string;
   selectedSuratTugasMonthKey: string;
   selectedSuratTugasKode: string;
-  suratTugasPengajarOptions: SelectOption[];
   sheetStatus: StatusState;
   mapelStatus: StatusState;
   pengajarStatus: StatusState;
@@ -38,7 +37,6 @@ export function TopToolbar({
   selectedMonthKey,
   selectedSuratTugasMonthKey,
   selectedSuratTugasKode,
-  suratTugasPengajarOptions,
   sheetStatus,
   mapelStatus,
   pengajarStatus,

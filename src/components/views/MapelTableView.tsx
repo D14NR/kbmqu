@@ -5,6 +5,10 @@ type MapelTableViewProps = {
   headers: string[];
   loading: boolean;
   records: Record<string, string>[];
+  query?: string;
+  hasMore?: boolean;
+  onQueryChange?: (query: string) => void;
+  onLoadMore?: () => Promise<void>;
   onAdd: () => void;
   onEdit: (record: Record<string, string>) => void;
   onDelete: (record: Record<string, string>) => void;
@@ -45,6 +49,10 @@ export function MapelTableView({
   headers,
   loading,
   records,
+  query = "",
+  hasMore = false,
+  onQueryChange,
+  onLoadMore,
   onAdd,
   onEdit,
   onDelete,
@@ -54,6 +62,11 @@ export function MapelTableView({
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [sortBy, setSortBy] = useState<SortOption>("name-asc");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  useEffect(() => {
+    setSearchTerm(query);
+  }, [query]);
 
   // Extract distinct categories
   const categoriesAvailable = useMemo(() => {
@@ -128,10 +141,16 @@ export function MapelTableView({
   });
 
   useEffect(() => {
-    if (inView) {
-      setVisibleLimit((prev) => prev + 25);
+    if (!inView) return;
+    if (visibleLimit < processedRecords.length) {
+      setVisibleLimit((prev) => Math.min(prev + 25, processedRecords.length));
+      return;
     }
-  }, [inView]);
+    if (hasMore && onLoadMore && !isLoadingMore) {
+      setIsLoadingMore(true);
+      void onLoadMore().finally(() => setIsLoadingMore(false));
+    }
+  }, [inView, visibleLimit, processedRecords.length, hasMore, onLoadMore, isLoadingMore]);
 
   // Reset limit when search or filters change
   useEffect(() => {
@@ -156,7 +175,7 @@ export function MapelTableView({
                 <i className="bi bi-book-half fs-4" />
               </div>
               <div>
-                <div className="text-muted text-xxs fw-semibold text-uppercase">Total Mata Pelajaran</div>
+                <div className="text-muted text-xxs fw-semibold text-uppercase">Mapel Dimuat</div>
                 <div className="h4 fw-bold text-dark mb-0">{totalMapel} <span className="text-xs fw-normal text-muted">Mapel</span></div>
               </div>
             </div>
@@ -215,7 +234,10 @@ export function MapelTableView({
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  onQueryChange?.(e.target.value);
+                }}
                 placeholder="Cari nama, kode, atau kategori..."
                 className="form-control border-start-0"
               />
@@ -223,7 +245,10 @@ export function MapelTableView({
                 <button
                   type="button"
                   className="btn btn-outline-secondary border-start-0 border-end"
-                  onClick={() => setSearchTerm("")}
+                  onClick={() => {
+                    setSearchTerm("");
+                    onQueryChange?.("");
+                  }}
                   title="Hapus pencarian"
                 >
                   <i className="bi bi-x" />
@@ -361,6 +386,7 @@ export function MapelTableView({
                 className="btn btn-outline-secondary btn-sm rounded-3"
                 onClick={() => {
                   setSearchTerm("");
+                  onQueryChange?.("");
                   setSelectedCategory("ALL");
                 }}
               >
@@ -558,12 +584,13 @@ export function MapelTableView({
         </div>
       )}
 
-      {totalFiltered > visibleLimit && (
+      {(totalFiltered > visibleLimit || (hasMore && visibleLimit >= processedRecords.length)) && (
         <div ref={loadMoreRef} className="py-4 text-center">
-          <div className="spinner-border spinner-border-sm text-primary" role="status">
-            <span className="visually-hidden">Loading more...</span>
-          </div>
-          <p className="text-muted text-xxs mt-2">Memuat lebih banyak mata pelajaran...</p>
+          {isLoadingMore ? (
+            <div className="spinner-border spinner-border-sm text-primary" role="status" />
+          ) : (
+            <span className="text-muted text-xxs">Gulir untuk memuat mata pelajaran berikutnya</span>
+          )}
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 import Select from "react-select";
-import type { SelectOption } from "../../types/app";
+import AsyncSelect from "react-select/async";
+import { useDebouncedOptionLoader, type RemoteSelectOption } from "../../utils/useDebouncedOptionLoader";
 
 export type PenempatanDraft = {
   kodePengajar: string;
@@ -20,7 +21,7 @@ type PenempatanPengajarModalProps = {
   loading: boolean;
   error: string;
   draft: PenempatanDraft;
-  pengajarOptions: SelectOption[];
+  loadPengajarOptions: (query: string) => Promise<RemoteSelectOption[]>;
   cabangOptions: string[];
   isDomisiliLocked: boolean;
   onClose: () => void;
@@ -48,7 +49,7 @@ export function PenempatanPengajarModal({
   loading,
   error,
   draft,
-  pengajarOptions,
+  loadPengajarOptions,
   cabangOptions,
   isDomisiliLocked,
   onClose,
@@ -56,6 +57,7 @@ export function PenempatanPengajarModal({
   onSave,
   onSaveDay,
 }: PenempatanPengajarModalProps) {
+  const loadPengajarOptionsDebounced = useDebouncedOptionLoader(loadPengajarOptions);
   if (!isOpen) {
     return null;
   }
@@ -98,20 +100,19 @@ export function PenempatanPengajarModal({
         <div className="row g-3 mt-1">
           <div className="col-12 col-md-8">
             <label className="form-label small fw-semibold">Pengajar</label>
-            <Select
+            <AsyncSelect<RemoteSelectOption, false>
               value={
                 draft.kodePengajar
-                  ? pengajarOptions.find(
-                      (option) =>
-                        option.value.trim().toLowerCase() === draft.kodePengajar.trim().toLowerCase() ||
-                        option.label.toLowerCase().includes(draft.kodePengajar.trim().toLowerCase())
-                    ) || {
+                  ? {
                       value: draft.kodePengajar,
                       label: draft.namaPengajar ? `${draft.kodePengajar} - ${draft.namaPengajar}` : draft.kodePengajar,
                     }
                   : null
               }
-              options={pengajarOptions}
+              loadOptions={loadPengajarOptionsDebounced}
+              defaultOptions
+              cacheOptions
+              filterOption={null}
               isSearchable
               placeholder="Pilih pengajar..."
               onChange={(option) => {
