@@ -117,8 +117,8 @@ const parseJsonBody = async (request) => {
 const buildInsertSql = (table, row) => {
   const normalizedRow = { ...row };
 
-  // Generate UUID if not provided, EXCEPT for tables with AUTOINCREMENT id (donasi_transaksi)
-  if (!normalizedRow.id && table !== 'donasi_transaksi') {
+  // Generate UUID if not provided, EXCEPT for tables with AUTOINCREMENT id (donasi_transaksi, donasi_transaksi_tagihan)
+  if (!normalizedRow.id && table !== 'donasi_transaksi' && table !== 'donasi_transaksi_tagihan') {
     normalizedRow.id = crypto.randomUUID();
   }
 
@@ -280,23 +280,76 @@ export default {
 
 
       // ======================================================
-      // GET SEMUA DATA
-      // GET /db/pengajar
+      // GET BERDASARKAN FILTER / SEMUA DATA
+      // GET /db/pengajar?nama_pengajar=John&_limit=10
       // ======================================================
 
       if (
         request.method === "GET" &&
         segments.length === 2
       ) {
+        const params = url.searchParams;
+        const whereClauses = [];
+        const queryValues = [];
 
-        const rows = await execute(
-          env,
-          `
-            SELECT *
-            FROM ${quoteIdent(table)}
-            ORDER BY id ASC
-          `
-        );
+        // Special parameters
+        const limit = params.get("_limit");
+        const offset = params.get("_offset");
+        const orderBy = params.get("_orderBy") || "id";
+        const orderDir = (params.get("_orderDir") || "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
+        const isCountOnly = params.get("_count") === "true";
+
+        // Filter parameters (all others)
+        for (const [key, value] of params.entries()) {
+          if (key.startsWith("_")) continue;
+          if (value === "" || value === null) continue;
+
+          if (key.startsWith("starts_with_")) {
+            const actualKey = key.replace("starts_with_", "");
+            whereClauses.push(`${quoteIdent(actualKey)} LIKE ?`);
+            queryValues.push(`${value}%`);
+          } else if (key.startsWith("search_")) {
+            const actualKey = key.replace("search_", "");
+            whereClauses.push(`${quoteIdent(actualKey)} LIKE ?`);
+            queryValues.push(`%${value}%`);
+          } else if (key.endsWith("_like")) {
+            const actualKey = key.replace("_like", "");
+            whereClauses.push(`${quoteIdent(actualKey)} LIKE ?`);
+            queryValues.push(`%${value}%`);
+          } else {
+            whereClauses.push(`${quoteIdent(key)} = ?`);
+            queryValues.push(value);
+          }
+        }
+
+        const whereSql = whereClauses.length > 0 
+          ? `WHERE ${whereClauses.join(" AND ")}` 
+          : "";
+
+        if (isCountOnly) {
+          const countResult = await execute(
+            env,
+            `SELECT COUNT(*) as total FROM ${quoteIdent(table)} ${whereSql}`,
+            queryValues
+          );
+          return jsonResponse({
+            success: true,
+            total: countResult[0]?.total ?? 0,
+          });
+        }
+
+        let sql = `SELECT * FROM ${quoteIdent(table)} ${whereSql} ORDER BY ${quoteIdent(orderBy)} ${orderDir}`;
+        
+        if (limit) {
+          sql += ` LIMIT ?`;
+          queryValues.push(parseInt(limit, 10));
+        }
+        if (offset) {
+          sql += ` OFFSET ?`;
+          queryValues.push(parseInt(offset, 10));
+        }
+
+        const rows = await execute(env, sql, queryValues);
 
         return jsonResponse({
           success: true,
@@ -512,8 +565,7 @@ export default {
 
         const ids = body.ids.filter(
           (id) =>
-            typeof id === "string" &&
-            id.length > 0
+            (typeof id === "string" && id.length > 0) || typeof id === "number"
         );
 
         if (ids.length === 0) {
@@ -548,7 +600,7 @@ export default {
       }
 
       // ======================================================
-      // REPLACE BANYAK DATA
+      // REPLACE BANYAK DATA (Optimized with Batch)
       // POST /db/pengajar/replace
       // ======================================================
 
@@ -573,18 +625,22 @@ export default {
           (row) => row && typeof row === "object"
         );
 
-        const insertedRows = [];
-
-        for (const row of rows) {
-          const { sql, values } = buildInsertSql(
-            table,
-            row
-          );
-          const result = await execute(env, sql, values);
-          if (result.length > 0) {
-            insertedRows.push(result[0]);
-          }
+        if (rows.length === 0) {
+           return jsonResponse({
+            success: true,
+            message: "Tidak ada data untuk diganti.",
+            data: [],
+            count: 0
+          });
         }
+
+        const statements = rows.map(row => {
+          const { sql, values } = buildInsertSql(table, row);
+          return env.DB.prepare(sql).bind(...values);
+        });
+
+        const batchResults = await env.DB.batch(statements);
+        const insertedRows = batchResults.map(res => res.results?.[0]).filter(Boolean);
 
         return jsonResponse({
           success: true,

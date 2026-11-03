@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useInView } from "react-intersection-observer";
 import { formatLocalDate, parseFlexibleDate, parseRangeFromString } from "../../utils/schedule";
 import { getTagStyle } from "../../utils/tagColor";
-import type { DonasiTransaksiRecord } from "../../types/donasi";
+import type { DonasiTransaksiRecord, DonasiTransaksiTagihanRecord } from "../../types/donasi";
 
 type DashboardRequestItem = {
   id: string;
@@ -48,11 +49,13 @@ type DashboardViewProps = {
   userCabang?: string;
   isAdmin?: boolean;
   transaksiDonasi?: DonasiTransaksiRecord[];
+  tagihanRecords?: DonasiTransaksiTagihanRecord[];
   onNavigateToDonasi?: () => void;
   onApproveIzin: (item: DashboardIzinItem) => void;
   onRejectIzin: (item: DashboardIzinItem) => void;
   onApprovePermintaan: (item: DashboardRequestItem) => void;
   onRejectPermintaan: (item: DashboardRequestItem) => void;
+  onDateChange?: (date: string) => void;
 };
 
 const normalizeText = (value: string) => (value || "").trim().toLowerCase();
@@ -83,22 +86,25 @@ const getAvatarBg = (name: string) => {
   return colors[Math.abs(hash) % colors.length];
 };
 
-export function DashboardView({
-  loading,
-  pendingRequests,
-  dashboardSchedules,
-  izinRequests,
-  canManageIzin,
-  canManagePermintaan,
-  userCabang = "",
-  isAdmin = false,
-  transaksiDonasi = [],
-  onNavigateToDonasi,
-  onApproveIzin,
-  onRejectIzin,
-  onApprovePermintaan,
-  onRejectPermintaan,
-}: DashboardViewProps) {
+export const DashboardView = React.memo(function DashboardView(props: DashboardViewProps) {
+  const {
+    loading,
+    pendingRequests,
+    dashboardSchedules,
+    izinRequests,
+    canManageIzin,
+    canManagePermintaan,
+    userCabang = "",
+    isAdmin = false,
+    transaksiDonasi = [],
+    tagihanRecords = [],
+    onNavigateToDonasi,
+    onApproveIzin,
+    onRejectIzin,
+    onApprovePermintaan,
+    onRejectPermintaan,
+    onDateChange,
+  } = props;
   const todayKey = formatLocalDate(new Date());
   const tomorrowKey = formatLocalDate(new Date(Date.now() + 86400000));
 
@@ -114,12 +120,30 @@ export function DashboardView({
   const [tablePage, setTablePage] = useState(1);
   const TABLE_PAGE_SIZE = 25;
 
+  const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0,
+    rootMargin: "200px",
+  });
+
+  useEffect(() => {
+    if (inView && viewMode === "cards") {
+      setCardsLimit((prev) => prev + 18);
+    }
+  }, [inView, viewMode]);
+
   const selectedScheduleKey =
     scheduleMode === "today"
       ? todayKey
       : scheduleMode === "tomorrow"
       ? tomorrowKey
       : customScheduleDate;
+
+  // Sync date with parent for on-demand fetching
+  useEffect(() => {
+    if (onDateChange) {
+      onDateChange(selectedScheduleKey);
+    }
+  }, [selectedScheduleKey, onDateChange]);
 
   // Reset pagination when date or filters change
   useEffect(() => {
@@ -285,34 +309,8 @@ export function DashboardView({
 
   const currentMonthKey = formatLocalDate(new Date()).slice(0, 7);
   const [activeFinancialMonth, setActiveFinancialMonth] = useState<string>(currentMonthKey);
-  const [internalTransaksi, setInternalTransaksi] = useState<DonasiTransaksiRecord[]>([]);
 
-  useEffect(() => {
-    if (!showFinancialSummary) return;
-    if (transaksiDonasi && transaksiDonasi.length > 0) {
-      return;
-    }
-
-    let isMounted = true;
-    const fetchDonasi = async () => {
-      try {
-        const res = await fetch("/db/donasi_transaksi");
-        const json = await res.json();
-        if (isMounted && json.success && Array.isArray(json.data)) {
-          setInternalTransaksi(json.data);
-        }
-      } catch (e) {
-        console.error("Dashboard fetch donasi fallback error:", e);
-      }
-    };
-    void fetchDonasi();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [showFinancialSummary, transaksiDonasi]);
-
-  const activeTransaksiList = (transaksiDonasi && transaksiDonasi.length > 0) ? transaksiDonasi : internalTransaksi;
+  const activeTransaksiList = transaksiDonasi;
 
   const getTransactionMonthKey = (dateStr?: string, createdAt?: string): string => {
     const raw = dateStr || createdAt || "";
@@ -499,6 +497,53 @@ export function DashboardView({
           </div>
         </div>
       </div>
+
+      {/* 1.5 Banner Donasi (Muncul jika ada tagihan belum lunas) */}
+      {tagihanRecords.some((t) => Number(t.is_lunas) === 0) && (
+        <div className="card border-0 shadow-sm mb-3 overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-3">
+          <div className="card-body p-4 relative">
+            <div className="d-flex flex-column flex-md-row align-items-center justify-content-between gap-4">
+              <div className="d-flex align-items-center gap-4">
+                <div className="bg-white/20 p-3 rounded-circle backdrop-blur-sm border border-white/30 flex-shrink-0">
+                  <i className="bi bi-megaphone-fill fs-3" />
+                </div>
+                <div>
+                  <h4 className="fw-bold mb-1">Dukung Operasional KBM-Qu</h4>
+                  <p className="mb-0 text-white/90">
+                    Terdapat tagihan operasional/server yang belum terpenuhi. Donasi Anda sangat berarti untuk kelancaran kegiatan belajar mengajar kita.
+                  </p>
+                  <div className="mt-2 d-flex flex-wrap gap-2">
+                    {tagihanRecords
+                      .filter((t) => Number(t.is_lunas) === 0)
+                      .slice(0, 2)
+                      .map((t) => (
+                        <span key={t.id} className="badge bg-white/10 border border-white/20 px-2 py-1 text-xxs">
+                          <i className="bi bi-receipt me-1" />
+                          {t.keterangan}: {formatRupiah(t.jumlah_tagihan)}
+                        </span>
+                      ))}
+                    {tagihanRecords.filter((t) => Number(t.is_lunas) === 0).length > 2 && (
+                      <span className="badge bg-white/10 border border-white/20 px-2 py-1 text-xxs">
+                        + {tagihanRecords.filter((t) => Number(t.is_lunas) === 0).length - 2} Lainnya
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onNavigateToDonasi}
+                className="btn btn-light btn-lg fw-bold px-4 py-2.5 shadow-lg hover:scale-105 transition-transform"
+              >
+                <i className="bi bi-heart-fill text-danger me-2" />
+                Donasi Sekarang
+              </button>
+            </div>
+            {/* Decorative background shape */}
+            <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-white/10 rounded-circle blur-3xl" />
+          </div>
+        </div>
+      )}
 
       {/* 2. Alert Notification Banner (Jika ada persetujuan yang menunggu) */}
       {hasPendingApprovals && (
@@ -1383,15 +1428,9 @@ export function DashboardView({
                   </div>
 
                   {remainingCount > 0 && (
-                    <div className="mt-3 text-center">
-                      <button
-                        type="button"
-                        className="btn btn-outline-primary btn-sm px-4 py-2 rounded-pill shadow-xs fw-semibold"
-                        onClick={() => setCardsLimit((prev) => prev + 18)}
-                      >
-                        <i className="bi bi-arrow-down-circle me-1.5" />
-                        Tampilkan {Math.min(remainingCount, 18)} Pengajar Lainnya ({remainingCount} Tersisa)
-                      </button>
+                    <div ref={loadMoreRef} className="mt-4 py-4 text-center text-muted border-top border-dashed">
+                      <div className="spinner-border spinner-border-sm me-2" role="status" />
+                      <span>Memuat {remainingCount} pengajar lainnya...</span>
                     </div>
                   )}
                 </>
@@ -1518,4 +1557,4 @@ export function DashboardView({
       </div>
     </div>
   );
-}
+});

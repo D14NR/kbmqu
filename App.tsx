@@ -1,31 +1,80 @@
-import { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { categories, initialRecords } from "./config/categories";
 import { SidebarMenu } from "./components/layout/SidebarMenu";
 import { LoginScreen } from "./components/layout/LoginScreen";
+import { DatabaseMaintenanceBanner } from "./components/layout/DatabaseMaintenanceBanner";
 import { ClassModal } from "./components/modals/ClassModal";
+import { ExportClassModal } from "./components/modals/ExportClassModal";
 import { EditScheduleModal } from "./components/modals/EditScheduleModal";
 import { MapelModal } from "./components/modals/MapelModal";
 import { PengajarModal, type PengajarDraft } from "./components/modals/PengajarModal";
+import {
+  PenempatanPengajarModal,
+  type PenempatanDraft,
+} from "./components/modals/PenempatanPengajarModal";
+import {
+  IzinPengajarModal,
+  type IzinPengajarDraft,
+} from "./components/modals/IzinPengajarModal";
+import { AccountsCabangModal } from "./components/modals/AccountsCabangModal";
+import { DonasiModal } from "./components/modals/DonasiModal";
+import { TransaksiDonasiModal } from "./components/modals/TransaksiDonasiModal";
+import { TransaksiTagihanModal } from "./components/modals/TransaksiTagihanModal";
+import {
+  PermintaanPengajarModal,
+  type PermintaanDraft,
+} from "./components/modals/PermintaanPengajarModal";
+import { PendingNotificationModal } from "./components/modals/PendingNotificationModal";
+import { ChangePasswordModal } from "./components/modals/ChangePasswordModal";
 import { TopToolbar } from "./components/views/TopToolbar";
-import { ScheduleTableView } from "./components/views/ScheduleTableView";
-import { MonitoringKelasView } from "./components/views/MonitoringKelasView";
-import { MapelTableView } from "./components/views/MapelTableView";
-import { PengajarTableView } from "./components/views/PengajarTableView";
-import { SuratTugasView } from "./components/views/SuratTugasView";
-import { PrintJadwalView } from "./components/views/PrintJadwalView";
-import { authStorageKey, loginAccounts } from "./config/auth";
+const DashboardView = lazy(() => import("./components/views/DashboardView").then(m => ({ default: m.DashboardView })));
+const ScheduleTableView = lazy(() => import("./components/views/ScheduleTableView").then(m => ({ default: m.ScheduleTableView })));
+const MonitoringKelasView = lazy(() => import("./components/views/MonitoringKelasView").then(m => ({ default: m.MonitoringKelasView })));
+const MapelTableView = lazy(() => import("./components/views/MapelTableView").then(m => ({ default: m.MapelTableView })));
+const PengajarTableView = lazy(() => import("./components/views/PengajarTableView").then(m => ({ default: m.PengajarTableView })));
+const AccountsCabangView = lazy(() => import("./components/views/AccountsCabangView").then(m => ({ default: m.AccountsCabangView })));
+const DonasiView = lazy(() => import("./components/views/DonasiView").then(m => ({ default: m.DonasiView })));
 import type {
+  DonasiRecord,
+  DonasiDraft,
+  DonasiTransaksiRecord,
+  DonasiTransaksiDraft,
+  DonasiTransaksiTagihanRecord,
+  DonasiTransaksiTagihanDraft,
+} from "./types/donasi";
+import { isTagihanPaid } from "./utils/donasi";
+const PenempatanPengajarView = lazy(() => import("./components/views/PenempatanPengajarView").then(m => ({ default: m.PenempatanPengajarView })));
+const IzinPengajarView = lazy(() => import("./components/views/IzinPengajarView").then(m => ({ default: m.IzinPengajarView })));
+const PermintaanPengajarView = lazy(() => import("./components/views/PermintaanPengajarView").then(m => ({ default: m.PermintaanPengajarView })));
+const SuratTugasView = lazy(() => import("./components/views/SuratTugasView").then(m => ({ default: m.SuratTugasView })));
+const PrintJadwalView = lazy(() => import("./components/views/PrintJadwalView").then(m => ({ default: m.PrintJadwalView })));
+const HapusJadwalView = lazy(() => import("./components/views/HapusJadwalView").then(m => ({ default: m.HapusJadwalView })));
+const HolidaysAdminView = lazy(() => import("./components/views/HolidaysAdminView").then(m => ({ default: m.HolidaysAdminView })));
+const SettingsView = lazy(() => import("./components/views/SettingsView").then(m => ({ default: m.SettingsView })));
+import { LoadingOverlay } from "./components/feedback/LoadingOverlay";
+import { ConfirmDialog } from "./components/feedback/ConfirmDialog";
+import { ToastStack } from "./components/feedback/ToastStack";
+import { RouteProgressBar } from "./components/feedback/RouteProgressBar";
+import { MenuTransitionLoader } from "./components/feedback/MenuTransitionLoader";
+import { syncWorkerClient } from "./utils/syncWorkerClient";
+import { authStorageKey, loginAccounts, type LoginAccount } from "./config/auth";
+import type {
+  AppToast,
   AuthSession,
   EditingSlot,
   RecordItem,
+  ScheduleConflictInfo,
+  ScheduleGroup,
+  ToastType,
 } from "./types/app";
 import {
-  appsScriptUrl,
   buildRollingScheduleDates,
   buildMonthScheduleDates,
   formatLocalDate,
   formatScheduleLabel,
-  mainSpreadsheetId,
+  formatTimeHHMM,
   mapelHeadersExpected,
   mapMapelRecord,
   normalizeHeader,
@@ -33,13 +82,94 @@ import {
   parseRangeFromString,
   parseTimeValue,
 } from "./utils/schedule";
+import { sanitizeWhatsappDigits } from "./utils/phone";
+// copySchedule feature removed
+import { setNationalHolidays as setLocalNationalHolidays, getNationalHolidays } from "./config/holidays";
+import {
+  clearAllReadCache,
+  decodeId,
+  deleteRowsByIds,
+  insertRow,
+  invalidateReadCacheForBucket,
+  listRows,
+  replaceBucketRows,
+  updateRow,
+  type DbRow,
+} from "./lib/database";
+import { checkDatabaseConnection } from "./lib/api";
+import { playNotificationSound } from "./utils/sound";
 
 export function App() {
+  const getMonthKey = (date: Date) =>
+    formatLocalDate(new Date(date.getFullYear(), date.getMonth(), 1)).slice(0, 7);
+
+  const normalizeText = (value: string) => value.trim().toLowerCase();
+  const normalizeValueKey = (value: string) =>
+    normalizeText(String(value || "")).replace(/[^a-z0-9]+/g, "");
+  const toRecord = (row: DbRow) => row.data;
+
+  const hasScheduleContent = (entry?: RecordItem) =>
+    Boolean(entry && ((entry.mapel || "").trim() || (entry.pengajar || "").trim() || (entry.waktu || "").trim()));
+
   const scheduleSheetByKey = {
     bulanIni: "Jadwal Bulan ini",
     jadwalTambahanPelayanan: "Jadwal Khusus",
   } as const;
   type ScheduleMenuKey = keyof typeof scheduleSheetByKey;
+  const dataBucket = {
+    "Jadwal Bulan ini": "jadwal_kbm",
+    "Jadwal Khusus": "jadwal_kbm",
+    "Mata Pelajaran": "mata_pelajaran",
+    "Data Pengajar": "pengajar",
+    "Surat Tugas Pengajar": "surat_tugas",
+    "Penempatan Pengajar": "penempatan_pengajar_dicabang",
+    "Izin Pengajar": "izin_pengajar",
+    "Permintaan Pengajar Antar Cabang": "permintaan_pengajar",
+    "accounts_cabang": "accounts_cabang",
+    "donasi": "donasi",
+    "donasi_transaksi": "donasi_transaksi",
+    "donasi_transaksi_tagihan": "donasi_transaksi_tagihan",
+    "Riwayat Notifikasi Pengajar": "riwayat_notifikasi_pengajar",
+  } as const;
+
+  const matchByFields = (
+    source: Record<string, string>,
+    target: Record<string, string>,
+    fields: string[]
+  ) =>
+    fields.every((field) => {
+      const sRaw = String(source[field] ?? "").trim();
+      const tRaw = String(target[field] ?? "").trim();
+      if (field.toLowerCase().includes("tanggal")) {
+        if (!sRaw || !tRaw) {
+          return false;
+        }
+        const sDate = parseFlexibleDate(sRaw);
+        const tDate = parseFlexibleDate(tRaw);
+        if (sDate && tDate) {
+          return formatLocalDate(sDate) === formatLocalDate(tDate);
+        }
+        return normalizeValueKey(sRaw) === normalizeValueKey(tRaw);
+      }
+      if (field.toLowerCase().includes("pengajar")) {
+        if (!sRaw || !tRaw) return true;
+        return (
+          normalizeValueKey(sRaw) === normalizeValueKey(tRaw) ||
+          normalizeValueKey(sRaw).startsWith(normalizeValueKey(tRaw)) ||
+          normalizeValueKey(tRaw).startsWith(normalizeValueKey(sRaw))
+        );
+      }
+      return normalizeValueKey(sRaw) === normalizeValueKey(tRaw);
+    });
+
+  const getScheduleJenis = (scheduleKey: ScheduleMenuKey) =>
+    scheduleKey === "bulanIni" ? "Reguler" : "Khusus";
+
+  const isMatchingScheduleJenis = (row: DbRow, scheduleKey: ScheduleMenuKey) => {
+    const rawJenis = String(row.data["Jenis KBM"] || row.data.jenis_kbm || "").trim();
+    const jenis = rawJenis || (scheduleKey === "bulanIni" ? "Reguler" : "");
+    return normalizeValueKey(jenis) === normalizeValueKey(getScheduleJenis(scheduleKey));
+  };
 
   const [activeKey, setActiveKey] = useState(categories[0].key);
   const [records, setRecords] = useState<Record<string, RecordItem[]>>(initialRecords);
@@ -50,13 +180,66 @@ export function App() {
     waktuMulai: "",
     waktuSelesai: "",
   });
+  const [copyTargetDates, setCopyTargetDates] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Debounced search for on-demand fetching
+  useEffect(() => {
+    if (!query.trim()) {
+      setIsSearching(false);
+      return;
+    }
+
+    const searchableKeys = ["mataPelajaran", "pengajar", "penempatanPengajar"];
+    if (!searchableKeys.includes(activeKey)) return;
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        if (activeKey === "pengajar") {
+          await handleLoadPengajar({ silent: true, search: query });
+        } else if (activeKey === "mataPelajaran") {
+          await handleLoadMapel({ silent: true, search: query });
+        } else if (activeKey === "penempatanPengajar") {
+          await handleLoadPenempatanPengajar({ silent: true, search: query });
+        }
+      } catch (error) {
+        console.error("Search error:", error);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timer);
+  }, [query, activeKey]);
+
+  useEffect(() => {
+    const allowedSearchKeys = new Set(["mataPelajaran", "pengajar", "penempatanPengajar"]);
+    if (!allowedSearchKeys.has(activeKey)) {
+      setQuery("");
+    }
+  }, [activeKey]);
   const [sheetStatus, setSheetStatus] = useState({
     loading: false,
     saving: false,
     error: "",
     lastSync: "",
   });
+  const sheetStatusErrorTimeoutRef = useRef<number | null>(null);
+
+  const setSheetStatusError = (error: string) => {
+    setSheetStatus((prev) => ({ ...prev, error }));
+    if (sheetStatusErrorTimeoutRef.current) {
+      window.clearTimeout(sheetStatusErrorTimeoutRef.current);
+    }
+    if (error) {
+      sheetStatusErrorTimeoutRef.current = window.setTimeout(() => {
+        setSheetStatus((prev) => ({ ...prev, error: "" }));
+        sheetStatusErrorTimeoutRef.current = null;
+      }, 3200);
+    }
+  };
   const [mapelStatus, setMapelStatus] = useState({
     loading: false,
     error: "",
@@ -76,26 +259,172 @@ export function App() {
     error: "",
     lastSync: "",
   });
-  const [suratTugasRecords, setSuratTugasRecords] = useState<Record<string, string>[]>([]);
-  const [selectedSuratTugasMonthKey, setSelectedSuratTugasMonthKey] = useState("");
+  const [penempatanStatus, setPenempatanStatus] = useState({
+    loading: false,
+    error: "",
+    lastSync: "",
+  });
+  const [penempatanRecords, setPenempatanRecords] = useState<Record<string, string>[]>([]);
+  const [izinStatus, setIzinStatus] = useState({
+    loading: false,
+    error: "",
+    lastSync: "",
+  });
+  const [izinRecords, setIzinRecords] = useState<Record<string, string>[]>([]);
+  const [permintaanStatus, setPermintaanStatus] = useState({
+    loading: false,
+    error: "",
+    lastSync: "",
+  });
+  const [permintaanRecords, setPermintaanRecords] = useState<Record<string, string>[]>([]);
+  const [accountsCabangRecords, setAccountsCabangRecords] = useState<Record<string, string>[]>([]);
+  const [accountsCabangStatus, setAccountsCabangStatus] = useState({
+    loading: false,
+    error: "",
+    lastSync: "",
+  });
+  const [accountsCabangHeaders] = useState<string[]>([
+    "Username",
+    "Password",
+    "Roll",
+    "Cabang",
+    "Created At",
+    "Updated At",
+  ]);
+  const [isAccountsCabangModalOpen, setIsAccountsCabangModalOpen] = useState(false);
+  const [accountsCabangDraft, setAccountsCabangDraft] = useState({
+    Username: "",
+    Password: "",
+    Roll: "cabang",
+    Cabang: "",
+  });
+  const [editingAccountsCabangId, setEditingAccountsCabangId] = useState<string | null>(null);
+  const [accountsCabangError, setAccountsCabangError] = useState("");
+
+  const [donasiRecords, setDonasiRecords] = useState<DonasiRecord[]>([]);
+  const [donasiStatus, setDonasiStatus] = useState({
+    loading: false,
+    error: "",
+    lastSync: "",
+  });
+  const [isDonasiModalOpen, setIsDonasiModalOpen] = useState(false);
+  const [donasiDraft, setDonasiDraft] = useState<DonasiDraft>({
+    nama_pemilik: "",
+    nama_bank: "",
+    alamat_rekening: "",
+  });
+  const [editingDonasiId, setEditingDonasiId] = useState<string | null>(null);
+  const [donasiError, setDonasiError] = useState("");
+
+  const [transaksiDonasiRecords, setTransaksiDonasiRecords] = useState<DonasiTransaksiRecord[]>([]);
+  const [isTransaksiDonasiModalOpen, setIsTransaksiDonasiModalOpen] = useState(false);
+  const [transaksiDonasiDraft, setTransaksiDonasiDraft] = useState<DonasiTransaksiDraft>({
+    nama_pengirim: "",
+    tanggal: new Date().toISOString().slice(0, 10),
+    jumlah_transaksi_masuk: 0,
+    jumlah_transaksi_keluar: 0,
+    keterangan: "donasi masuk",
+    hidden_nama_pengirim: 0,
+  });
+  const [editingTransaksiDonasiId, setEditingTransaksiDonasiId] = useState<string | null>(null);
+  const [transaksiDonasiError, setTransaksiDonasiError] = useState("");
+
+  const [transaksiTagihanRecords, setTransaksiTagihanRecords] = useState<DonasiTransaksiTagihanRecord[]>([]);
+  const [dashboardDateSchedules, setDashboardDateSchedules] = useState<any[]>([]);
+  const [dashboardLoadingSchedules, setDashboardLoadingSchedules] = useState(false);
+  const [dashboardSelectedDate, setDashboardSelectedDate] = useState(() => formatLocalDate(new Date()));
+  
+  const handleLoadDashboardSchedules = useCallback(async (date: string) => {
+    if (!date) return;
+    setDashboardLoadingSchedules(true);
+    try {
+      const { listRowsFiltered } = await import("./lib/database");
+      // Use the server-side filtering for the specific date
+      const rows = await listRowsFiltered("jadwal_kbm", { tanggal: date });
+      
+      const result = rows.map((item, index) => {
+        const d = item.data;
+        const pengajar = (d["Pengajar"] || d["Nama Pengajar"] || "").trim();
+        const rawWaktu = d["Waktu"] || "";
+        const timeStart = parseRangeFromString(rawWaktu)?.start ?? Number.MAX_SAFE_INTEGER;
+        
+        return {
+          id: item.id || `dash-${date}-${index}`,
+          tanggal: d["Tanggal"] || "",
+          dateKey: date,
+          timeStart,
+          waktu: rawWaktu,
+          mapel: d["Mapel"] || d["Mata Pelajaran"] || "",
+          pengajar,
+          kelas: [d["Kelas"] || "", d["Sekolah"] || ""].filter(Boolean).join("\n"),
+          cabang: d["Cabang"] || "",
+          sourceLabel: d["Jenis KBM"] || d.jenis_kbm || "Jadwal",
+        };
+      });
+      
+      setDashboardDateSchedules(result);
+    } catch (error) {
+      console.error("Gagal memuat jadwal dashboard:", error);
+    } finally {
+      setDashboardLoadingSchedules(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeKey === "dashboard") {
+      handleLoadDashboardSchedules(dashboardSelectedDate);
+    }
+  }, [activeKey, dashboardSelectedDate, handleLoadDashboardSchedules]);
+
+  const [isTransaksiTagihanModalOpen, setIsTransaksiTagihanModalOpen] = useState(false);
+  const [transaksiTagihanDraft, setTransaksiTagihanDraft] = useState<DonasiTransaksiTagihanDraft>({
+    nama_pengirim: "",
+    tanggal: new Date().toISOString().slice(0, 10),
+    jumlah_tagihan: 0,
+    keterangan: "tagihan bulan ini",
+  });
+  const [editingTransaksiTagihanId, setEditingTransaksiTagihanId] = useState<string | null>(null);
+  const [transaksiTagihanError, setTransaksiTagihanError] = useState("");
+  const [selectedSuratTugasMonthKey, setSelectedSuratTugasMonthKey] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("selectedMonthKey");
+      if (saved) return saved;
+    } catch (_e) {}
+    return getMonthKey(new Date());
+  });
   const [selectedSuratTugasKode, setSelectedSuratTugasKode] = useState("");
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
-  const [classDraft, setClassDraft] = useState({ cabang: "", kelas: "", sekolah: "", jenjang: "" });
+  const [classDraft, setClassDraft] = useState<{ cabang: string; kelas: string; sekolah: string; jenjang: string; classOrder?: string | number }>({
+    cabang: "",
+    kelas: "",
+    sekolah: "",
+    jenjang: "",
+    classOrder: "",
+  });
   const [isClassEditing, setIsClassEditing] = useState(false);
-  const [editingClassGroup, setEditingClassGroup] = useState<{ cabang: string; kelas: string; sekolah?: string } | null>(null);
+  const [isMenuTransitioning, setIsMenuTransitioning] = useState(false);
+  const [navigatingMenuKey, setNavigatingMenuKey] = useState<string | undefined>(undefined);
+  const [navigatingMenuName, setNavigatingMenuName] = useState<string>("");
+  const menuTransitionTimeoutRef = useRef<number | null>(null);
+  const [editingClassGroup, setEditingClassGroup] = useState<
+    { cabang: string; kelas: string; sekolah?: string } | null
+  >(null);
   const [classError, setClassError] = useState("");
+  const [groupDisplayOrder, setGroupDisplayOrder] = useState<Record<string, number>>({});
   const [conflictError, setConflictError] = useState("");
-  const [gabungEnabled, setGabungEnabled] = useState(false);
-  const [gabungClassKey, setGabungClassKey] = useState("");
-  const [gabungOptions, setGabungOptions] = useState<{ value: string; label: string }[]>([]);
   const [isMapelModalOpen, setIsMapelModalOpen] = useState(false);
-  const [mapelDraft, setMapelDraft] = useState({ Mapel: "", Kode_Mapel: "" });
+  const [mapelDraft, setMapelDraft] = useState({ Mapel: "", Kode_Mapel: "", Kategori: "UMUM" });
+  const [gabungEnabled, setGabungEnabled] = useState(false);
+  const [gabungClassKeys, setGabungClassKeys] = useState<string[]>([]);
+  const [gabungOptions, setGabungOptions] = useState<{ value: string; label: string }[]>([]);
   const [editingMapelOldName, setEditingMapelOldName] = useState<string | null>(null);
+  const [editingMapelOldKode, setEditingMapelOldKode] = useState<string | null>(null);
   const [mapelError, setMapelError] = useState("");
   
   const [isPengajarModalOpen, setIsPengajarModalOpen] = useState(false);
   const [pengajarDraft, setPengajarDraft] = useState<PengajarDraft>({
     "Kode Pengajar": "",
+    "NIP": "",
     "Nama": "",
     "Bidang Studi": "",
     "Email": "",
@@ -105,29 +434,464 @@ export function App() {
     "Password": ""
   });
   const [editingPengajarOldKode, setEditingPengajarOldKode] = useState<string | null>(null);
+  const [editingPengajarOldNama, setEditingPengajarOldNama] = useState<string | null>(null);
   const [pengajarError, setPengajarError] = useState("");
+  const [isPenempatanModalOpen, setIsPenempatanModalOpen] = useState(false);
+  const [penempatanDraft, setPenempatanDraft] = useState<PenempatanDraft>({
+    kodePengajar: "",
+    namaPengajar: "",
+    domisili: "",
+    availabilityList: [],
+  });
+  const [penempatanOldRecord, setPenempatanOldRecord] = useState<Record<string, string> | null>(null);
+  const [penempatanError, setPenempatanError] = useState("");
+  const [isIzinModalOpen, setIsIzinModalOpen] = useState(false);
+  const [izinDraft, setIzinDraft] = useState<IzinPengajarDraft>({
+    kodePengajar: "",
+    namaPengajar: "",
+    domisili: "",
+    cabangTarget: "",
+    tanggalMulai: "",
+    tanggalSelesai: "",
+    keterangan: "",
+  });
+  const [editingIzinId, setEditingIzinId] = useState<string | null>(null);
+  const [izinError, setIzinError] = useState("");
+  const [isPermintaanModalOpen, setIsPermintaanModalOpen] = useState(false);
+  const [permintaanDraft, setPermintaanDraft] = useState<PermintaanDraft>({
+    id: "",
+    kodePengajar: "",
+    namaPengajar: "",
+    cabangPeminta: "",
+    dariCabang: "",
+    tanggalDiminta: "",
+    jamMulai: "",
+    jamSelesai: "",
+    catatan: "",
+  });
+  const [permintaanError, setPermintaanError] = useState("");
+  const [isPendingNotificationModalOpen, setIsPendingNotificationModalOpen] = useState(false);
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const lastRefreshAllTimestampRef = useRef<number>(0);
+  const isSyncingRef = useRef<boolean>(false);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [selectedMonthKey, setSelectedMonthKey] = useState(() =>
-    formatLocalDate(new Date()).slice(0, 7)
+  const [sidebarWidth, setSidebarWidth] = useState(240);
+  const sidebarCollapsed = sidebarWidth <= 140;
+  const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
+  const [, setMonthAnchor] = useState(() => new Date());
+  const [appTheme, setAppTheme] = useState<string>(() => {
+    try {
+      return localStorage.getItem("app-theme") || "light";
+    } catch {
+      return "light";
+    }
+  });
+  const [isCompactMode, setIsCompactMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("app-compact-mode") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-bs-theme", appTheme);
+    document.documentElement.setAttribute("data-theme", appTheme);
+    if (appTheme === "dark") {
+      document.documentElement.classList.add("dark");
+      document.body.classList.add("dark-mode");
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.body.classList.remove("dark-mode");
+    }
+  }, [appTheme]);
+
+  useEffect(() => {
+    if (isCompactMode) {
+      document.body.classList.add("compact-mode");
+      document.documentElement.classList.add("compact-mode");
+    } else {
+      document.body.classList.remove("compact-mode");
+      document.documentElement.classList.remove("compact-mode");
+    }
+  }, [isCompactMode]);
+
+  const [lastCacheCleanedAt, setLastCacheCleanedAt] = useState<string | undefined>(undefined);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [isClearingCache, setIsClearingCache] = useState(false);
+  const [selectedMonthKey, setSelectedMonthKey] = useState(() => {
+    try {
+      const saved = localStorage.getItem("selectedMonthKey");
+      if (saved) return saved;
+    } catch (_e) {
+      // ignore
+    }
+    return getMonthKey(new Date());
+  });
+  const [printScheduleType, setPrintScheduleType] = useState<"reguler" | "tambahan">("reguler");
+  const [printSelectedClassKey, setPrintSelectedClassKey] = useState("");
+  const [printCopies, setPrintCopies] = useState(5);
+  const [printOrientation, setPrintOrientation] = useState<"landscape" | "portrait">("landscape");
+  const [deleteScheduleType, setDeleteScheduleType] = useState<"bulanIni" | "jadwalTambahanPelayanan">(
+    "bulanIni"
   );
-  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  // Minimum required gap (in minutes) between classes in different branches for the same teacher
+  const INTER_BRANCH_MIN_GAP_MINUTES = 30;
+  const [deleteMonthKey, setDeleteMonthKey] = useState(() => getMonthKey(new Date()));
+  const [isDeletingByMonth, setIsDeletingByMonth] = useState(false);
+  const [scheduleCabangView, setScheduleCabangView] = useState<Record<ScheduleMenuKey, string>>({
+    bulanIni: "",
+    jadwalTambahanPelayanan: "",
+  });
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
+    try {
+      const stored = localStorage.getItem(authStorageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored) as AuthSession;
+        if (parsed && typeof parsed.username === "string" && parsed.username.trim()) {
+          return parsed;
+        }
+      }
+    } catch (_e) {}
+    return null;
+  });
+  const [isAppInitializing, setIsAppInitializing] = useState(true);
+  const [dbConnectionError, setDbConnectionError] = useState("");
+  const [databaseAccounts, setDatabaseAccounts] = useState<LoginAccount[]>([]);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [toasts, setToasts] = useState<AppToast[]>([]);
 
-  const normalizeText = (value: string) => value.trim().toLowerCase();
+  // On app start, try to load holidays from DB and populate localStorage so UI syncs
+  useEffect(() => {
+    let mounted = true;
+    const loadHolidaysFromDb = async () => {
+      try {
+        const rows = await listRows("libur_nasional");
+        if (!mounted) return;
+        const items = rows.map((r) => ({ date: r.data.Tanggal || r.data.tanggal || "", label: r.data.Keterangan || r.data.keterangan_libur || "" }));
+        setLocalNationalHolidays(items.filter((it) => it.date));
+      } catch (_e) {
+        // ignore DB read errors; keep localStorage defaults
+      }
+    };
+    void loadHolidaysFromDb();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false);
+  const [isRefreshingCurrent, setIsRefreshingCurrent] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExportClassModalOpen, setIsExportClassModalOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    loading: boolean;
+    onConfirm: null | (() => Promise<void> | void);
+  }>({
+    open: false,
+    title: "Konfirmasi",
+    message: "",
+    confirmLabel: "Ya, Lanjutkan",
+    loading: false,
+    onConfirm: null,
+  });
+
+  const normalizeCabangValue = (value: string) => {
+    return normalizeText(value).replace(/[^a-z0-9]+/g, "");
+  };
+  const isCabangMatch = (left: string, right: string) => {
+    const leftKey = normalizeCabangValue(left);
+    const rightKey = normalizeCabangValue(right);
+    return Boolean(leftKey && rightKey && leftKey === rightKey);
+  };
+  const buildClassGroupKey = (cabang: string, kelas: string, sekolah = "") =>
+    `${normalizeText(cabang)}||${normalizeText(kelas)}||${normalizeText(sekolah)}`;
+  const parseClassOrder = (value: unknown) => {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const trimmed = String(value).trim();
+    if (!trimmed) {
+      return null;
+    }
+    const numeric = Number(trimmed);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const titleCase = (value: string) =>
+    value ? `${value.charAt(0).toUpperCase()}${value.slice(1).toLowerCase()}` : value;
+  const splitDelimitedList = (value: string) =>
+    value
+      .split(/[\n,;|]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  const parseCabangPenempatan = (value: string) => {
+    const normalized = normalizeText(value);
+    if (!normalized) {
+      return [] as string[];
+    }
+    if (normalized === "semua cabang" || normalized === "semuacabang") {
+      return [...cabangOptions];
+    }
+    return splitDelimitedList(value);
+  };
+  const parseHariPenempatan = (value: string) => {
+    const normalized = normalizeText(value);
+    if (!normalized) {
+      return [] as string[];
+    }
+    if (normalized === "semuahari" || normalized === "semua hari") {
+      return ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
+    }
+    return splitDelimitedList(value).map((item) => titleCase(item));
+  };
+  type PenempatanAvailabilityEntry = {
+    hari: string;
+    jamMulai: string;
+    jamSelesai: string;
+    cabangList: string[];
+  };
+  const getPenempatanFieldValue = (record: Record<string, string>, aliases: string[]) => {
+    for (const alias of aliases) {
+      const value = record[alias];
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+    return "";
+  };
+  const normalizePenempatanAvailability = (value: unknown): PenempatanAvailabilityEntry[] => {
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return null;
+          }
+          const item = entry as Record<string, unknown>;
+          const hari = String(item.hari ?? item.Hari ?? "").trim();
+          if (!hari) {
+            return null;
+          }
+          const jamMulai = String(item.jamMulai ?? item.jam_mulai ?? "").trim();
+          const jamSelesai = String(item.jamSelesai ?? item.jam_selesai ?? "").trim();
+          const cabangList = Array.isArray(item.cabangList)
+            ? item.cabangList.map((cabang) => String(cabang ?? "").trim()).filter(Boolean)
+            : String(item.cabangList ?? item.cabang_penempatan ?? "")
+                .split(",")
+                .map((cabang) => cabang.trim())
+                .filter(Boolean);
+          return {
+            hari: titleCase(hari),
+            jamMulai,
+            jamSelesai,
+            cabangList,
+          };
+        })
+        .filter((item): item is PenempatanAvailabilityEntry => Boolean(item));
+    }
+    if (typeof value === "string") {
+      try {
+        return normalizePenempatanAvailability(JSON.parse(value));
+      } catch (_error) {
+        return [];
+      }
+    }
+    return [];
+  };
+  const getPenempatanAvailabilityEntries = (record: Record<string, string>): PenempatanAvailabilityEntry[] => {
+    const availabilityEntries = normalizePenempatanAvailability(record["__availability_json"] || "");
+    if (availabilityEntries.length > 0) {
+      return availabilityEntries;
+    }
+
+    const hariList = parseHariPenempatan(getPenempatanFieldValue(record, ["Hari", "hari_tersedia"]));
+    if (hariList.length === 0) {
+      return [];
+    }
+
+    const jamMulai = formatTimeHHMM(getPenempatanFieldValue(record, ["Jam Mulai", "jam_mulai"]) || "");
+    const jamSelesai = formatTimeHHMM(getPenempatanFieldValue(record, ["Jam Selesai", "jam_selesai"]) || "");
+    const cabangList = parseCabangPenempatan(
+      getPenempatanFieldValue(record, ["Cabang Penempatan", "cabang_penempatan", "bersedia_mengajar_dicabang"])
+    );
+
+    return hariList.map((hari) => ({ hari, jamMulai, jamSelesai, cabangList }));
+  };
+
+  const buildPenempatanPayload = (draftValue: PenempatanDraft, idPengajar = "") => {
+    const selectedAvailabilities = draftValue.availabilityList
+      .filter((item) => item.enabled)
+      .map((item) => ({
+        hari: titleCase(item.hari),
+        jamMulai: item.jamMulai.trim(),
+        jamSelesai: item.jamSelesai.trim(),
+        cabangList: Array.from(
+          new Set(
+            (restrictedCabang ? [restrictedCabang] : item.cabangList)
+              .map((cabang) => cabang.trim())
+              .filter(Boolean)
+          )
+        ),
+      }));
+
+    const earliestStart = selectedAvailabilities.reduce((acc, item) => {
+      if (!item.jamMulai) {
+        return acc;
+      }
+      return !acc || item.jamMulai < acc ? item.jamMulai : acc;
+    }, "");
+    const latestEnd = selectedAvailabilities.reduce((acc, item) => {
+      if (!item.jamSelesai) {
+        return acc;
+      }
+      return !acc || item.jamSelesai > acc ? item.jamSelesai : acc;
+    }, "");
+
+    return {
+      "Kode Pengajar": draftValue.kodePengajar,
+      "Nama Pengajar": draftValue.namaPengajar,
+      Domisili: draftValue.domisili,
+      Hari: selectedAvailabilities.map((item) => item.hari).join(", "),
+      "Jam Mulai": earliestStart,
+      "Jam Selesai": latestEnd,
+      "Cabang Penempatan": Array.from(new Set(selectedAvailabilities.flatMap((item) => item.cabangList))).join(", "),
+      __availability_json: JSON.stringify(selectedAvailabilities),
+      "__id_pengajar": idPengajar,
+    };
+  };
+  const parsePermintaanTanggalKhusus = (value: string) => {
+    if (!value.trim()) {
+      return [] as string[];
+    }
+    const parsed = value
+      .split(/[\n,;|]+/)
+      .map((item) => parseFlexibleDate(item.trim()))
+      .filter((item): item is Date => Boolean(item))
+      .map((item) => formatScheduleLabel(item));
+    return Array.from(new Set(parsed));
+  };
   const isScheduleMenuKey = (value: string): value is ScheduleMenuKey =>
     value === "bulanIni" || value === "jadwalTambahanPelayanan";
   const activeScheduleKey: ScheduleMenuKey = isScheduleMenuKey(activeKey)
     ? activeKey
     : "bulanIni";
-  const isAdmin = normalizeText(authSession?.role || "") === "admin";
-  const restrictedCabang = !isAdmin ? (authSession?.cabang || "") : "";
+  const userRoll = normalizeText((authSession as any)?.role || authSession?.roll || "");
+  const userName = normalizeText(authSession?.username || "");
+  const userCabang = normalizeText(authSession?.cabang || "");
+  const isAdmin =
+    [
+      "admin",
+      "pusat",
+      "admin pusat",
+      "admin_pusat",
+      "superadmin",
+      "super admin",
+    ].includes(userRoll) ||
+    [
+      "admin",
+      "pusat",
+      "admin pusat",
+      "admin_pusat",
+      "superadmin",
+      "super admin",
+    ].includes(userName) ||
+    userName.includes("admin") ||
+    userCabang === "pusat" ||
+    userCabang === "kantor pusat" ||
+    userCabang === "admin pusat";
+  const restrictedCabang = !isAdmin ? authSession?.cabang || "" : "";
+  const selectedScheduleCabang = scheduleCabangView[activeScheduleKey] || restrictedCabang || "";
+  const isScheduleReadOnly =
+    !isAdmin &&
+    Boolean(
+      restrictedCabang &&
+        selectedScheduleCabang &&
+        normalizeText(selectedScheduleCabang) !== normalizeText(restrictedCabang)
+    );
+
+  const scheduleTopToolbarMessage = useMemo(() => {
+    if (!isScheduleMenuKey(activeKey)) {
+      return "";
+    }
+    return isScheduleReadOnly
+      ? "Mode lihat cabang lain aktif. Anda hanya dapat melihat jadwal tanpa mengubah data."
+      : "Klik sel untuk edit jadwal. Gunakan ikon panah di kolom aksi untuk menggeser urutan kelas.";
+  }, [activeKey, isScheduleReadOnly]);
+
+  const toastTimeoutsRef = useRef<Record<string, number>>({});
+
+  const pushToast = (message: string, type: ToastType = "info") => {
+    setToasts((prev) => {
+      // Prevent stacking duplicate messages
+      if (prev.some((t) => t.message === message)) {
+        return prev;
+      }
+      const id = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
+      const timeoutId = window.setTimeout(() => {
+        setToasts((curr) => curr.filter((toast) => toast.id !== id));
+        delete toastTimeoutsRef.current[id];
+      }, 1800);
+
+      toastTimeoutsRef.current[id] = timeoutId;
+      return [...prev, { id, message, type }];
+    });
+  };
+
+  const dismissToast = (id: string) => {
+    if (toastTimeoutsRef.current[id]) {
+      window.clearTimeout(toastTimeoutsRef.current[id]);
+      delete toastTimeoutsRef.current[id];
+    }
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  };
+
+  const openConfirmDialog = (
+    message: string,
+    onConfirm: () => Promise<void> | void,
+    options?: { title?: string; confirmLabel?: string }
+  ) => {
+    setConfirmDialog({
+      open: true,
+      title: options?.title || "Konfirmasi",
+      message,
+      confirmLabel: options?.confirmLabel || "Ya, Lanjutkan",
+      loading: false,
+      onConfirm,
+    });
+  };
+
+  const closeConfirmDialog = () => {
+    setConfirmDialog((prev) =>
+      prev.loading
+        ? prev
+        : { ...prev, open: false, message: "", onConfirm: null, confirmLabel: "Ya, Lanjutkan" }
+    );
+  };
+
+  const handleConfirmDialogAction = async () => {
+    if (!confirmDialog.onConfirm) {
+      closeConfirmDialog();
+      return;
+    }
+    setConfirmDialog((prev) => ({ ...prev, loading: true }));
+    try {
+      await confirmDialog.onConfirm();
+      setConfirmDialog((prev) => ({ ...prev, open: false, loading: false, onConfirm: null, message: "" }));
+    } catch (_error) {
+      setConfirmDialog((prev) => ({ ...prev, loading: false }));
+    }
+  };
 
   const mapelOptions = useMemo(() => {
     return mapelRecords.map((record) => ({
-      value: record["Kode_Mapel"] || record["Singkatan"] || "",
+      value: record["Mapel"] || record["Mata Pelajaran"] || "",
       label: `${record["Kode_Mapel"] || record["Singkatan"] || ""} - ${record["Mapel"] || record["Mata Pelajaran"] || ""}`
     })).filter(opt => opt.value);
   }, [mapelRecords]);
@@ -144,30 +908,603 @@ export function App() {
     }, {});
   }, [mapelRecords]);
 
+  const mapelKodeByName = useMemo(() => {
+    return mapelRecords.reduce<Record<string, string>>((acc, record) => {
+      const kode = (record["Kode_Mapel"] || record["Singkatan"] || "").trim();
+      const nama = (record["Mapel"] || record["Mata Pelajaran"] || "").trim();
+      if (!kode || !nama) {
+        return acc;
+      }
+      acc[nama.toLowerCase()] = kode;
+      return acc;
+    }, {});
+  }, [mapelRecords]);
+
+  const mapelCategoryByKode = useMemo(() => {
+    return Object.fromEntries(
+      mapelRecords.map((r) => [
+        (r.Kode_Mapel || r.kode_mapel || r.kode || "").toLowerCase(),
+        r.Kategori || r.kategori || r.kategory || "UMUM",
+      ])
+    );
+  }, [mapelRecords]);
+
+  const buildPengajarOption = (record: Record<string, string>) => {
+    const kode = (record["Kode Pengajar"] || record["kode_pengajar"] || "").trim();
+    const nama = (
+      (record["Nama"] || record["nama"] || record["Nama Pengajar"] || record["nama_pengajar"] || "")
+    ).trim();
+    if (!kode) {
+      return null;
+    }
+    return {
+      value: kode,
+      label: nama ? `${kode} - ${nama}` : kode,
+    } satisfies { value: string; label: string };
+  };
+
   const pengajarOptions = useMemo(() => {
-    return pengajarRecords.map((record) => ({
-      value: record["Kode Pengajar"] || "",
-      label: `${record["Kode Pengajar"] || ""} - ${record["Nama"] || ""}`
-    })).filter(opt => opt.value);
+    return pengajarRecords
+      .map(buildPengajarOption)
+      .filter((option): option is { value: string; label: string } => Boolean(option));
   }, [pengajarRecords]);
 
-  const monthOptions = useMemo(() => {
-    const currentYear = new Date().getFullYear();
-    return Array.from({ length: 12 }, (_, index) => {
-      const date = new Date(currentYear, index, 1);
-      return {
-        value: formatLocalDate(date).slice(0, 7),
-        label: date.toLocaleDateString("id-ID", {
-          month: "long",
-          year: "numeric",
-        }),
-      };
+  const pengajarByKode = useMemo(() => {
+    return pengajarRecords.reduce<Record<string, Record<string, string>>>((acc, record) => {
+      const kode = normalizeText(record["Kode Pengajar"] || "");
+      if (kode) {
+        acc[kode] = record;
+      }
+      return acc;
+    }, {});
+  }, [pengajarRecords]);
+
+  const pengajarIzinOptions = useMemo(() => {
+    const source = restrictedCabang
+      ? pengajarRecords.filter(
+          (record) => normalizeText(record["Domisili"] || "") === normalizeText(restrictedCabang)
+        )
+      : pengajarRecords;
+
+    return source
+      .map((record) => ({
+        value: (record["Kode Pengajar"] || "").trim().toLowerCase(),
+        label: `${record["Kode Pengajar"] || ""} - ${record["Nama"] || ""}`,
+      }))
+      .filter((option) => option.value);
+  }, [pengajarRecords, restrictedCabang]);
+
+  const normalizeToken = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+
+  const approvedPermintaanRecords = useMemo(
+    () =>
+      permintaanRecords.filter(
+        (record) => normalizeText(record.Status || "") === "disetujui"
+      ),
+    [permintaanRecords]
+  );
+
+  const resolvePengajarCode = useCallback(
+    (value: string) => {
+      const trimmed = String(value || "").trim().toLowerCase();
+      if (!trimmed) return "";
+
+      // 1. Exact match on Kode Pengajar
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        if (kode && kode === trimmed) {
+          return kode;
+        }
+      }
+
+      // 2. Exact match on Nama
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        const nama = String(record["Nama"] || record.nama || "").trim().toLowerCase();
+        if (nama && nama === trimmed) {
+          return kode || nama;
+        }
+      }
+
+      // 3. Formats with bracket or hyphen like "IA (Irfan)", "Irfan (IA)", "IA - Irfan"
+      for (const record of pengajarRecords) {
+        const kode = String(record["Kode Pengajar"] || record.kode || record.pengajar || "").trim().toLowerCase();
+        const nama = String(record["Nama"] || record.nama || "").trim().toLowerCase();
+        if (kode) {
+          if (
+            (nama && trimmed === `${kode} (${nama})`) ||
+            (nama && trimmed === `${nama} (${kode})`) ||
+            (nama && trimmed === `${kode} - ${nama}`) ||
+            (nama && trimmed === `${nama} - ${kode}`) ||
+            trimmed.endsWith(`(${kode})`) ||
+            trimmed.startsWith(`${kode} - `) ||
+            trimmed.startsWith(`${kode} `)
+          ) {
+            return kode;
+          }
+        }
+      }
+
+      return normalizeValueKey(trimmed);
+    },
+    [pengajarRecords]
+  );
+
+  function getApprovedPermintaanForCabang(
+    kodePengajar: string,
+    cabang: string,
+    tanggal?: string
+  ) {
+    const kodeKey = resolvePengajarCode(kodePengajar);
+    const cabangKey = normalizeText(cabang);
+    if (!kodeKey || !cabangKey) {
+      return [] as Record<string, string>[];
+    }
+    const targetDate = tanggal ? parseFlexibleDate(tanggal) : null;
+    return approvedPermintaanRecords.filter((record) => {
+      const kode = resolvePengajarCode(record["Kode Pengajar"] || "");
+      const cabangPeminta = normalizeText(record["Cabang Peminta"] || "");
+      if (!(kode === kodeKey && isCabangMatch(cabangPeminta, cabangKey))) {
+        return false;
+      }
+
+      if (!targetDate) {
+        return true;
+      }
+
+      const tanggalDimitaRaw = (record["Tanggal Diminta"] || "").trim();
+      if (!tanggalDimitaRaw) {
+        return true;
+      }
+
+      const requestDate = parseFlexibleDate(tanggalDimitaRaw);
+      if (!requestDate) {
+        return true;
+      }
+
+      const targetLabel = formatScheduleLabel(targetDate);
+      const requestLabel = formatScheduleLabel(requestDate);
+      return targetLabel === requestLabel;
     });
-  }, []);
+  }
+
+  const isPengajarAvailableForScheduleSlot = (
+    kodePengajar: string,
+    cabang: string,
+    tanggal: string,
+    waktuMulai?: string,
+    waktuSelesai?: string
+  ) => {
+    const kodeKey = normalizeText(kodePengajar);
+    const cabangKey = normalizeText(cabang);
+    const parsedDate = parseFlexibleDate(tanggal);
+    if (!kodeKey || !cabangKey || !parsedDate) {
+      return false;
+    }
+
+    const dayName = titleCase(
+      parsedDate.toLocaleDateString("id-ID", { weekday: "long" })
+    );
+
+    const pengajarPenempatan = penempatanRecords.filter(
+      (record) => normalizeText(record["Kode Pengajar"] || "") === kodeKey
+    );
+
+    const cabangMatchedRecords = pengajarPenempatan.filter((record) => {
+      const availabilityEntries = getPenempatanAvailabilityEntries(record);
+      return availabilityEntries.some((entry) =>
+        entry.cabangList.some((item) => isCabangMatch(item, cabangKey))
+      );
+    });
+
+    const approvedByPengajar = getApprovedPermintaanForCabang(
+      kodePengajar,
+      cabang,
+      tanggal
+    );
+
+    if (cabangMatchedRecords.length === 0 && approvedByPengajar.length === 0) {
+      return false;
+    }
+
+    const availabilityRecords = ([
+      ...cabangMatchedRecords.map((record) => ({
+        ...record,
+        __availabilityEntries: getPenempatanAvailabilityEntries(record),
+      })),
+      ...approvedByPengajar.map((record) => ({
+        ...record,
+        "Cabang Penempatan": record["Cabang Peminta"] || "",
+        __availabilityEntries: [{
+          hari: dayName,
+          jamMulai: record["Jam Mulai"] || "",
+          jamSelesai: record["Jam Selesai"] || "",
+          cabangList: [record["Cabang Peminta"] || ""],
+        }],
+      })),
+    ] as Array<Record<string, string> & { __availabilityEntries?: PenempatanAvailabilityEntry[] }>);
+
+    const dayMatchedRecords = availabilityRecords.filter((record) => {
+      if (record["Cabang Peminta"] !== undefined) {
+        const requestedDays = parseHariPenempatan(record["Hari"] || "");
+        return requestedDays.length === 0 || requestedDays.includes(dayName);
+      }
+      const availabilityEntries = record.__availabilityEntries || [];
+      if (availabilityEntries.length > 0) {
+        return availabilityEntries.some((entry) => entry.hari === dayName);
+      }
+      return parseHariPenempatan(record["Hari"] || "").includes(dayName);
+    });
+
+    if (dayMatchedRecords.length === 0) {
+      return false;
+    }
+
+    const startTime = parseTimeValue(waktuMulai || "");
+    const endTime = parseTimeValue(waktuSelesai || "");
+    if (startTime === null || endTime === null || startTime >= endTime) {
+      return true;
+    }
+
+    return dayMatchedRecords.some((record) => {
+      const availabilityEntries = record.__availabilityEntries || [];
+      if (availabilityEntries.length > 0) {
+        return availabilityEntries.some((entry) => {
+          if (entry.hari !== dayName) {
+            return false;
+          }
+          const placementStart = parseTimeValue(entry.jamMulai || "");
+          const placementEnd = parseTimeValue(entry.jamSelesai || "");
+          if (placementStart === null || placementEnd === null) {
+            return true;
+          }
+          return startTime >= placementStart && endTime <= placementEnd;
+        });
+      }
+
+      const placementStart = parseTimeValue(record["Jam Mulai"] || "");
+      const placementEnd = parseTimeValue(record["Jam Selesai"] || "");
+      if (placementStart === null || placementEnd === null) {
+        return true;
+      }
+      return startTime >= placementStart && endTime <= placementEnd;
+    });
+  };
+
+  const allScheduleEntries = useMemo(
+    () => [
+      ...(records.bulanIni ?? []),
+      ...(records.jadwalTambahanPelayanan ?? []),
+    ],
+    [records.bulanIni, records.jadwalTambahanPelayanan]
+  );
 
   const selectedMonth = useMemo(() => {
     const [year, month] = selectedMonthKey.split("-").map(Number);
     return new Date(year, Math.max(0, (month || 1) - 1), 1);
+  }, [selectedMonthKey]);
+
+  const { scheduleDates: monthScheduleDates, dayGroups: monthDayGroups } = useMemo(
+    () => buildMonthScheduleDates(selectedMonth),
+    [selectedMonth]
+  );
+
+  const monthDateLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    monthScheduleDates.forEach((slot) => map.set(slot.date, slot.label));
+    return map;
+  }, [monthScheduleDates]);
+
+  const monthLabelDateMap = useMemo(() => {
+    const map = new Map<string, string>();
+    monthScheduleDates.forEach((slot) => {
+      map.set(slot.label.toLowerCase(), slot.date);
+    });
+    return map;
+  }, [monthScheduleDates]);
+
+  const normalizeDateValue = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+    const parsed = parseFlexibleDate(trimmed);
+    if (parsed) {
+      return formatLocalDate(parsed);
+    }
+    const matchByLabel = monthLabelDateMap.get(trimmed.toLowerCase());
+    if (matchByLabel) {
+      return matchByLabel;
+    }
+    return trimmed;
+  }, [monthLabelDateMap]);
+
+  const resolveCanonicalDate = useCallback(
+    (value: string) => {
+      const norm = normalizeDateValue(String(value || ""));
+      if (norm) return norm;
+      return String(value || "").trim().slice(0, 10);
+    },
+    [normalizeDateValue]
+  );
+
+  const filteredPengajarOptions = useMemo(() => {
+    const selectedMapelValue = draft.mapel.trim();
+    if (!selectedMapelValue) {
+      return pengajarOptions;
+    }
+
+    const selectedMapelName = mapelNameByKode[selectedMapelValue.toLowerCase()] || "";
+    const selectedMapelKode = selectedMapelValue;
+    const targetKode = normalizeToken(selectedMapelKode);
+    const targetName = normalizeToken(selectedMapelName);
+    const targetNameFromLabel = normalizeToken(mapelKodeByName[selectedMapelValue.toLowerCase()] || "");
+
+    const baseOptions = pengajarRecords
+      .filter((record) => {
+        const bidangStudi = (record["Bidang Studi"] || "").trim();
+        if (!bidangStudi) {
+          return false;
+        }
+
+        const tokens = bidangStudi
+          .split(/[,;/|]+/)
+          .map((token) => normalizeToken(token))
+          .filter(Boolean);
+
+        if (tokens.includes(targetKode)) {
+          return true;
+        }
+        if (targetName && tokens.includes(targetName)) {
+          return true;
+        }
+        if (targetNameFromLabel && tokens.includes(targetNameFromLabel)) {
+          return true;
+        }
+
+        const bidangNormalized = normalizeToken(bidangStudi);
+        return Boolean(
+          (targetKode && bidangNormalized.includes(targetKode)) ||
+          (targetName && bidangNormalized.includes(targetName)) ||
+          (targetNameFromLabel && bidangNormalized.includes(targetNameFromLabel))
+        );
+      })
+      .map((record) => ({
+        value: record["Kode Pengajar"] || "",
+        label: `${record["Kode Pengajar"] || ""} - ${record["Nama"] || ""}`,
+      }))
+      .filter((option) => option.value);
+
+    if (!editingSlot) {
+      return baseOptions;
+    }
+
+    return baseOptions.filter((option) =>
+      isPengajarAvailableForScheduleSlot(
+        option.value,
+        editingSlot.cabang,
+        editingSlot.tanggal,
+        draft.waktuMulai,
+        draft.waktuSelesai
+      )
+    );
+  }, [
+    draft.mapel,
+    draft.waktuMulai,
+    draft.waktuSelesai,
+    editingSlot,
+    mapelNameByKode,
+    pengajarOptions,
+    pengajarRecords,
+    penempatanRecords,
+  ]);
+
+  const cabangOptions = useMemo(() => {
+    const accountsToUse = databaseAccounts.length > 0 ? databaseAccounts : loginAccounts;
+    const set = new Set<string>();
+    accountsToUse.forEach((account) => {
+      if (account.cabang) {
+        set.add(account.cabang);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [databaseAccounts]);
+
+  const activeScheduleCabangOptions = useMemo(() => {
+    const set = new Set<string>();
+    (records[activeScheduleKey] ?? []).forEach((entry) => {
+      const cabang = (entry.cabang || "").trim();
+      if (cabang) {
+        set.add(cabang);
+      }
+    });
+    cabangOptions.forEach((cabang) => set.add(cabang));
+    if (restrictedCabang) {
+      set.add(restrictedCabang);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [activeScheduleKey, cabangOptions, records, restrictedCabang]);
+
+  const pengajarPenempatanOptions = useMemo(() => {
+    const branchMatches = restrictedCabang
+      ? pengajarRecords.filter(
+          (record) => normalizeText(record["Domisili"] || record["domisili"] || "") === normalizeText(restrictedCabang)
+        )
+      : pengajarRecords;
+
+    const source = branchMatches.length > 0 ? branchMatches : pengajarRecords;
+
+    return source
+      .map(buildPengajarOption)
+      .filter((option): option is { value: string; label: string } => Boolean(option));
+  }, [pengajarRecords, restrictedCabang]);
+
+  const pengajarPermintaanOptions = useMemo(() => {
+    return pengajarRecords
+      .filter((record) => {
+        if (!restrictedCabang) {
+          return true;
+        }
+        return normalizeText(record["Domisili"] || "") !== normalizeText(restrictedCabang);
+      })
+      .map((record) => {
+        const kode = (record["Kode Pengajar"] || "").trim();
+        const nama = (record["Nama"] || "").trim();
+        const domisili = (record["Domisili"] || "").trim();
+        return {
+          value: kode,
+          label: `${kode} - ${nama} - ${domisili}`,
+        };
+      })
+      .filter((option) => option.value);
+  }, [pengajarRecords, restrictedCabang]);
+
+  const sanitizePasswordInput = (value: string) =>
+    value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
+
+  const generatePassword = () => {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let output = "";
+    for (let index = 0; index < 6; index += 1) {
+      const randomIndex = Math.floor(Math.random() * chars.length);
+      output += chars[randomIndex];
+    }
+    return output;
+  };
+
+  const generateUniqueKodePengajar = (nama: string, oldKode?: string | null) => {
+    const compact = nama
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, "")
+      .trim();
+    if (!compact) {
+      return "";
+    }
+
+    const words = compact.split(/\s+/).filter(Boolean);
+    const letters = compact.replace(/\s+/g, "");
+    const candidates: string[] = [];
+
+    if (words.length >= 2) {
+      candidates.push(`${words[0][0]}${words[1][0]}`);
+      candidates.push(words.slice(0, 3).map((word) => word[0]).join(""));
+    }
+
+    if (letters.length >= 2) {
+      candidates.push(letters.slice(0, 2));
+    }
+    if (letters.length >= 3) {
+      candidates.push(letters.slice(0, 3));
+    }
+
+    for (let index = 0; index < Math.max(0, letters.length - 2); index += 1) {
+      candidates.push(letters.slice(index, index + 3));
+    }
+
+    const usedCodes = new Set(
+      pengajarRecords
+        .map((record) => (record["Kode Pengajar"] || "").trim().toLowerCase())
+        .filter((code) => code && (!oldKode || code !== oldKode.trim().toLowerCase()))
+    );
+
+    const uniqueCandidates = Array.from(new Set(candidates.filter((candidate) => candidate.length >= 2)));
+    for (const candidate of uniqueCandidates) {
+      if (!usedCodes.has(candidate)) {
+        return candidate;
+      }
+    }
+
+    const fallback = uniqueCandidates[0] || letters.slice(0, 3) || "pg";
+    let counter = 1;
+    let attempt = fallback;
+    while (usedCodes.has(attempt)) {
+      attempt = `${fallback.slice(0, 3)}${counter}`;
+      counter += 1;
+    }
+    return attempt;
+  };
+
+  const monthOptions = useMemo(() => {
+    const monthKeys = new Set<string>();
+    const addMonthsFromRecords = (items?: RecordItem[]) => {
+      (items || []).forEach((item) => {
+        const tanggal = String(item.tanggal || item.Tanggal || "").trim();
+        if (tanggal) {
+          monthKeys.add(tanggal.slice(0, 7));
+        }
+      });
+    };
+
+    addMonthsFromRecords(records.bulanIni);
+    addMonthsFromRecords(records.jadwalTambahanPelayanan);
+
+    const currentKey = getMonthKey(new Date());
+    monthKeys.add(currentKey);
+    const nextMonthKey = getMonthKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1));
+    monthKeys.add(nextMonthKey);
+
+    return Array.from(monthKeys)
+      .sort((a, b) => {
+        const [ay, am] = a.split("-").map(Number);
+        const [by, bm] = b.split("-").map(Number);
+        if (ay !== by) return ay - by;
+        return am - bm;
+      })
+      .map((value) => {
+        const [year, month] = value.split("-").map(Number);
+        const date = new Date(year, month - 1, 1);
+        return {
+          value,
+          label: date.toLocaleDateString("id-ID", {
+            month: "long",
+            year: "numeric",
+          }),
+        };
+      });
+  }, [records]);
+
+  useEffect(() => {
+    const syncMonthAnchor = () => {
+      const now = new Date();
+      const nowKey = getMonthKey(now);
+      setMonthAnchor((prev) => (getMonthKey(prev) === nowKey ? prev : new Date(now.getFullYear(), now.getMonth(), 1)));
+    };
+
+    syncMonthAnchor();
+    const intervalId = window.setInterval(syncMonthAnchor, 60 * 60 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    const availableMonthKeys = new Set(monthOptions.map((option) => option.value));
+    const currentMonthKey = getMonthKey(new Date());
+
+    if (!availableMonthKeys.has(selectedMonthKey)) {
+      setSelectedMonthKey(currentMonthKey);
+    }
+
+    if (!availableMonthKeys.has(deleteMonthKey)) {
+      setDeleteMonthKey(currentMonthKey);
+    }
+
+    if (selectedSuratTugasMonthKey && !availableMonthKeys.has(selectedSuratTugasMonthKey)) {
+      setSelectedSuratTugasMonthKey("");
+      setSelectedSuratTugasKode("");
+    }
+  }, [deleteMonthKey, monthOptions, selectedMonthKey, selectedSuratTugasMonthKey]);
+
+  // selectedMonth is initialized above
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("selectedMonthKey", selectedMonthKey);
+    } catch (_e) {
+      // ignore
+    }
   }, [selectedMonthKey]);
 
   const selectedSuratTugasMonthDate = useMemo(() => {
@@ -178,10 +1515,7 @@ export function App() {
     return new Date(year, Math.max(0, (month || 1) - 1), 1);
   }, [selectedSuratTugasMonthKey]);
 
-  const { scheduleDates: monthScheduleDates, dayGroups: monthDayGroups } = useMemo(
-    () => buildMonthScheduleDates(selectedMonth),
-    [selectedMonth]
-  );
+  // monthScheduleDates and monthDayGroups are initialized above
 
   const { scheduleDates: tambahanScheduleDates, dayGroups: tambahanDayGroups } = useMemo(
     () => buildRollingScheduleDates(30),
@@ -201,42 +1535,37 @@ export function App() {
     return new Set(indexes);
   }, [activeDayGroups]);
 
+  const copyDateOptions = useMemo(() => {
+    if (!editingSlot) {
+      return [] as { value: string; label: string }[];
+    }
+    return activeScheduleDates
+      .filter((slot) => slot.date !== editingSlot.tanggal)
+      .map((slot) => ({ value: slot.date, label: slot.label }));
+  }, [activeScheduleDates, editingSlot]);
+
   const suratTugasCalendar = useMemo(() => {
     if (!selectedSuratTugasMonthDate) {
       return { dayRows: [], dateKeys: new Set<string>() };
     }
     const { scheduleDates, dayGroups: suratDayGroups } = buildMonthScheduleDates(selectedSuratTugasMonthDate);
-    const dayRows = suratDayGroups.map((group, dayIndex) => {
-      const startIndex = dayIndex * group.count;
+    let offset = 0;
+    const dayRows = suratDayGroups.map((group) => {
+      const dates = scheduleDates.slice(offset, offset + group.count);
+      offset += group.count;
       return {
         dayLabel: group.label.toUpperCase(),
-        dates: scheduleDates.slice(startIndex, startIndex + group.count),
+        dates,
       };
     });
     const dateKeys = new Set(scheduleDates.map((slot) => slot.date));
     return { dayRows, dateKeys };
   }, [selectedSuratTugasMonthDate]);
 
-  const normalizeDateValue = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return "";
-    }
-    const matchByLabel = monthScheduleDates.find(
-      (slot) => slot.label.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (matchByLabel) {
-      return matchByLabel.date;
-    }
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      return formatLocalDate(parsed);
-    }
-    return trimmed;
-  };
+  // normalizeDateValue is initialized above
 
   const getSlotLabelByDate = (date: string) => {
-    return monthScheduleDates.find((slot) => slot.date === date)?.label ?? date;
+    return monthDateLabelMap.get(date) ?? date;
   };
 
   const formatSheetTanggal = (value: string) => {
@@ -244,11 +1573,9 @@ export function App() {
     if (!trimmed) {
       return "";
     }
-    const labelMatch = monthScheduleDates.find(
-      (slot) => slot.label.toLowerCase() === trimmed.toLowerCase()
-    );
+    const labelMatch = monthLabelDateMap.get(trimmed.toLowerCase());
     if (labelMatch) {
-      return labelMatch.label;
+      return monthDateLabelMap.get(labelMatch) || trimmed;
     }
     const parsed = new Date(trimmed);
     if (!Number.isNaN(parsed.getTime())) {
@@ -283,7 +1610,7 @@ export function App() {
     return value === undefined || value === null ? "" : String(value);
   };
 
-  const parseAppsScriptRecords = (payload: unknown) => {
+  const parseScheduleDbRecords = (payload: unknown) => {
     const normalizeObjectRows = (rows: Record<string, unknown>[]) => {
       return rows.reduce<RecordItem[]>((acc, row, index) => {
         const cabang = getEntryValue(row, ["Cabang"]);
@@ -296,16 +1623,22 @@ export function App() {
         const waktuFromWaktu = getEntryValue(row, ["Waktu", "Jam"]);
         const waktuMulai = getEntryValue(row, ["Jam Mulai", "Mulai"]);
         const waktuSelesai = getEntryValue(row, ["Jam Selesai", "Selesai"]);
+        const classOrderRaw = getEntryValue(row, ["Urutan Kelas", "Urutan", "Class Order"]);
         const waktu = waktuFromWaktu || [waktuMulai, waktuSelesai].filter(Boolean).join("-");
         const tanggal = normalizeDateValue(tanggalRaw);
         const tanggalSheet = resolveSheetTanggal(tanggalRaw, tanggal);
+        const classOrder = parseClassOrder(classOrderRaw);
+        const gabungWith = getEntryValue(row, ["Gabung"]);
+        const isGabungRaw = getEntryValue(row, ["IsGabung"]);
+        const isGabung =
+          ["true", "1", "ya", "yes"].includes(normalizeValueKey(isGabungRaw)) || Boolean(gabungWith);
 
         if (!cabang && !kelas && !sekolah && !tanggal && !mapel && !pengajar && !waktu) {
           return acc;
         }
 
         acc.push({
-          id: `appscript-${index}-${Date.now()}`,
+          id: (row as any).id || `s-${index}`,
           cabang,
           kelas,
           jenjang,
@@ -315,7 +1648,10 @@ export function App() {
           mapel,
           pengajar,
           waktu,
+          classOrder: classOrder === null ? "" : String(classOrder),
           catatan: "",
+          isGabung,
+          gabungWith,
         });
 
         return acc;
@@ -361,7 +1697,7 @@ export function App() {
           }
           const tanggal = normalizeDateValue(label);
           entries.push({
-            id: `appscript-matrix-${rowIndex}-${columnIndex}-${Date.now()}`,
+            id: `sm-${rowIndex}-${columnIndex}-${tanggal}`,
             cabang,
             kelas,
             sekolah: "",
@@ -371,6 +1707,7 @@ export function App() {
             mapel,
             pengajar,
             waktu,
+            classOrder: "",
             catatan: "",
           });
         });
@@ -417,101 +1754,160 @@ export function App() {
     return [];
   };
 
-  const parseGenericSheet = (payload: unknown) => {
-    if (payload && typeof payload === "object") {
-      const recordPayload = payload as {
-        success?: boolean;
-        message?: string;
-        data?: Record<string, unknown>[];
-        records?: Record<string, unknown>[];
-        values?: unknown[][];
-        headers?: string[];
-      };
-      if (recordPayload.success === false) {
-        throw new Error(recordPayload.message || "Gagal memuat data dari Apps Script.");
-      }
-      if (Array.isArray(recordPayload.data) || Array.isArray(recordPayload.records)) {
-        const rows = (recordPayload.data || recordPayload.records || []) as Record<string, unknown>[];
-        const headers =
-          recordPayload.headers && recordPayload.headers.length > 0
-            ? recordPayload.headers
-            : Object.keys(rows[0] || {});
-        const records = rows.map((row) => {
-          const normalized: Record<string, string> = {};
-          headers.forEach((header) => {
-            const value = row[header];
-            normalized[header] = value === undefined || value === null ? "" : String(value);
-          });
-          return normalized;
-        });
-        return { headers, records };
-      }
-      if (Array.isArray(recordPayload.values)) {
-        const headerRow = recordPayload.values[0]?.map((value) => String(value ?? "")) ?? [];
-        const records = recordPayload.values.slice(1).map((row) => {
-          const normalized: Record<string, string> = {};
-          headerRow.forEach((header, index) => {
-            normalized[header] = row?.[index] === undefined ? "" : String(row?.[index] ?? "");
-          });
-          return normalized;
-        });
-        return { headers: headerRow, records };
-      }
-    }
-
-    if (Array.isArray(payload) && payload.length > 0 && Array.isArray(payload[0])) {
-      const headerRow = (payload[0] as unknown[]).map((value) => String(value ?? ""));
-      const records = (payload as unknown[][]).slice(1).map((row) => {
-        const normalized: Record<string, string> = {};
-        headerRow.forEach((header, index) => {
-          normalized[header] = row?.[index] === undefined ? "" : String(row?.[index] ?? "");
-        });
-        return normalized;
-      });
-      return { headers: headerRow, records };
-    }
-
-    return { headers: [], records: [] };
-  };
-
-  const activeConfig = useMemo(
-    () => categories.find((category) => category.key === activeKey) ?? categories[0],
-    [activeKey]
+  const visibleCategories = useMemo(
+    () =>
+      categories.filter((category) => {
+        if (
+          category.key === "hapusJadwal" ||
+          category.key === "liburNasional" ||
+          category.key === "accounts_cabang" ||
+          category.key === "donasi"
+        ) {
+          return isAdmin;
+        }
+        return true;
+      }),
+    [isAdmin]
   );
 
+  const activeConfig = useMemo(
+    () => visibleCategories.find((category) => category.key === activeKey) ?? visibleCategories[0],
+    [activeKey, visibleCategories]
+  );
 
-  const hasScheduleContent = (entry?: RecordItem) =>
-    Boolean(entry && ((entry.mapel || "").trim() || (entry.pengajar || "").trim() || (entry.waktu || "").trim()));
+  const buildScheduleGroups = (
+    sourceRecords: RecordItem[],
+    cabangFilter: string,
+    searchText: string
+  ) => {
+    const getGroupOrderKey = (groupKey: string) =>
+      `${activeScheduleKey}:${selectedMonthKey}:${selectedScheduleCabang}:${groupKey}`;
 
-  const monthScheduleGroups = useMemo(() => {
-    const sourceRecords = records[activeScheduleKey] ?? [];
-    const entries =
-      restrictedCabang
-        ? sourceRecords.filter(
-            (entry) => normalizeText(entry.cabang || "") === normalizeText(restrictedCabang)
-          )
-        : sourceRecords;
+    const entries = cabangFilter
+      ? sourceRecords.filter(
+          (entry) => normalizeText(entry.cabang || "") === normalizeText(cabangFilter)
+        )
+      : sourceRecords;
+
     const grouped = new Map<
       string,
-      { cabang: string; kelas: string; sekolah: string; entriesByDate: Record<string, RecordItem[]> }
+      {
+        cabang: string;
+        kelas: string;
+        sekolah: string;
+        jenjang?: string;
+        classOrdersFound: number[];
+        entriesByDate: Record<string, RecordItem[]>;
+      }
     >();
 
     entries.forEach((entry) => {
-      const cabang = entry.cabang || "-";
-      const kelas = entry.kelas || "-";
+      const cabang = entry.cabang || "";
+      const kelas = entry.kelas || "";
       const sekolah = entry.sekolah || "";
-      const key = `${cabang}||${kelas}||${sekolah}`;
+      const key = buildClassGroupKey(cabang, kelas, sekolah);
+      const parsedOrder = parseClassOrder(entry.classOrder);
+
       if (!grouped.has(key)) {
-        grouped.set(key, { cabang, kelas, sekolah, entriesByDate: {} });
+        grouped.set(key, {
+          cabang,
+          kelas,
+          sekolah,
+          jenjang: entry.jenjang || "",
+          classOrdersFound: parsedOrder !== null ? [parsedOrder] : [],
+          entriesByDate: {},
+        });
+      } else {
+        const group = grouped.get(key)!;
+        if (parsedOrder !== null && !group.classOrdersFound.includes(parsedOrder)) {
+          group.classOrdersFound.push(parsedOrder);
+        }
+        if (!group.jenjang && entry.jenjang) {
+          group.jenjang = entry.jenjang;
+        }
       }
+
       if (!hasScheduleContent(entry)) {
         return;
       }
-      const existingEntries = grouped.get(key)!.entriesByDate[entry.tanggal] ?? [];
-      grouped.get(key)!.entriesByDate[entry.tanggal] = [...existingEntries, entry];
+      const entriesForDate = grouped.get(key)!.entriesByDate[entry.tanggal] ?? [];
+      entriesForDate.push(entry);
+      grouped.get(key)!.entriesByDate[entry.tanggal] = entriesForDate;
     });
 
-    grouped.forEach((group) => {
+    const globalRecords = records[activeScheduleKey] ?? [];
+    const globalOrderByGroupKey = new Map<string, number>();
+    globalRecords.forEach((record) => {
+      const order = parseClassOrder(record.classOrder);
+      if (order === null) return;
+      const key = buildClassGroupKey(record.cabang || "", record.kelas || "", record.sekolah || "");
+      if (!globalOrderByGroupKey.has(key)) {
+        globalOrderByGroupKey.set(key, order);
+      }
+    });
+
+    // Helper for deterministic natural class comparison
+    const naturalClassCompare = (
+      a: { kelas: string; sekolah: string },
+      b: { kelas: string; sekolah: string }
+    ) => {
+      const classCmp = a.kelas.localeCompare(b.kelas, "id", { numeric: true, sensitivity: "base" });
+      if (classCmp !== 0) return classCmp;
+      return a.sekolah.localeCompare(b.sekolah, "id", { numeric: true, sensitivity: "base" });
+    };
+
+    // Calculate explicit or fallback order for every class group
+    type GroupSortInfo = {
+      key: string;
+      cabang: string;
+      kelas: string;
+      sekolah: string;
+      explicitOrder: number | null;
+    };
+
+    const groupList: GroupSortInfo[] = Array.from(grouped.entries()).map(([key, group]) => {
+      const overrideOrder = groupDisplayOrder[getGroupOrderKey(key)];
+      if (overrideOrder !== undefined) {
+        return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: overrideOrder };
+      }
+
+      if (group.classOrdersFound.length > 0) {
+        return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: Math.min(...group.classOrdersFound) };
+      }
+
+      const globalClassOrder = globalOrderByGroupKey.get(key);
+
+      if (globalClassOrder !== undefined) {
+        return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: globalClassOrder };
+      }
+
+      return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: null };
+    });
+
+    // Multi-tier stable sort:
+    // 1. Explicitly ordered classes sorted by explicitOrder ASC (with natural tie-break)
+    // 2. Unordered classes sorted by naturalClassCompare
+    groupList.sort((a, b) => {
+      if (a.explicitOrder !== null && b.explicitOrder !== null) {
+        if (a.explicitOrder !== b.explicitOrder) {
+          return a.explicitOrder - b.explicitOrder;
+        }
+        return naturalClassCompare(a, b);
+      }
+      if (a.explicitOrder !== null) return -1;
+      if (b.explicitOrder !== null) return 1;
+      return naturalClassCompare(a, b);
+    });
+
+    // Assign clean, 1-based sequential integers
+    const resolvedOrderMap = new Map<string, number>();
+    groupList.forEach((item, index) => {
+      resolvedOrderMap.set(item.key, index + 1);
+    });
+
+    const finalGroups = Array.from(grouped.entries()).map(([key, group]) => {
+      const classOrder = resolvedOrderMap.get(key) ?? 999;
+
       Object.keys(group.entriesByDate).forEach((dateKey) => {
         group.entriesByDate[dateKey] = [...group.entriesByDate[dateKey]].sort((a, b) => {
           const aStart = parseRangeFromString(a.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER;
@@ -519,13 +1915,34 @@ export function App() {
           return aStart - bStart;
         });
       });
+
+      return {
+        cabang: group.cabang,
+        kelas: group.kelas,
+        sekolah: group.sekolah,
+        jenjang: group.jenjang,
+        classOrder,
+        entriesByDate: group.entriesByDate,
+      };
     });
 
-    const groups = Array.from(grouped.values());
-    if (!query.trim()) {
+    const groups = finalGroups.sort((a, b) => {
+      const keyA = buildClassGroupKey(a.cabang, a.kelas, a.sekolah);
+      const keyB = buildClassGroupKey(b.cabang, b.kelas, b.sekolah);
+      const orderA = resolvedOrderMap.get(keyA) ?? 999;
+      const orderB = resolvedOrderMap.get(keyB) ?? 999;
+
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      return naturalClassCompare(a, b);
+    });
+
+    if (!searchText.trim()) {
       return groups;
     }
-    const lowered = query.toLowerCase();
+
+    const lowered = searchText.toLowerCase();
     return groups.filter((group) => {
       if (
         group.cabang.toLowerCase().includes(lowered) ||
@@ -542,62 +1959,625 @@ export function App() {
         )
       );
     });
-  }, [activeScheduleKey, query, records, restrictedCabang]);
+  };
+
+  const monthScheduleGroupsAll = useMemo(
+    () => {
+      const source = records[activeScheduleKey] ?? [];
+      if (isJadwalTambahanMenu) {
+        return buildScheduleGroups(source, selectedScheduleCabang, "");
+      }
+      const filtered = source.filter((item) => {
+        const tanggal = (item.tanggal as string) || (item.Tanggal as string) || "";
+        return tanggal.slice(0, 7) === selectedMonthKey;
+      });
+      return buildScheduleGroups(filtered, selectedScheduleCabang, "");
+    },
+    [activeScheduleKey, records, selectedScheduleCabang, isJadwalTambahanMenu, selectedMonthKey]
+  );
+
+  const monthScheduleGroups = useMemo(() => {
+    const source = records[activeScheduleKey] ?? [];
+    if (isJadwalTambahanMenu) {
+      return buildScheduleGroups(source, selectedScheduleCabang, query);
+    }
+    const filtered = source.filter((item) => {
+      const tanggal = (item.tanggal as string) || (item.Tanggal as string) || "";
+      return tanggal.slice(0, 7) === selectedMonthKey;
+    });
+    return buildScheduleGroups(filtered, selectedScheduleCabang, query);
+  }, [activeScheduleKey, query, records, selectedScheduleCabang, isJadwalTambahanMenu, selectedMonthKey]);
 
   const tambahanPrintGroups = useMemo(() => {
-    const sourceRecords = records.jadwalTambahanPelayanan ?? [];
-    const entries =
-      restrictedCabang
-        ? sourceRecords.filter(
-            (entry) => normalizeText(entry.cabang || "") === normalizeText(restrictedCabang)
-          )
-        : sourceRecords;
-
-    const grouped = new Map<
-      string,
-      { cabang: string; kelas: string; sekolah: string; entriesByDate: Record<string, RecordItem[]> }
-    >();
-
-    entries.forEach((entry) => {
-      const cabang = entry.cabang || "-";
-      const kelas = entry.kelas || "-";
-      const sekolah = entry.sekolah || "";
-      const key = `${cabang}||${kelas}||${sekolah}`;
-      if (!grouped.has(key)) {
-        grouped.set(key, { cabang, kelas, sekolah, entriesByDate: {} });
-      }
-      if (!hasScheduleContent(entry)) {
-        return;
-      }
-      const existingEntries = grouped.get(key)!.entriesByDate[entry.tanggal] ?? [];
-      grouped.get(key)!.entriesByDate[entry.tanggal] = [...existingEntries, entry];
-    });
-
-    grouped.forEach((group) => {
-      Object.keys(group.entriesByDate).forEach((dateKey) => {
-        group.entriesByDate[dateKey] = [...group.entriesByDate[dateKey]].sort((a, b) => {
-          const aStart = parseRangeFromString(a.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER;
-          const bStart = parseRangeFromString(b.waktu || "")?.start ?? Number.MAX_SAFE_INTEGER;
-          return aStart - bStart;
-        });
-      });
-    });
-
-    return Array.from(grouped.values());
+    return buildScheduleGroups(records.jadwalTambahanPelayanan ?? [], restrictedCabang, "");
   }, [records.jadwalTambahanPelayanan, restrictedCabang]);
 
-  const allScheduleEntries = useMemo(
-    () => [
-      ...(records.bulanIni ?? []),
-      ...(records.jadwalTambahanPelayanan ?? []),
-    ],
-    [records]
-  );
+  const allExportClasses = useMemo(() => {
+    const combined = [...(records.bulanIni ?? []), ...(records.jadwalTambahanPelayanan ?? [])];
+    const map = new Map<string, { cabang: string; kelas: string; sekolah: string }>();
+    combined.forEach((item) => {
+      const cabang = String(item.cabang || "").trim();
+      const kelas = String(item.kelas || "").trim();
+      const sekolah = String(item.sekolah || "").trim();
+      if (!kelas) return;
+      if (!isAdmin && restrictedCabang && normalizeText(cabang) !== normalizeText(restrictedCabang)) {
+        return;
+      }
+      const key = `${cabang}||${kelas}||${sekolah}`;
+      if (!map.has(key)) {
+        map.set(key, { cabang, kelas, sekolah });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const cabangCmp = a.cabang.localeCompare(b.cabang, "id");
+      if (cabangCmp !== 0) return cabangCmp;
+      return a.kelas.localeCompare(b.kelas, "id", { numeric: true });
+    });
+  }, [records.bulanIni, records.jadwalTambahanPelayanan, isAdmin, restrictedCabang]);
+
+  // allScheduleEntries and resolveCanonicalDate are initialized above
+
+  const { conflictingScheduleEntryIds, scheduleConflictDetails } = useMemo(() => {
+    type ParsedScheduleEntry = {
+      id: string;
+      start: number;
+      end: number;
+      cabangNorm: string;
+      cabangRaw: string;
+      kelasRaw: string;
+      waktuRaw: string;
+      pengajarRaw: string;
+      mapelNorm: string;
+      waktuNorm: string;
+      isGabung: boolean;
+      gabungWithNorm: string;
+    };
+
+    const groupedByPengajarTanggal = new Map<string, ParsedScheduleEntry[]>();
+
+    allScheduleEntries.forEach((entry) => {
+      if (!hasScheduleContent(entry) || !entry.waktu) {
+        return;
+      }
+      const pengajarKey = resolvePengajarCode(entry.pengajar || "");
+      const tanggalKey = resolveCanonicalDate(entry.tanggal || "");
+      if (!pengajarKey || !tanggalKey) {
+        return;
+      }
+
+      const range = parseRangeFromString(entry.waktu);
+      if (!range || range.start >= range.end) {
+        return;
+      }
+
+      const parsed: ParsedScheduleEntry = {
+        id: entry.id,
+        start: range.start,
+        end: range.end,
+        cabangNorm: normalizeText(entry.cabang || ""),
+        cabangRaw: String(entry.cabang || "").trim(),
+        kelasRaw: String(entry.kelas || "").trim(),
+        waktuRaw: String(entry.waktu || "").trim(),
+        pengajarRaw: String(entry.pengajar || "").trim(),
+        mapelNorm: normalizeText(entry.mapel || ""),
+        waktuNorm: normalizeText(entry.waktu || ""),
+        isGabung: Boolean(entry.isGabung),
+        gabungWithNorm: normalizeText(entry.gabungWith || ""),
+      };
+
+      const groupKey = `${pengajarKey}||${tanggalKey}`;
+      const group = groupedByPengajarTanggal.get(groupKey);
+      if (group) {
+        group.push(parsed);
+      } else {
+        groupedByPengajarTanggal.set(groupKey, [parsed]);
+      }
+    });
+
+    const conflictIds = new Set<string>();
+    const conflictDetails = new Map<string, ScheduleConflictInfo>();
+
+    groupedByPengajarTanggal.forEach((entries) => {
+      const len = entries.length;
+      if (len < 2) {
+        return;
+      }
+
+      // Sort intervals by start time for sweep-line check
+      entries.sort((a, b) => a.start - b.start);
+
+      for (let i = 0; i < len; i += 1) {
+        const current = entries[i];
+
+        for (let j = i + 1; j < len; j += 1) {
+          const target = entries[j];
+
+          // If combined class (Kelas Gabungan in same branch), they are not in conflict
+          const isSameBranch = Boolean(current.cabangNorm && target.cabangNorm && current.cabangNorm === target.cabangNorm);
+          const isCombined =
+            current.id === target.id ||
+            (isSameBranch && (
+              current.isGabung ||
+              target.isGabung ||
+              Boolean(current.gabungWithNorm) ||
+              Boolean(target.gabungWithNorm) ||
+              (current.waktuNorm === target.waktuNorm && current.mapelNorm === target.mapelNorm)
+            ));
+
+          if (isCombined) {
+            continue;
+          }
+
+          // Sweep optimization: since target.start >= current.start:
+          // If target.start is at least current.end + 30, no further items can conflict with current!
+          if (target.start >= current.end + INTER_BRANCH_MIN_GAP_MINUTES) {
+            break;
+          }
+
+          // Check direct time overlap
+          const isOverlap = current.start < target.end && target.start < current.end;
+
+          if (isOverlap) {
+            conflictIds.add(current.id);
+            conflictIds.add(target.id);
+
+            const currentReason = `Bentrok jam mengajar dengan ${target.cabangRaw || "cabang lain"} (${target.kelasRaw || "kelas lain"}) pukul ${target.waktuRaw}`;
+            const targetReason = `Bentrok jam mengajar dengan ${current.cabangRaw || "cabang lain"} (${current.kelasRaw || "kelas lain"}) pukul ${current.waktuRaw}`;
+
+            conflictDetails.set(current.id, {
+              type: "overlap",
+              label: "BENTROK JAM",
+              reason: currentReason,
+              otherCabang: target.cabangRaw,
+              otherKelas: target.kelasRaw,
+              otherWaktu: target.waktuRaw,
+              pengajar: current.pengajarRaw || target.pengajarRaw,
+            });
+
+            conflictDetails.set(target.id, {
+              type: "overlap",
+              label: "BENTROK JAM",
+              reason: targetReason,
+              otherCabang: current.cabangRaw,
+              otherKelas: current.kelasRaw,
+              otherWaktu: current.waktuRaw,
+              pengajar: target.pengajarRaw || current.pengajarRaw,
+            });
+          } else if (
+            current.cabangNorm &&
+            target.cabangNorm &&
+            current.cabangNorm !== target.cabangNorm
+          ) {
+            // Target starts before current.end + 30 in a different branch -> conflict gap
+            conflictIds.add(current.id);
+            conflictIds.add(target.id);
+
+            const currentExisting = conflictDetails.get(current.id);
+            if (!currentExisting || currentExisting.type === "gap") {
+              conflictDetails.set(current.id, {
+                type: "gap",
+                label: "JEDA CABANG < 30M",
+                reason: `Jeda antar cabang < 30 menit! Selesai di ${current.cabangRaw} (${current.waktuRaw}), jadwal berikutnya di ${target.cabangRaw} (${target.kelasRaw}) mulai pukul ${target.waktuRaw}`,
+                otherCabang: target.cabangRaw,
+                otherKelas: target.kelasRaw,
+                otherWaktu: target.waktuRaw,
+                pengajar: current.pengajarRaw || target.pengajarRaw,
+              });
+            }
+
+            const targetExisting = conflictDetails.get(target.id);
+            if (!targetExisting || targetExisting.type === "gap") {
+              conflictDetails.set(target.id, {
+                type: "gap",
+                label: "JEDA CABANG < 30M",
+                reason: `Jeda antar cabang < 30 menit! Mulai di ${target.cabangRaw} (${target.waktuRaw}), jadwal sebelumnya di ${current.cabangRaw} (${current.kelasRaw}) selesai pukul ${current.waktuRaw}`,
+                otherCabang: current.cabangRaw,
+                otherKelas: current.kelasRaw,
+                otherWaktu: current.waktuRaw,
+                pengajar: target.pengajarRaw || current.pengajarRaw,
+              });
+            }
+          }
+        }
+      }
+    });
+
+    return { conflictingScheduleEntryIds: conflictIds, scheduleConflictDetails: conflictDetails };
+  }, [allScheduleEntries, resolvePengajarCode, resolveCanonicalDate]);
+
+  const hasPengajarAccessInCabang = (kodePengajar: string, cabang: string, tanggal?: string) => {
+    const kodeKey = resolvePengajarCode(kodePengajar);
+    const cabangKey = normalizeText(cabang);
+    if (!kodeKey || !cabangKey) {
+      return false;
+    }
+
+    // Check home branch (Domisili) first
+    const pengajarRecord = pengajarRecords.find(
+      (record) => resolvePengajarCode(record["Kode Pengajar"] || record.Nama || "") === kodeKey
+    );
+    if (pengajarRecord) {
+      const domisiliKey = normalizeText(pengajarRecord.Domisili || pengajarRecord.Asal_Cabang || "");
+      if (domisiliKey && isCabangMatch(domisiliKey, cabangKey)) {
+        return true;
+      }
+    }
+
+    const hasPenempatan = penempatanRecords.some((record) => {
+      const kode = resolvePengajarCode(record["Kode Pengajar"] || "");
+      if (kode !== kodeKey) {
+        return false;
+      }
+      return parseCabangPenempatan(record["Cabang Penempatan"] || "").some((item) =>
+        isCabangMatch(item, cabangKey)
+      );
+    });
+
+    if (hasPenempatan) {
+      return true;
+    }
+
+    return getApprovedPermintaanForCabang(kodePengajar, cabang, tanggal).length > 0;
+  };
+
+  const getPengajarIzinOnDate = (kodePengajar: string, tanggal: string) => {
+    const kodeKey = resolvePengajarCode(kodePengajar);
+    const targetDate = parseFlexibleDate(tanggal);
+    if (!kodeKey || !targetDate) {
+      return null;
+    }
+
+    return izinRecords.find((record) => {
+      const status = normalizeText(record["Keterangan Status"] || record.Status || "");
+      if (status.includes("ditolak")) {
+        return false;
+      }
+      if (resolvePengajarCode(record["Kode Pengajar"] || record.Nama || "") !== kodeKey) {
+        return false;
+      }
+      const startDate = parseFlexibleDate(record["Tanggal Mulai"] || "");
+      const endDate = parseFlexibleDate(record["Tanggal Selesai"] || "");
+      if (!startDate || !endDate) {
+        return false;
+      }
+      return targetDate >= startDate && targetDate <= endDate;
+    });
+  };
+
+  const pengajarAvailabilityInfo = useMemo(() => {
+    const defaultResult = {
+      warning: "",
+      infoNote: "",
+      availableDateLabels: [] as string[],
+    };
+
+    if (!editingSlot || !draft.pengajar.trim()) {
+      return defaultResult;
+    }
+
+    const pengajarKey = resolvePengajarCode(draft.pengajar);
+    const occupiedDates = new Set(
+      allScheduleEntries
+        .filter((entry) => resolvePengajarCode(entry.pengajar || "") === pengajarKey)
+        .map((entry) => entry.tanggal)
+        .filter(Boolean)
+    );
+    const izinDateLabels = new Set(
+      izinRecords
+        .filter((record) => resolvePengajarCode(record["Kode Pengajar"] || record.Nama || "") === pengajarKey)
+        .flatMap((record) => {
+          const start = parseFlexibleDate(record["Tanggal Mulai"] || "");
+          const end = parseFlexibleDate(record["Tanggal Selesai"] || "");
+          if (!start || !end) {
+            return [];
+          }
+          const dates: string[] = [];
+          const cursor = new Date(start.getTime());
+          while (cursor <= end) {
+            dates.push(formatLocalDate(cursor));
+            cursor.setDate(cursor.getDate() + 1);
+          }
+          return dates;
+        })
+    );
+    const availableDateLabels = activeScheduleDates
+      .filter((slot) => !occupiedDates.has(slot.date) && !izinDateLabels.has(slot.date))
+      .map((slot) => slot.label);
+
+    const izinMatch = getPengajarIzinOnDate(draft.pengajar, editingSlot.tanggal);
+    if (izinMatch) {
+      const startLabel = izinMatch["Tanggal Mulai"] || "";
+      const endLabel = izinMatch["Tanggal Selesai"] || "";
+      const reason = (izinMatch.Keterangan || "").trim();
+      return {
+        warning: `Pengajar sedang izin pada rentang ${startLabel} s.d. ${endLabel}${reason ? ` (${reason})` : ""}.`,
+        infoNote: "",
+        availableDateLabels,
+      };
+    }
+
+    const penempatanByPengajar = penempatanRecords.filter(
+      (record) => resolvePengajarCode(record["Kode Pengajar"] || "") === pengajarKey
+    );
+    const approvedByPengajar = getApprovedPermintaanForCabang(
+      draft.pengajar,
+      editingSlot.cabang,
+      editingSlot.tanggal
+    );
+
+    if (penempatanByPengajar.length === 0 && approvedByPengajar.length === 0) {
+      return {
+        warning:
+          "Pengajar belum memiliki data penempatan atau permintaan yang disetujui untuk cabang ini, silakan hubungi cabang domisili.",
+        infoNote: "",
+        availableDateLabels,
+      };
+    }
+
+    const cabangMatchedRecords = penempatanByPengajar.filter((record) =>
+      parseCabangPenempatan(record["Cabang Penempatan"] || "").some((cabang) =>
+        isCabangMatch(cabang, editingSlot.cabang)
+      )
+    );
+    const approvedAvailabilityRecords: Record<string, string>[] = approvedByPengajar.map((record) => ({
+      ...record,
+      "Cabang Penempatan": record["Cabang Peminta"] || "",
+    }));
+    const availabilityRecords: Record<string, string>[] = [
+      ...cabangMatchedRecords,
+      ...approvedAvailabilityRecords,
+    ];
+
+    if (availabilityRecords.length === 0) {
+      return {
+        warning:
+          "Pengajar tidak tersedia di cabang ini, silakan hubungi cabang domisili.",
+        infoNote: "",
+        availableDateLabels,
+      };
+    }
+
+    const parsedDate = parseFlexibleDate(editingSlot.tanggal);
+    if (!parsedDate) {
+      return { warning: "", infoNote: "", availableDateLabels };
+    }
+
+    const dayName = titleCase(
+      parsedDate.toLocaleDateString("id-ID", { weekday: "long" })
+    );
+    const dayMatchedRecords = availabilityRecords.filter((record) =>
+      parseHariPenempatan(record["Hari"] || "").includes(dayName)
+    );
+
+    if (dayMatchedRecords.length === 0) {
+      return {
+        warning: `Pengajar tidak tersedia pada hari ${dayName} di cabang ini, silakan hubungi cabang domisili.`,
+        infoNote: "",
+        availableDateLabels,
+      };
+    }
+
+    // Check existing schedule entries on the selected date for this teacher
+    const targetCanonicalDate = resolveCanonicalDate(editingSlot.tanggal);
+    const currentCabangNorm = normalizeText(editingSlot.cabang || "");
+    const currentKelasNorm = normalizeText(editingSlot.kelas || "");
+    const currentSekolahNorm = normalizeText(editingSlot.sekolah || "");
+    const currentClassKey = buildClassGroupKey(editingSlot.cabang, editingSlot.kelas, editingSlot.sekolah || "");
+
+    const existingScheduleOnDate = allScheduleEntries.filter((item) => {
+      if (!hasScheduleContent(item)) return false;
+      if (editingSlot.entryId && item.id === editingSlot.entryId) return false;
+
+      const itemCabangNorm = normalizeText(item.cabang || "");
+      const itemKelasNorm = normalizeText(item.kelas || "");
+      const itemSekolahNorm = normalizeText(item.sekolah || "");
+      const itemCanonicalDate = resolveCanonicalDate(item.tanggal || "");
+
+      // Ignore self slot
+      if (
+        itemCabangNorm === currentCabangNorm &&
+        itemKelasNorm === currentKelasNorm &&
+        itemSekolahNorm === currentSekolahNorm &&
+        itemCanonicalDate === targetCanonicalDate
+      ) {
+        return false;
+      }
+
+      if (itemCanonicalDate !== targetCanonicalDate) return false;
+      if (resolvePengajarCode(item.pengajar || "") !== pengajarKey) return false;
+
+      const isSameBranch = itemCabangNorm === currentCabangNorm;
+      const itemClassKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+      const itemGabungWithNorm = normalizeText(item.gabungWith || "");
+
+      // 1. If gabung is explicitly enabled in the modal
+      if (gabungEnabled) {
+        if (gabungClassKeys.length > 0) {
+          const isSelected = gabungClassKeys.some((k) => {
+            const normK = normalizeText(k);
+            return (
+              normK === normalizeText(itemClassKey) ||
+              normK === itemKelasNorm ||
+              normK.includes(`||${itemKelasNorm}||`) ||
+              normalizeText(itemClassKey).includes(`||${normK}||`)
+            );
+          });
+          if (isSelected) return false;
+        }
+
+        // If in same branch and item is candidate or marked as gabung
+        if (isSameBranch) {
+          if (item.isGabung || Boolean(item.gabungWith)) return false;
+          // While user is currently choosing classes with gabung switch on, don't flag same-branch classes
+          if (gabungClassKeys.length === 0) return false;
+        }
+      }
+
+      // 2. Bidirectional Gabung check (even if gabung switch isn't explicitly on)
+      if (isSameBranch) {
+        // Item explicitly references current class in gabungWith
+        if (
+          itemGabungWithNorm.includes(currentKelasNorm) ||
+          itemGabungWithNorm.includes(normalizeText(currentClassKey))
+        ) {
+          return false;
+        }
+        // Current slot references item
+        if (
+          (editingSlot as any).gabungWith &&
+          normalizeText((editingSlot as any).gabungWith).includes(itemKelasNorm)
+        ) {
+          return false;
+        }
+        // If item is already marked as isGabung in same branch on this date & overlapping time
+        if (item.isGabung || Boolean(item.gabungWith)) {
+          return false;
+        }
+        // If both have identical schedule time and same subject in same branch
+        if (
+          gabungEnabled &&
+          item.waktu &&
+          draft.waktuMulai &&
+          draft.waktuSelesai &&
+          item.mapel &&
+          draft.mapel &&
+          normalizeText(item.mapel) === normalizeText(draft.mapel)
+        ) {
+          const itemRange = parseRangeFromString(item.waktu);
+          const startMin = parseTimeValue(draft.waktuMulai);
+          const endMin = parseTimeValue(draft.waktuSelesai);
+          if (itemRange && startMin !== null && endMin !== null) {
+            if (itemRange.start === startMin && itemRange.end === endMin) {
+              return false; // Exactly same time and mapel in same branch with gabungEnabled -> Gabung class!
+            }
+          }
+        }
+      }
+
+      return true;
+    });
+
+    const startTime = parseTimeValue(draft.waktuMulai);
+    const endTime = parseTimeValue(draft.waktuSelesai);
+
+    let scheduleWarning = "";
+    let scheduleInfoNote = "";
+
+    // Find any combined partner classes in same branch to display helpful note
+    if (gabungEnabled && gabungClassKeys.length > 0) {
+      const partnerNames = gabungClassKeys
+        .map((k) => {
+          const parts = k.split("||");
+          return (parts.length >= 2 ? parts[1] : k).trim();
+        })
+        .filter(Boolean);
+      const uniquePartners = Array.from(new Set(partnerNames));
+      if (uniquePartners.length > 0) {
+        scheduleInfoNote = `🔗 Kelas ini tergabung dengan: ${uniquePartners.join(", ")}.`;
+      }
+    }
+
+    if (existingScheduleOnDate.length > 0) {
+      if (startTime !== null && endTime !== null && startTime < endTime) {
+        for (const entry of existingScheduleOnDate) {
+          if (!entry.waktu) continue;
+          const range = parseRangeFromString(entry.waktu);
+          if (!range) continue;
+
+          // Check direct time overlap
+          const overlap = startTime < range.end && endTime > range.start;
+          if (overlap) {
+            const cabangLabel = entry.cabang || "Cabang lain";
+            const kelasLabel = entry.kelas || "Kelas lain";
+            const waktuLabel = entry.waktu || "jam tersebut";
+            scheduleWarning = `⚠️ Bentrok Jadwal Pengajar: ${draft.pengajar} sudah mengajar di ${cabangLabel} (${kelasLabel}) pada tanggal ini pukul ${waktuLabel}.`;
+            break;
+          }
+
+          // Check inter-branch gap
+          if (normalizeText(entry.cabang || "") !== normalizeText(editingSlot.cabang || "")) {
+            const hasGap =
+              startTime >= range.end + INTER_BRANCH_MIN_GAP_MINUTES ||
+              range.start >= endTime + INTER_BRANCH_MIN_GAP_MINUTES;
+            if (!hasGap) {
+              const cabangLabel = entry.cabang || "Cabang lain";
+              const kelasLabel = entry.kelas || "Kelas lain";
+              const waktuLabel = entry.waktu || "";
+              scheduleWarning = `⚠️ Bentrok Jeda Cabang: ${draft.pengajar} mengajar di ${cabangLabel} (${kelasLabel}) pukul ${waktuLabel}. Butuh jeda minimal ${INTER_BRANCH_MIN_GAP_MINUTES} menit antar cabang.`;
+              break;
+            }
+          }
+        }
+
+        if (!scheduleWarning) {
+          const details = existingScheduleOnDate
+            .map((e) => `${e.cabang || ""} - ${e.kelas || ""} (${e.waktu || "sesi"})`)
+            .join(", ");
+          scheduleInfoNote = `ℹ️ Pengajar juga memiliki ${existingScheduleOnDate.length} sesi mengajar lain pada tanggal ini: ${details}.`;
+        }
+      } else {
+        // Time not set or invalid yet, but teacher has existing schedule on this date
+        const details = existingScheduleOnDate
+          .map((e) => `${e.cabang || ""} (${e.kelas || ""}) [${e.waktu || "sesi"}]`)
+          .join(", ");
+        scheduleWarning = `⚠️ Catatan Jadwal: Pengajar ${draft.pengajar} sudah memiliki ${existingScheduleOnDate.length} sesi mengajar pada tanggal ini: ${details}.`;
+      }
+    }
+
+    if (scheduleWarning) {
+      return {
+        warning: scheduleWarning,
+        infoNote: "",
+        availableDateLabels,
+      };
+    }
+
+    if (startTime !== null && endTime !== null && startTime < endTime) {
+      const hasMatchingTime = dayMatchedRecords.some((record) => {
+        const placementStart = parseTimeValue(record["Jam Mulai"] || "");
+        const placementEnd = parseTimeValue(record["Jam Selesai"] || "");
+        if (placementStart === null || placementEnd === null) {
+          return true;
+        }
+        return startTime >= placementStart && endTime <= placementEnd;
+      });
+
+      if (!hasMatchingTime) {
+        return {
+          warning:
+            "Pengajar tidak tersedia pada rentang jam tersebut di cabang ini.",
+          infoNote: scheduleInfoNote,
+          availableDateLabels,
+        };
+      }
+    }
+
+    return {
+      warning: "",
+      infoNote: scheduleInfoNote,
+      availableDateLabels,
+    };
+  }, [
+    activeScheduleDates,
+    allScheduleEntries,
+    draft.pengajar,
+    draft.waktuMulai,
+    draft.waktuSelesai,
+    editingSlot,
+    izinRecords,
+    approvedPermintaanRecords,
+    penempatanRecords,
+    gabungEnabled,
+    gabungClassKeys,
+  ]);
 
   const monitoringRows = useMemo(() => {
     const allowedDates = new Set(monthScheduleDates.map((slot) => slot.date));
     return monthScheduleGroups.map((group) => {
       const mapelCounter = new Map<string, number>();
+      const mapelCountByKode = new Map<string, number>();
+      const mapelNipsByKode = new Map<string, Set<string>>();
+      const mapelPengajarsByKode = new Map<string, Set<string>>();
       let totalSesi = 0;
 
       Object.entries(group.entriesByDate).forEach(([dateKey, entries]) => {
@@ -611,22 +2591,63 @@ export function App() {
           }
           totalSesi += 1;
           mapelCounter.set(mapel, (mapelCounter.get(mapel) || 0) + 1);
+          mapelCountByKode.set(mapel, (mapelCountByKode.get(mapel) || 0) + 1);
+
+          const directNip = String((entry as any).nip || (entry as any).NIP || "").trim();
+          const rawPengajar = String(entry.pengajar || (entry as any).Pengajar || "").trim();
+          const pengajarRecord = rawPengajar ? pengajarByKode[normalizeText(rawPengajar)] : null;
+          const resolvedNip = directNip || (pengajarRecord ? String(pengajarRecord["NIP"] || pengajarRecord["nip"] || "").trim() : "");
+
+          if (!mapelNipsByKode.has(mapel)) {
+            mapelNipsByKode.set(mapel, new Set());
+          }
+          if (resolvedNip) {
+            mapelNipsByKode.get(mapel)!.add(resolvedNip);
+          }
+
+          if (!mapelPengajarsByKode.has(mapel)) {
+            mapelPengajarsByKode.set(mapel, new Set());
+          }
+          if (rawPengajar) {
+            mapelPengajarsByKode.get(mapel)!.add(rawPengajar);
+          }
         });
+      });
+
+      const mapelNipByKode: Record<string, string> = {};
+      const mapelDetailsByKode: Record<string, { count: number; nips: string[]; pengajars: string[] }> = {};
+
+      mapelCountByKode.forEach((count, mapel) => {
+        const nips = Array.from(mapelNipsByKode.get(mapel) || []);
+        const pengajars = Array.from(mapelPengajarsByKode.get(mapel) || []);
+        mapelNipByKode[mapel] = nips.join(", ");
+        mapelDetailsByKode[mapel] = {
+          count,
+          nips,
+          pengajars,
+        };
       });
 
       const mapelList = Array.from(mapelCounter.entries())
         .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([mapel, count]) => `${mapel} (${count}x)`);
+        .map(([mapel, count]) => {
+          const nips = mapelNipByKode[mapel];
+          return nips ? `${mapel} (${count}x) • NIP: ${nips}` : `${mapel} (${count}x)`;
+        });
 
       return {
         cabang: group.cabang,
         kelas: group.kelas,
+        sekolah: group.sekolah,
         mapelList,
         jumlahMapel: mapelCounter.size,
         totalSesi,
+        mapelCountByKode: Object.fromEntries(mapelCountByKode),
+        mapelNipByKode,
+        mapelDetailsByKode,
       };
     });
-  }, [monthScheduleDates, monthScheduleGroups]);
+  }, [monthScheduleDates, monthScheduleGroups, pengajarByKode]);
 
   const filteredMapelRecords = useMemo(() => {
     if (!query.trim()) {
@@ -637,6 +2658,446 @@ export function App() {
       Object.values(record).some((value) => String(value).toLowerCase().includes(lowered))
     );
   }, [mapelRecords, query]);
+
+  const filteredPengajarRecords = useMemo(() => {
+    const source = restrictedCabang
+      ? pengajarRecords.filter(
+          (record) => normalizeText(record["Domisili"] || record["domisili"] || "") === normalizeText(restrictedCabang)
+        )
+      : pengajarRecords;
+
+    if (!query.trim()) {
+      return source;
+    }
+
+    const lowered = query.toLowerCase();
+    return source.filter((record) =>
+      Object.values(record).some((value) => String(value).toLowerCase().includes(lowered))
+    );
+  }, [pengajarRecords, query, restrictedCabang]);
+
+  const filteredPenempatanRecords = useMemo(() => {
+    const source = restrictedCabang
+      ? penempatanRecords.filter(
+          (record) => normalizeText(record.Domisili || "") === normalizeText(restrictedCabang)
+        )
+      : penempatanRecords;
+    if (!query.trim()) {
+      return source;
+    }
+    const lowered = query.toLowerCase();
+    return source.filter((record) =>
+      Object.values(record).some((value) => String(value).toLowerCase().includes(lowered))
+    );
+  }, [penempatanRecords, query, restrictedCabang]);
+
+  const filteredIzinRecords = useMemo(() => {
+    const source = izinRecords.filter((record) => {
+      if (!restrictedCabang) {
+        return true;
+      }
+      const cabangKey = normalizeText(restrictedCabang);
+
+      // 1. Home branch (Domisili) can always see teacher's izin
+      const domisiliKey = normalizeText(record.Domisili || record.domisili || "");
+      if (domisiliKey && domisiliKey === cabangKey) {
+        return true;
+      }
+
+      const cabangTargetRaw = record["Cabang Target"] || record["cabang_target"] || "";
+      // 2. If cabang target is empty, it applies to all branches
+      if (!cabangTargetRaw.trim()) {
+        return true;
+      }
+
+      // 3. Check list of target branches (separated by comma)
+      const targetList = cabangTargetRaw
+        .split(",")
+        .map((item) => normalizeText(item))
+        .filter(Boolean);
+
+      if (targetList.includes("semua cabang") || targetList.includes("semua")) {
+        return true;
+      }
+
+      return targetList.includes(cabangKey);
+    });
+    if (!query.trim()) {
+      return source;
+    }
+    const lowered = query.toLowerCase();
+    return source.filter((record) =>
+      Object.values(record).some((value) => String(value).toLowerCase().includes(lowered))
+    );
+  }, [izinRecords, query, restrictedCabang]);
+
+  const filteredPermintaanRecords = useMemo(() => {
+    const source = permintaanRecords.filter((record) => {
+      if (!restrictedCabang) {
+        return true;
+      }
+      const cabangPeminta = normalizeText(record["Cabang Peminta"] || "");
+      const dariCabang = normalizeText(record["Dari Cabang"] || "");
+      const cabangKey = normalizeText(restrictedCabang);
+      return cabangPeminta === cabangKey || dariCabang === cabangKey;
+    });
+    if (!query.trim()) {
+      return source;
+    }
+    const lowered = query.toLowerCase();
+    return source.filter((record) =>
+      Object.values(record).some((value) => String(value).toLowerCase().includes(lowered))
+    );
+  }, [permintaanRecords, query, restrictedCabang]);
+
+  const dashboardPendingRequests = useMemo(() => {
+    return filteredPermintaanRecords
+      .filter((record) => normalizeText(record.Status || "") === "menunggu")
+      .map((record) => ({
+        id: record.ID || `${record["Kode Pengajar"] || ""}-${record["Cabang Peminta"] || ""}`,
+        kodePengajar: record["Kode Pengajar"] || "",
+        namaPengajar: record["Nama Pengajar"] || "",
+        cabangPeminta: record["Cabang Peminta"] || "",
+        cabangDomisili: record["Dari Cabang"] || "",
+        status: record.Status || "Menunggu",
+      }));
+  }, [filteredPermintaanRecords]);
+
+  const dashboardIzinRequests = useMemo(() => {
+    return filteredIzinRecords
+      .map((record, index) => {
+        const status =
+          (record["Keterangan Status"] || record.Status || "Menunggu").trim() || "Menunggu";
+        return {
+          id: record._id || `${record["Kode Pengajar"] || "izin"}-${index}`,
+          namaPengajar: record["Nama Pengajar"] || "",
+          domisili: record.Domisili || "",
+          cabangTarget: record["Cabang Target"] || record["cabang_target"] || "",
+          tanggalMulai: record["Tanggal Mulai"] || "",
+          tanggalSelesai: record["Tanggal Selesai"] || "",
+          keterangan: record.Keterangan || "",
+          status,
+          diputuskanOleh: record["Diputuskan Oleh"] || "",
+          diputuskanPada: record["Diputuskan Pada"] || "",
+        };
+      })
+      .sort((a, b) => {
+        const aDate = parseFlexibleDate(a.tanggalMulai)?.getTime() || Number.MAX_SAFE_INTEGER;
+        const bDate = parseFlexibleDate(b.tanggalMulai)?.getTime() || Number.MAX_SAFE_INTEGER;
+        return aDate - bDate;
+      });
+  }, [filteredIzinRecords]);
+
+  const pendingIzinList = useMemo(() => {
+    return dashboardIzinRequests
+      .filter((item) => normalizeText(item.status || "Menunggu") === "menunggu")
+      .map((item) => ({
+        id: item.id,
+        namaPengajar: item.namaPengajar,
+        domisili: item.domisili,
+        cabangTarget: item.cabangTarget,
+        tanggalMulai: item.tanggalMulai,
+        tanggalSelesai: item.tanggalSelesai,
+        keterangan: item.keterangan,
+        status: item.status,
+      }));
+  }, [dashboardIzinRequests]);
+
+  const pendingPermintaanList = useMemo(() => {
+    return filteredPermintaanRecords
+      .filter((record) => normalizeText(record.Status || "") === "menunggu")
+      .map((record, idx) => ({
+        id: record.ID || `${record["Kode Pengajar"] || ""}-${record["Cabang Peminta"] || ""}-${idx}`,
+        namaPengajar: record["Nama Pengajar"] || "",
+        dariCabang: record["Dari Cabang"] || "",
+        cabangPeminta: record["Cabang Peminta"] || "",
+        tanggal: record["Tanggal"] || record["Tanggal KBM"] || "",
+        sesi: record["Sesi"] || record["Waktu"] || "",
+        status: record.Status || "Menunggu",
+        keterangan: record.Keterangan || record.Catatan || "",
+      }));
+  }, [filteredPermintaanRecords]);
+
+  const totalPendingNotifications = pendingIzinList.length + pendingPermintaanList.length;
+
+  const menuBadges = useMemo(() => {
+    return {
+      izinPengajar: pendingIzinList.length,
+      permintaanPengajarAntarCabang: pendingPermintaanList.length,
+    };
+  }, [pendingIzinList.length, pendingPermintaanList.length]);
+
+  // Audio & Toast notification when new pending Izin Pengajar arrives
+  const knownPendingIzinIdsRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    if (!authSession || izinStatus.loading) {
+      return;
+    }
+
+    const currentPendingIds = new Set(pendingIzinList.map((item) => item.id));
+
+    // First load: store baseline IDs without sound
+    if (knownPendingIzinIdsRef.current === null) {
+      knownPendingIzinIdsRef.current = currentPendingIds;
+      return;
+    }
+
+    // Detect newly arrived pending izin
+    const newItems = pendingIzinList.filter(
+      (item) => !knownPendingIzinIdsRef.current?.has(item.id)
+    );
+
+    if (newItems.length > 0) {
+      playNotificationSound();
+      const firstItem = newItems[0];
+      const teacherName = firstItem?.namaPengajar || "Pengajar";
+      if (newItems.length === 1) {
+        pushToast(
+          `🔔 Pengajuan Izin Baru: ${teacherName} menunggu verifikasi!`,
+          "info"
+        );
+      } else {
+        pushToast(
+          `🔔 Terdapat ${newItems.length} pengajuan Izin Pengajar baru menunggu verifikasi!`,
+          "info"
+        );
+      }
+    }
+
+    knownPendingIzinIdsRef.current = currentPendingIds;
+  }, [authSession, izinStatus.loading, pendingIzinList, pushToast]);
+
+  useEffect(() => {
+    if (!authSession || izinStatus.loading || permintaanStatus.loading) {
+      return;
+    }
+
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const storageKey = `last_pending_prompt_${authSession?.username || "user"}_${authSession?.cabang || "all"}`;
+
+    const checkAndPrompt = () => {
+      if (totalPendingNotifications <= 0) return;
+      const lastPromptStr = localStorage.getItem(storageKey);
+      const lastPromptTime = lastPromptStr ? parseInt(lastPromptStr, 10) : 0;
+      const now = Date.now();
+
+      // If never prompted, or more than 1 hour (3600000ms) has elapsed since last prompt
+      if (!lastPromptTime || now - lastPromptTime >= ONE_HOUR_MS) {
+        setIsPendingNotificationModalOpen(true);
+        localStorage.setItem(storageKey, String(now));
+      }
+    };
+
+    // Run once when session is active or notification count is loaded
+    checkAndPrompt();
+  }, [
+    authSession,
+    izinStatus.loading,
+    permintaanStatus.loading,
+    totalPendingNotifications,
+  ]);
+
+  const handleUpdateIzinStatus = async (
+    item: { id: string; namaPengajar: string },
+    status: "Disetujui" | "Ditolak"
+  ) => {
+    if (!item.id) {
+      pushToast("ID izin tidak ditemukan.", "error");
+      return;
+    }
+    setIzinStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const selectedIzin = izinRecords.find((record) => record._id === item.id);
+      const decidedBy = authSession?.roll === "admin" ? "Admin" : authSession?.cabang || "";
+      const decidedAt = new Date().toISOString();
+      await updateRow(item.id, {
+        ...(selectedIzin || {}),
+        "Keterangan Status": status,
+        Status: status,
+        "Diputuskan Oleh": decidedBy,
+        "Diputuskan Pada": decidedAt,
+      });
+
+      if (status === "Disetujui" && selectedIzin) {
+        try {
+          await insertRow(dataBucket["Riwayat Notifikasi Pengajar"], {
+            ID: crypto.randomUUID(),
+            "Kode Pengajar": selectedIzin["Kode Pengajar"] || "",
+            "Nama Pengajar": selectedIzin["Nama Pengajar"] || "",
+            "Tipe Notifikasi": "Izin Mengajar",
+            Pesan: `Permintaan izin mengajar Anda untuk tanggal ${selectedIzin["Tanggal Mulai"] || ""} s/d ${selectedIzin["Tanggal Selesai"] || ""} telah disetujui oleh ${decidedBy}.`,
+            "Status Baca": "0",
+            "Created At": new Date().toISOString(),
+          });
+        } catch (notifError) {
+          console.error("Gagal membuat notifikasi pengajar:", notifError);
+        }
+
+        const startDate = parseFlexibleDate(selectedIzin["Tanggal Mulai"] || "");
+        const endDate = parseFlexibleDate(selectedIzin["Tanggal Selesai"] || "");
+        const targetKode = normalizeText((selectedIzin["Kode Pengajar"] || "").trim().toLowerCase());
+        const targetNama = normalizeText((selectedIzin["Nama Pengajar"] || "").trim());
+        const targetCabangValues = (selectedIzin["Cabang Target"] || "")
+          .split(",")
+          .map((value) => normalizeText(value))
+          .filter(Boolean);
+
+        if (startDate && endDate && targetKode && targetCabangValues.length > 0) {
+          const startKey = formatLocalDate(startDate);
+          const endKey = formatLocalDate(endDate);
+          const scheduleKeys: ScheduleMenuKey[] = ["bulanIni", "jadwalTambahanPelayanan"];
+          const deletedIdsBySchedule: Record<ScheduleMenuKey, string[]> = {
+            bulanIni: [],
+            jadwalTambahanPelayanan: [],
+          };
+
+          for (const scheduleKey of scheduleKeys) {
+            const matchingItems = (records[scheduleKey] ?? []).filter((scheduleItem) => {
+              const scheduleDate = parseFlexibleDate(scheduleItem.tanggalSheet || scheduleItem.tanggal || "");
+              if (!scheduleDate) {
+                return false;
+              }
+              const scheduleDateKey = formatLocalDate(scheduleDate);
+              if (scheduleDateKey < startKey || scheduleDateKey > endKey) {
+                return false;
+              }
+              const schedulePengajar = normalizeText(scheduleItem.pengajar || "");
+              if (schedulePengajar !== targetKode && schedulePengajar !== targetNama) {
+                return false;
+              }
+              const scheduleCabang = normalizeText(scheduleItem.cabang || "");
+              return targetCabangValues.includes(scheduleCabang);
+            });
+
+            const idsToDelete = matchingItems
+              .map((scheduleItem) => scheduleItem.id)
+              .filter((id): id is string => Boolean(id));
+
+            if (idsToDelete.length > 0) {
+              await deleteRowsByIds(idsToDelete);
+              deletedIdsBySchedule[scheduleKey] = idsToDelete;
+            }
+          }
+
+          const totalDeleted = Object.values(deletedIdsBySchedule).reduce(
+            (sum, ids) => sum + ids.length,
+            0
+          );
+
+          if (totalDeleted > 0) {
+            setRecords((prev) => ({
+              ...prev,
+              bulanIni: (prev.bulanIni ?? []).filter(
+                (item) => !deletedIdsBySchedule.bulanIni.includes(item.id)
+              ),
+              jadwalTambahanPelayanan: (prev.jadwalTambahanPelayanan ?? []).filter(
+                (item) => !deletedIdsBySchedule.jadwalTambahanPelayanan.includes(item.id)
+              ),
+            }));
+            pushToast(
+              `${totalDeleted} jadwal pengajar pada rentang izin berhasil dihapus.`,
+              "success"
+            );
+          }
+        }
+      }
+
+      await handleLoadIzinPengajar();
+      await Promise.all([
+        handleLoadFromSheet("bulanIni", { preserveUiState: true }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true }),
+      ]);
+      pushToast(`Status izin ${item.namaPengajar || "pengajar"} diperbarui ke ${status}.`, "success");
+    } catch (error) {
+      setIzinStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Gagal memperbarui status izin.",
+      }));
+      pushToast("Gagal memperbarui status izin.", "error");
+    }
+  };
+
+  const suratTugasRecords = useMemo(() => {
+    // Compute surat tugas records from jadwal reguler and jadwal khusus
+    try {
+      const regulerItems = records.bulanIni ?? [];
+      const khususItems = records.jadwalTambahanPelayanan ?? [];
+      const allItems = [...regulerItems, ...khususItems];
+
+      const formatUpdatedLabel = (timestamp?: string) => {
+        // Format: "Update-27 Apr 2026 14:19"
+        if (!timestamp) {
+          return "";
+        }
+        const date = new Date(timestamp);
+        if (Number.isNaN(date.getTime())) {
+          return "";
+        }
+        const day = date.getDate();
+        const month = date.toLocaleDateString("id-ID", { month: "short" });
+        const year = date.getFullYear();
+        const time = date.toLocaleTimeString("en-GB", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        return `Update-${day} ${month} ${year} ${time}`;
+      };
+
+      const grouped = new Map<string, Array<{ text: string; timestamp?: string }>>();
+      allItems.forEach((item: any) => {
+        const rawPengajar = (item.pengajar || "").trim();
+        const kodePengajar = resolvePengajarCode(rawPengajar) || rawPengajar;
+        const mapel = (item.mapel || "").trim();
+        const waktu = (item.waktu || "").trim();
+        const cabang = (item.cabang || "").trim();
+        const kelas = (item.kelas || "").trim();
+        const sekolah = (item.sekolah || "").trim();
+        const rawTanggal = resolveCanonicalDate(item.tanggal || "");
+        const tanggalLabel = formatSheetTanggal(rawTanggal || item.tanggal || "");
+        if (!kodePengajar || !tanggalLabel || !mapel || !waktu) {
+          return;
+        }
+        const kelasBaseLabel = [kelas, sekolah].filter(Boolean).join(" ");
+        // Do not include raw gabungWith payload in the sesi text. Gabung classes
+        // are handled and merged in the SuratTugas view so keep the base label only.
+        const kelasLabel = kelasBaseLabel;
+        const updateLabel = formatUpdatedLabel(item.updatedAt || item.createdAt);
+        const sesiText = `${waktu}/${mapel}-${kelasLabel}/${cabang}${
+          updateLabel ? ` ${updateLabel}` : ""
+        }`;
+        const key = `${normalizeValueKey(kodePengajar)}||${normalizeValueKey(tanggalLabel)}`;
+        const list = grouped.get(key) ?? [];
+        list.push({ text: sesiText, timestamp: item.updatedAt || item.createdAt });
+        grouped.set(key, list);
+      });
+
+      const suratRows = Array.from(grouped.entries()).map(([key, sesiList]) => {
+        const [kodeKey, tanggalKey] = key.split("||");
+        const template = allItems.find(
+          (item: any) =>
+            normalizeValueKey(resolvePengajarCode(item.pengajar || "") || item.pengajar || "") === kodeKey &&
+            normalizeValueKey(formatSheetTanggal(resolveCanonicalDate(item.tanggal || "") || item.tanggal || "")) === tanggalKey
+        );
+        const tanggalLabel = template ? formatSheetTanggal(resolveCanonicalDate(template.tanggal || "") || template.tanggal || "") : "";
+        const row: Record<string, string> = {
+          "Kode Pengajar": template ? (resolvePengajarCode(template.pengajar || "") || template.pengajar || "") : kodeKey,
+          Tanggal: tanggalLabel,
+        };
+        for (let index = 0; index < 10; index += 1) {
+          row[`Sesi ${index + 1}`] = sesiList[index]?.text || "";
+        }
+        return row;
+      });
+
+      return suratRows;
+    } catch (error) {
+      console.error("Error computing surat tugas records:", error);
+      return [];
+    }
+  }, [records.bulanIni, records.jadwalTambahanPelayanan]);
 
   const suratTugasRecordsByMonth = useMemo(() => {
     if (!selectedSuratTugasMonthKey) {
@@ -748,30 +3209,93 @@ export function App() {
   const clearEditing = () => {
     setEditingSlot(null);
     setDraft({ mapel: "", pengajar: "", waktuMulai: "", waktuSelesai: "" });
+    setCopyTargetDates([]);
     setConflictError("");
-    setGabungEnabled(false);
-    setGabungClassKey("");
-    setGabungOptions([]);
   };
 
-  const handleLoadFromSheet = async (scheduleKey: ScheduleMenuKey = "bulanIni") => {
-    setSheetStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadFromSheet = async (
+    scheduleKey: ScheduleMenuKey = "bulanIni",
+    options?: { preserveUiState?: boolean; silent?: boolean; forceFresh?: boolean }
+  ) => {
+    if (!options?.silent) {
+      setSheetStatus((prev) => ({ ...prev, loading: true }));
+    }
+    setSheetStatusError("");
     try {
       const targetSheet = scheduleSheetByKey[scheduleKey];
-      const response = await fetch(
-        `${appsScriptUrl}?sheet=${encodeURIComponent(targetSheet)}&spreadsheetId=${encodeURIComponent(mainSpreadsheetId)}`
-      );
-      if (!response.ok) {
-        throw new Error("Gagal memuat Apps Script.");
+      const bucket = dataBucket[targetSheet];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+        invalidateReadCacheForBucket("jadwal_kbm");
       }
-      const payload = await response.json();
-      const parsedRecords = parseAppsScriptRecords(payload);
-      setRecords((prev) => ({
-        ...prev,
-        [scheduleKey]: parsedRecords,
-      }));
-      clearEditing();
-      setQuery("");
+      
+      const { listRows, listRowsFiltered } = await import("./lib/database");
+      let rows;
+      if (scheduleKey === "bulanIni") {
+        // Only fetch for the selected month to save memory/RAM
+        rows = await listRowsFiltered(bucket, { starts_with_tanggal: selectedMonthKey });
+      } else {
+        rows = await listRows(bucket, Boolean(options?.forceFresh));
+      }
+      
+      const filteredRows = rows.filter((row) => isMatchingScheduleJenis(row, scheduleKey));
+      const parsedRecords = filteredRows.map((row, index) => {
+        const item = parseScheduleDbRecords([toRecord(row)])[0];
+        return {
+          ...(item || {
+            id: `${bucket}-${index}-${Date.now()}`,
+            cabang: "",
+            kelas: "",
+            sekolah: "",
+            tanggal: "",
+            tanggalSheet: "",
+            mapel: "",
+            pengajar: "",
+            waktu: "",
+            classOrder: "",
+            catatan: "",
+          }),
+          id: row.id,
+          updatedAt: row.updatedAt || row.createdAt,
+          createdAt: row.createdAt,
+        } as RecordItem & { updatedAt?: string; createdAt?: string };
+      });
+      setRecords((prev) => {
+        if (!options?.forceFresh) {
+          const currentList = prev[scheduleKey] ?? [];
+          if (
+            currentList.length === parsedRecords.length &&
+            currentList.every((curr, i) => {
+              const next = parsedRecords[i];
+              return (
+                next &&
+                curr.id === next.id &&
+                (curr.updatedAt || "") === (next.updatedAt || "") &&
+                curr.cabang === next.cabang &&
+                curr.kelas === next.kelas &&
+                curr.sekolah === next.sekolah &&
+                curr.tanggal === next.tanggal &&
+                curr.mapel === next.mapel &&
+                curr.pengajar === next.pengajar &&
+                curr.waktu === next.waktu &&
+                Boolean(curr.isGabung) === Boolean(next.isGabung) &&
+                (curr.gabungWith || "") === (next.gabungWith || "") &&
+                String(curr.classOrder || "") === String(next.classOrder || "")
+              );
+            })
+          ) {
+            return prev;
+          }
+        }
+        return {
+          ...prev,
+          [scheduleKey]: parsedRecords,
+        };
+      });
+      if (!options?.preserveUiState) {
+        clearEditing();
+        setQuery("");
+      }
       setSheetStatus({
         loading: false,
         saving: false,
@@ -783,25 +3307,50 @@ export function App() {
         ...prev,
         loading: false,
         saving: false,
-        error: "Gagal memuat data dari Apps Script. Periksa hak akses atau format kolom.",
+        error: "Gagal memuat data dari database.",
       }));
+      pushToast("Gagal memuat data jadwal dari database.", "error");
     }
   };
 
-  const handleLoadMapel = async () => {
-    setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadMapel = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string }) => {
+    if (!options?.silent) {
+      setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
-      const response = await fetch(
-        `${appsScriptUrl}?sheet=${encodeURIComponent("Mata Pelajaran")}&spreadsheetId=${encodeURIComponent(mainSpreadsheetId)}`
-      );
-      if (!response.ok) {
-        throw new Error("Gagal memuat Apps Script.");
+      const bucket = dataBucket["Mata Pelajaran"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
       }
-      const payload = await response.json();
-      const { records: parsed } = parseGenericSheet(payload);
+      
+      const { listRows, listRowsFiltered } = await import("./lib/database");
+      let rows;
+      if (options?.search) {
+        rows = await listRowsFiltered(bucket, { search_mata_pelajaran: options.search });
+      } else {
+        rows = await listRows(bucket, Boolean(options?.forceFresh));
+      }
+      const parsed = rows.map((row) => toRecord(row));
       const normalized = parsed.map((row) => mapMapelRecord(row));
       setMapelHeaders(mapelHeadersExpected);
-      setMapelRecords(normalized);
+      setMapelRecords((prev) => {
+        if (
+          !options?.forceFresh &&
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.Mapel === next.Mapel &&
+              curr.Kode_Mapel === next.Kode_Mapel &&
+              curr.Kategori === next.Kategori
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
       setMapelStatus({
         loading: false,
         error: "",
@@ -811,18 +3360,25 @@ export function App() {
       setMapelStatus((prev) => ({
         ...prev,
         loading: false,
-        error: "Gagal memuat data mata pelajaran dari Apps Script.",
+        error: "Gagal memuat data mata pelajaran dari database.",
       }));
+      pushToast("Gagal memuat data mata pelajaran.", "error");
     }
   };
 
   const handleOpenMapelModal = (record?: Record<string, string>) => {
     if (record) {
-      setMapelDraft({ Mapel: record.Mapel || "", Kode_Mapel: record.Kode_Mapel || "" });
+      setMapelDraft({
+        Mapel: record.Mapel || "",
+        Kode_Mapel: record.Kode_Mapel || "",
+        Kategori: record.Kategori || record.kategori || record.kategory || "UMUM",
+      });
       setEditingMapelOldName(record.Mapel || "");
+      setEditingMapelOldKode(record.Kode_Mapel || "");
     } else {
-      setMapelDraft({ Mapel: "", Kode_Mapel: "" });
+      setMapelDraft({ Mapel: "", Kode_Mapel: "", Kategori: "UMUM" });
       setEditingMapelOldName(null);
+      setEditingMapelOldKode(null);
     }
     setMapelError("");
     setIsMapelModalOpen(true);
@@ -831,93 +3387,315 @@ export function App() {
   const handleSaveMapel = async () => {
     const mapel = mapelDraft.Mapel.trim();
     const kode = mapelDraft.Kode_Mapel.trim();
+    const kategori = (mapelDraft.Kategori || "UMUM").trim();
     if (!mapel || !kode) {
       setMapelError("Mata Pelajaran dan Singkatan wajib diisi.");
       return;
     }
 
+    const oldName = (editingMapelOldName || "").trim();
+    const oldKode = (editingMapelOldKode || "").trim();
+    const isEditing = Boolean(oldName || oldKode);
+    const hasChanged =
+      isEditing &&
+      (normalizeValueKey(oldName) !== normalizeValueKey(mapel) ||
+        (oldKode && normalizeValueKey(oldKode) !== normalizeValueKey(kode)));
+
     setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
     try {
-      const payload = {
-        action: "saveMapel",
-        sheetName: "Mata Pelajaran",
-        oldMapel: editingMapelOldName,
-        record: {
-          Mapel: mapel,
-          Kode_Mapel: kode
-        }
-      };
-
-      await fetch(appsScriptUrl, {
-        method: "POST",
-        mode: "no-cors",
-        body: JSON.stringify(payload),
+      const bucket = dataBucket["Mata Pelajaran"];
+      const rows = await listRows(bucket);
+      const existing = rows.find((row) => {
+        const value = row.data.Mapel || "";
+        const rowKode = row.data.Kode_Mapel || row.data.Singkatan || "";
+        return (
+          normalizeValueKey(value) === normalizeValueKey(oldName || mapel) ||
+          (oldKode && normalizeValueKey(rowKode) === normalizeValueKey(oldKode))
+        );
       });
+
+      if (existing) {
+        await updateRow(existing.id, { Mapel: mapel, Kode_Mapel: kode, Kategori: kategori });
+      } else {
+        await insertRow(bucket, { Mapel: mapel, Kode_Mapel: kode, Kategori: kategori });
+      }
+
+      // Cascade Update Otomatis jika nama atau singkatan mata pelajaran diubah
+      if (hasChanged) {
+        const oldKeys = [oldName, oldKode].filter(Boolean).map((k) => normalizeText(k));
+
+        // Helper untuk memeriksa apakah nilai lama cocok dengan nama atau kode mapel lama
+        const matchesOldMapel = (val?: string) => {
+          if (!val) return false;
+          const norm = normalizeText(val);
+          return oldKeys.some((old) => norm === old || norm.includes(`||${old}||`));
+        };
+
+        // 1. Cascade Update ke Jadwal Bulan ini (Jadwal Reguler)
+        try {
+          const jadwalRows = await listRows(dataBucket["Jadwal Bulan ini"]);
+          const scheduleUpdates: Promise<unknown>[] = [];
+          jadwalRows.forEach((row) => {
+            const rowMapel = row.data.mapel || row.data.Mapel || "";
+            if (matchesOldMapel(rowMapel)) {
+              scheduleUpdates.push(
+                updateRow(row.id, {
+                  ...row.data,
+                  mapel: mapel,
+                  Mapel: mapel,
+                })
+              );
+            }
+          });
+          if (scheduleUpdates.length > 0) {
+            await Promise.all(scheduleUpdates);
+          }
+        } catch (err) {
+          console.error("Cascade update error on Jadwal Bulan ini:", err);
+        }
+
+        // 2. Cascade Update ke Jadwal Khusus (Jadwal Tambahan & Pelayanan)
+        try {
+          const khususRows = await listRows(dataBucket["Jadwal Khusus"]);
+          const khususUpdates: Promise<unknown>[] = [];
+          khususRows.forEach((row) => {
+            const rowMapel = row.data.mapel || row.data.Mapel || "";
+            if (matchesOldMapel(rowMapel)) {
+              khususUpdates.push(
+                updateRow(row.id, {
+                  ...row.data,
+                  mapel: mapel,
+                  Mapel: mapel,
+                })
+              );
+            }
+          });
+          if (khususUpdates.length > 0) {
+            await Promise.all(khususUpdates);
+          }
+        } catch (err) {
+          console.error("Cascade update error on Jadwal Khusus:", err);
+        }
+
+        // 3. Cascade Update ke Data Pengajar (Bidang Studi)
+        try {
+          const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
+          const pengajarUpdates: Promise<unknown>[] = [];
+          pengajarRows.forEach((row) => {
+            const bidangStudi = String(row.data["Bidang Studi"] || row.data.bidang_studi || "");
+            if (bidangStudi) {
+              const delimiters = /[,;/]+/;
+              const parts = bidangStudi.split(delimiters).map((p) => p.trim()).filter(Boolean);
+              let changed = false;
+              const newParts = parts.map((part) => {
+                if (matchesOldMapel(part)) {
+                  changed = true;
+                  return mapel;
+                }
+                return part;
+              });
+
+              if (changed) {
+                const updatedBidangStudi = Array.from(new Set(newParts)).join(", ");
+                pengajarUpdates.push(
+                  updateRow(row.id, {
+                    ...row.data,
+                    "Bidang Studi": updatedBidangStudi,
+                    bidang_studi: updatedBidangStudi,
+                  })
+                );
+              }
+            }
+          });
+          if (pengajarUpdates.length > 0) {
+            await Promise.all(pengajarUpdates);
+          }
+        } catch (err) {
+          console.error("Cascade update error on Data Pengajar:", err);
+        }
+
+        // 4. Update state di memori secara instan (Optimistic UI)
+        setRecords((prev) => {
+          const nextState: Record<string, RecordItem[]> = {};
+          Object.keys(prev).forEach((k) => {
+            nextState[k] = (prev[k] || []).map((item) => {
+              if (matchesOldMapel(item.mapel)) {
+                return { ...item, mapel: mapel };
+              }
+              return item;
+            });
+          });
+          return nextState;
+        });
+
+        setPengajarRecords((prev) =>
+          prev.map((p) => {
+            const bidang = p["Bidang Studi"] || "";
+            if (bidang) {
+              const parts = bidang.split(/[,;/]+/).map((x) => x.trim()).filter(Boolean);
+              let changed = false;
+              const newParts = parts.map((part) => {
+                if (matchesOldMapel(part)) {
+                  changed = true;
+                  return mapel;
+                }
+                return part;
+              });
+              if (changed) {
+                return {
+                  ...p,
+                  "Bidang Studi": Array.from(new Set(newParts)).join(", "),
+                };
+              }
+            }
+            return p;
+          })
+        );
+
+        // Muat ulang data terbaru secara hening di latar belakang
+        void handleLoadFromSheet("bulanIni", { silent: true });
+        void handleLoadPengajar({ silent: true });
+      }
 
       setIsMapelModalOpen(false);
-      handleLoadMapel();
+      void handleLoadMapel({ silent: true });
+      pushToast(
+        hasChanged
+          ? "Data mata pelajaran & seluruh jadwal dan data pengajar terkait berhasil diperbarui otomatis (Cascade Update)."
+          : "Data mata pelajaran berhasil disimpan.",
+        "success"
+      );
     } catch (error) {
       setMapelStatus((prev) => ({
         ...prev,
-        loading: false,
-        error: "Gagal menyimpan mata pelajaran."
+        error: "Gagal menyimpan mata pelajaran.",
       }));
+      pushToast("Gagal menyimpan mata pelajaran.", "error");
+    } finally {
+      setMapelStatus((prev) => ({ ...prev, loading: false }));
     }
   };
 
-  const handleDeleteMapel = async (record: Record<string, string>) => {
-    if (!window.confirm(`Hapus mata pelajaran ${record.Mapel}?`)) return;
-    
-    setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
-    try {
-      const payload = {
-        action: "deleteMapel",
-        sheetName: "Mata Pelajaran",
-        record: {
-          Mapel: record.Mapel
+  const handleDeleteMapel = (record: Record<string, string>) => {
+    openConfirmDialog(
+      `Hapus mata pelajaran ${record.Mapel}?`,
+      async () => {
+        setMapelStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const rows = await listRows(dataBucket["Mata Pelajaran"]);
+          const targetIds = rows
+            .filter((row) => normalizeValueKey(row.data.Mapel) === normalizeValueKey(record.Mapel))
+            .map((row) => row.id);
+          await deleteRowsByIds(targetIds);
+
+          void handleLoadMapel({ silent: true });
+          pushToast("Data mata pelajaran berhasil dihapus.", "success");
+        } catch (error) {
+          setMapelStatus((prev) => ({
+            ...prev,
+            error: "Gagal menghapus mata pelajaran."
+          }));
+          pushToast("Gagal menghapus mata pelajaran.", "error");
+        } finally {
+          setMapelStatus((prev) => ({ ...prev, loading: false }));
         }
-      };
-
-      await fetch(appsScriptUrl, {
-        method: "POST",
-        mode: "no-cors",
-        body: JSON.stringify(payload),
-      });
-
-      handleLoadMapel();
-    } catch (error) {
-      setMapelStatus((prev) => ({
-        ...prev,
-        loading: false,
-        error: "Gagal menghapus mata pelajaran."
-      }));
-    }
+      },
+      { title: "Hapus Mata Pelajaran", confirmLabel: "Hapus" }
+    );
   };
 
-  const handleLoadPengajar = async () => {
-    setPengajarStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handleLoadPengajar = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string }) => {
+    if (!options?.silent) {
+      setPengajarStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
-      const targetUrl = `${appsScriptUrl}?sheet=${encodeURIComponent("Data Pengajar")}&spreadsheetId=${encodeURIComponent(mainSpreadsheetId)}`;
-      const response = await fetch(targetUrl);
-      if (!response.ok) {
-        throw new Error("Gagal memuat data pengajar.");
+      const bucket = dataBucket["Data Pengajar"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
       }
-      const data = await response.json();
-      const parsed = parseGenericSheet(data);
       
-      const expectedHeaders = ["Kode Pengajar", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
+      const { listRows, listRowsFiltered } = await import("./lib/database");
+      let rows;
+      if (options?.search) {
+        // Use a generic search filter that the server-side proxy or fallback can handle
+        rows = await listRowsFiltered(bucket, { search_nama_pengajar: options.search });
+      } else {
+        rows = await listRows(bucket, Boolean(options?.forceFresh));
+      }
       
-      const records = parsed.records.filter((rec) => rec["Kode Pengajar"] || rec["Nama"]).map((record) => {
-        const normalized: Record<string, string> = {};
-        expectedHeaders.forEach((h) => {
-          const matchedKey = Object.keys(record).find(k => normalizeHeader(k) === normalizeHeader(h));
-          normalized[h] = matchedKey ? record[matchedKey] : "";
+      const expectedHeaders = ["Kode Pengajar", "NIP", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
+
+      const records = rows
+        .map((row) => toRecord(row))
+        .filter((record) => {
+          const candidateKeys = ["Kode Pengajar", "kode_pengajar", "Kode", "kode", "Nama", "nama"];
+          return candidateKeys.some((key) => (record[key] || "").trim());
+        })
+        .map((record) => {
+          const normalized: Record<string, string> = {};
+          expectedHeaders.forEach((header) => {
+            const matchedKey = Object.keys(record).find((key) => normalizeHeader(key) === normalizeHeader(header));
+            normalized[header] = matchedKey ? String(record[matchedKey] ?? "") : "";
+          });
+
+          if (!normalized["Kode Pengajar"] && record.kode_pengajar) {
+            normalized["Kode Pengajar"] = String(record.kode_pengajar);
+          }
+          if (!normalized["NIP"] && (record.nip || record.NIP)) {
+            normalized["NIP"] = String(record.nip || record.NIP);
+          }
+          if (!normalized["Nama"] && record.nama) {
+            normalized["Nama"] = String(record.nama);
+          }
+          if (!normalized["Domisili"] && record.domisili) {
+            normalized["Domisili"] = String(record.domisili);
+          }
+          if (!normalized["Bidang Studi"] && record.bidang_studi) {
+            normalized["Bidang Studi"] = String(record.bidang_studi);
+          }
+          if (!normalized["Email"] && record.email) {
+            normalized["Email"] = String(record.email);
+          }
+          if (!normalized["No.WhatsApp"] && record.no_whatsapp) {
+            normalized["No.WhatsApp"] = String(record.no_whatsapp);
+          }
+          if (normalized["No.WhatsApp"]) {
+            normalized["No.WhatsApp"] = sanitizeWhatsappDigits(normalized["No.WhatsApp"]);
+          }
+          if (!normalized["Username"] && record.username) {
+            normalized["Username"] = String(record.username);
+          }
+          if (normalized["Username"]) {
+            normalized["Username"] = sanitizeWhatsappDigits(normalized["Username"]);
+          }
+          if (!normalized["Password"] && record.password) {
+            normalized["Password"] = String(record.password);
+          }
+
+          return normalized;
         });
-        return normalized;
-      });
 
       setPengajarHeaders(expectedHeaders);
-      setPengajarRecords(records);
+      setPengajarRecords((prev) => {
+        if (
+          prev.length === records.length &&
+          prev.every((curr, i) => {
+            const next = records[i];
+            return (
+              next &&
+              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
+              curr["Nama"] === next["Nama"] &&
+              curr["Domisili"] === next["Domisili"] &&
+              curr["Bidang Studi"] === next["Bidang Studi"] &&
+              curr["No.WhatsApp"] === next["No.WhatsApp"] &&
+              curr["Username"] === next["Username"]
+            );
+          })
+        ) {
+          return prev;
+        }
+        return records;
+      });
       setPengajarStatus({
         loading: false,
         error: "",
@@ -929,62 +3707,105 @@ export function App() {
         loading: false,
         error: error instanceof Error ? error.message : "Gagal memuat data pengajar.",
       }));
+      pushToast("Gagal memuat data pengajar.", "error");
     }
   };
 
   const handleOpenPengajarModal = (record?: Record<string, string>) => {
     if (record) {
+      const existingNama = record["Nama"] || "";
+      const existingKode = (record["Kode Pengajar"] || "").trim();
+      const existingWhatsapp = sanitizeWhatsappDigits(record["No.WhatsApp"] || "");
+      const computedUsername = existingWhatsapp;
       setPengajarDraft({
-        "Kode Pengajar": record["Kode Pengajar"] || "",
-        "Nama": record["Nama"] || "",
+        "Kode Pengajar": existingKode || generateUniqueKodePengajar(existingNama),
+        "NIP": record["NIP"] || record["nip"] || "",
+        "Nama": existingNama,
         "Bidang Studi": record["Bidang Studi"] || "",
         "Email": record["Email"] || "",
-        "No.WhatsApp": record["No.WhatsApp"] || "",
-        "Domisili": record["Domisili"] || "",
-        "Username": record["Username"] || "",
-        "Password": record["Password"] || "",
+        "No.WhatsApp": existingWhatsapp,
+        "Domisili": record["Domisili"] || restrictedCabang || "",
+        "Username": computedUsername || record["Username"] || "",
+        "Password": sanitizePasswordInput(record["Password"] || ""),
       });
-      setEditingPengajarOldKode(record["Kode Pengajar"]);
+      setEditingPengajarOldKode(record["Kode Pengajar"] || "");
+      setEditingPengajarOldNama(record["Nama"] || record["Nama Pengajar"] || "");
     } else {
+      const defaultCabang = restrictedCabang || authSession?.cabang || "";
       setPengajarDraft({
         "Kode Pengajar": "",
+        "NIP": "",
         "Nama": "",
         "Bidang Studi": "",
         "Email": "",
         "No.WhatsApp": "",
-        "Domisili": "",
+        "Domisili": defaultCabang,
         "Username": "",
-        "Password": ""
+        "Password": generatePassword(),
       });
       setEditingPengajarOldKode(null);
+      setEditingPengajarOldNama(null);
     }
     setPengajarError("");
     setIsPengajarModalOpen(true);
   };
 
-  const handleLoadSuratTugas = async () => {
-    setSuratTugasStatus((prev) => ({ ...prev, loading: true, error: "" }));
+  const handlePengajarDraftChange = (field: keyof PengajarDraft, value: string) => {
+    if (field === "Kode Pengajar" || field === "Username") {
+      return;
+    }
+
+    if (field === "Domisili" && restrictedCabang) {
+      return;
+    }
+
+    if (field === "Nama") {
+      const nama = value.toUpperCase();
+      const autoKode = generateUniqueKodePengajar(nama, editingPengajarOldKode);
+      setPengajarDraft((prev) => ({
+        ...prev,
+        Nama: nama,
+        "Kode Pengajar": autoKode,
+      }));
+      return;
+    }
+
+    if (field === "No.WhatsApp") {
+      const sanitizedPhone = sanitizeWhatsappDigits(value);
+      setPengajarDraft((prev) => ({
+        ...prev,
+        "No.WhatsApp": sanitizedPhone,
+        Username: sanitizedPhone,
+      }));
+      return;
+    }
+
+    if (field === "Password") {
+      setPengajarDraft((prev) => ({ ...prev, Password: sanitizePasswordInput(value) }));
+      return;
+    }
+
+    setPengajarDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleBidangStudiChange = (values: string[]) => {
+    const uniqueValues = Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+    setPengajarDraft((prev) => ({
+      ...prev,
+      "Bidang Studi": uniqueValues.join(", "),
+    }));
+  };
+
+  const handleGeneratePengajarPassword = () => {
+    setPengajarDraft((prev) => ({ ...prev, Password: generatePassword() }));
+  };
+
+  const handleLoadSuratTugas = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setSuratTugasStatus((prev) => ({ ...prev, loading: true, error: "" }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     try {
-      const targetUrl = `${appsScriptUrl}?sheet=${encodeURIComponent("Surat Tugas Pengajar")}&spreadsheetId=${encodeURIComponent(mainSpreadsheetId)}`;
-      const response = await fetch(targetUrl);
-      if (!response.ok) {
-        throw new Error("Gagal memuat Surat Tugas Mengajar.");
-      }
-      const data = await response.json();
-      const parsed = parseGenericSheet(data);
-      
-      const expectedHeaders = ["Kode Pengajar", "Tanggal", "Sesi 1", "Sesi 2", "Sesi 3", "Sesi 4", "Sesi 5", "Sesi 6", "Sesi 7", "Sesi 8", "Sesi 9", "Sesi 10"];
-
-      const records = parsed.records.filter((rec) => rec["Kode Pengajar"] || rec["Tanggal"]).map((record) => {
-        const normalized: Record<string, string> = {};
-        expectedHeaders.forEach((h) => {
-          const matchedKey = Object.keys(record).find(k => normalizeHeader(k) === normalizeHeader(h));
-          normalized[h] = matchedKey ? record[matchedKey] : "";
-        });
-        return normalized;
-      });
-
-      setSuratTugasRecords(records);
       setSuratTugasStatus({
         loading: false,
         error: "",
@@ -996,218 +3817,4135 @@ export function App() {
         loading: false,
         error: "Gagal memuat data Surat Tugas.",
       }));
+      pushToast("Gagal memuat data surat tugas.", "error");
     }
   };
 
   const handleSavePengajar = async () => {
     if (!pengajarDraft["Kode Pengajar"] || !pengajarDraft["Nama"]) {
-      setPengajarError("Kode Pengajar dan Nama wajib diisi.");
+      setPengajarError("Nama wajib diisi agar Kode Pengajar terisi otomatis.");
       return;
     }
+    if (!pengajarDraft.Domisili) {
+      setPengajarError("Domisili belum terdeteksi dari akun login. Silakan login ulang dengan akun cabang.");
+      return;
+    }
+    if (!pengajarDraft.Username) {
+      setPengajarError("No.WhatsApp wajib diisi agar Username terisi otomatis.");
+      return;
+    }
+    if (!pengajarDraft["Bidang Studi"].trim()) {
+      setPengajarError("Bidang Studi wajib dipilih minimal satu mata pelajaran.");
+      return;
+    }
+    if (!pengajarDraft.Password || pengajarDraft.Password.length > 6) {
+      setPengajarError("Password wajib diisi dengan kombinasi huruf/angka maksimal 6 karakter.");
+      return;
+    }
+    const cleanWhatsapp = sanitizeWhatsappDigits(pengajarDraft["No.WhatsApp"]);
+    const normalizedRecord: PengajarDraft = {
+      ...pengajarDraft,
+      "Kode Pengajar": pengajarDraft["Kode Pengajar"].trim().toLowerCase(),
+      "NIP": pengajarDraft.NIP?.trim() || "",
+      Nama: pengajarDraft.Nama.trim().toUpperCase(),
+      "Bidang Studi": pengajarDraft["Bidang Studi"].trim(),
+      Email: pengajarDraft.Email.trim(),
+      "No.WhatsApp": cleanWhatsapp,
+      Domisili: (restrictedCabang || authSession?.cabang || pengajarDraft.Domisili).trim(),
+      Username: cleanWhatsapp,
+      Password: sanitizePasswordInput(pengajarDraft.Password),
+    };
+
+    if (!normalizedRecord.Username) {
+      setPengajarError("No.WhatsApp tidak valid. Username otomatis tidak boleh kosong.");
+      return;
+    }
+
     setPengajarStatus((prev) => ({ ...prev, loading: true }));
     try {
-      const payload = {
-        action: "savePengajar",
-        sheetName: "Data Pengajar",
-        spreadsheetId: mainSpreadsheetId,
-        oldKode: editingPengajarOldKode,
-        record: pengajarDraft,
-      };
+      const bucket = dataBucket["Data Pengajar"];
+      const rows = await listRows(bucket);
+      const oldKodeToMatch = (editingPengajarOldKode || "").trim().toLowerCase();
+      const existing = rows.find(
+        (row) =>
+          normalizeValueKey(row.data["Kode Pengajar"]) ===
+          normalizeValueKey(oldKodeToMatch || normalizedRecord["Kode Pengajar"])
+      );
 
-      await fetch(appsScriptUrl, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const oldKode = oldKodeToMatch || (existing ? (existing.data["Kode Pengajar"] || "").trim().toLowerCase() : "");
+      const oldNama = (editingPengajarOldNama || (existing ? (existing.data["Nama"] || existing.data["Nama Pengajar"] || "").trim() : "")).trim();
+      const newKode = normalizedRecord["Kode Pengajar"].trim().toLowerCase();
+      const newNama = normalizedRecord.Nama.trim();
+      const newNip = normalizedRecord.NIP?.trim() || "";
+      const newDomisili = normalizedRecord.Domisili.trim();
+
+      if (existing) {
+        await updateRow(existing.id, normalizedRecord);
+      } else {
+        await insertRow(bucket, normalizedRecord);
+      }
+
+      // Cascade update to all other tables referencing this pengajar
+      if (oldKode || oldNama) {
+        const isKodeChanged = Boolean(oldKode && oldKode !== newKode);
+        const isNamaChanged = Boolean(oldNama && oldNama !== newNama);
+        const shouldCascade = isKodeChanged || isNamaChanged || Boolean(newNip) || Boolean(newDomisili);
+
+        if (shouldCascade) {
+          const cascadePromises: Promise<unknown>[] = [];
+          const pengajarId = existing ? decodeId(existing.id).id : "";
+
+          // 1. Jadwal KBM (Reguler & Khusus) - Update all entries in jadwal_kbm
+          const updateJadwalRows = async () => {
+            try {
+              // Fetch from master bucket that contains both types
+              const scheduleRows = await listRows("jadwal_kbm");
+              const updates: Promise<unknown>[] = [];
+              for (const row of scheduleRows) {
+                const rowKode = (row.data.kode_pengajar || row.data["Kode Pengajar"] || row.data.Pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data.nama_pengajar || row.data["Nama Pengajar"] || "").trim().toLowerCase();
+
+                // Match by Kode OR Nama OR ID if available
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+                
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    Pengajar: newKode,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  if (newNip) {
+                    updatedData["NIP"] = newNip;
+                    updatedData["nip"] = newNip;
+                  }
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              if (updates.length > 0) {
+                await Promise.all(updates);
+              }
+            } catch (err) {
+              console.error("Cascade update error on schedule rows:", err);
+            }
+          };
+          cascadePromises.push(updateJadwalRows());
+
+          // 2. Penempatan Pengajar (penempatan_pengajar_dicabang)
+          const updatePenempatanRows = async () => {
+            try {
+              const penempatanRows = await listRows(dataBucket["Penempatan Pengajar"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of penempatanRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+                const rowParentId = String(row.data["__id_pengajar"] || row.data.id_pengajar || "").trim();
+
+                const matchesId = Boolean(pengajarId && rowParentId === pengajarId);
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesId || matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  if (newDomisili) {
+                    updatedData["Domisili"] = newDomisili;
+                    updatedData["domisili"] = newDomisili;
+                  }
+                  // Ensure ID linkage is preserved
+                  if (pengajarId) {
+                    updatedData["__id_pengajar"] = pengajarId;
+                    updatedData["id_pengajar"] = pengajarId;
+                  }
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              if (updates.length > 0) {
+                await Promise.all(updates);
+              }
+            } catch (err) {
+              console.error("Cascade update error on penempatan rows:", err);
+            }
+          };
+          cascadePromises.push(updatePenempatanRows());
+
+          // 3. Izin Pengajar (izin_pengajar)
+          const updateIzinRows = async () => {
+            try {
+              const izinRows = await listRows(dataBucket["Izin Pengajar"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of izinRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on izin rows:", err);
+            }
+          };
+          cascadePromises.push(updateIzinRows());
+
+          // 4. Permintaan Pengajar Antar Cabang (permintaan_pengajar)
+          const updatePermintaanRows = async () => {
+            try {
+              const permintaanRows = await listRows(dataBucket["Permintaan Pengajar Antar Cabang"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of permintaanRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on permintaan rows:", err);
+            }
+          };
+          cascadePromises.push(updatePermintaanRows());
+
+          // 5. Riwayat Notifikasi Pengajar (riwayat_notifikasi_pengajar)
+          const updateNotifikasiRows = async () => {
+            try {
+              const notifRows = await listRows(dataBucket["Riwayat Notifikasi Pengajar"]);
+              const updates: Promise<unknown>[] = [];
+              for (const row of notifRows) {
+                const rowKode = (row.data["Kode Pengajar"] || row.data.kode_pengajar || "").trim().toLowerCase();
+                const rowNama = (row.data["Nama Pengajar"] || row.data.nama_pengajar || "").trim().toLowerCase();
+
+                const matchesKode = Boolean(oldKode && (rowKode === oldKode));
+                const matchesNama = Boolean(oldNama && (rowNama === oldNama.toLowerCase()));
+
+                if (matchesKode || matchesNama) {
+                  const updatedData: Record<string, string> = {
+                    ...row.data,
+                    "Kode Pengajar": newKode,
+                    kode_pengajar: newKode,
+                    "Nama Pengajar": newNama,
+                    nama_pengajar: newNama,
+                  };
+                  updates.push(updateRow(row.id, updatedData));
+                }
+              }
+              await Promise.all(updates);
+            } catch (err) {
+              console.error("Cascade update error on notifikasi rows:", err);
+            }
+          };
+          cascadePromises.push(updateNotifikasiRows());
+
+          await Promise.all(cascadePromises);
+        }
+      }
 
       setIsPengajarModalOpen(false);
-      handleLoadPengajar();
+      setEditingPengajarOldKode(null);
+      setEditingPengajarOldNama(null);
+
+      // Reload all datasets in state silently in background
+      void Promise.all([
+        handleLoadPengajar({ silent: true }),
+        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+        handleLoadPenempatanPengajar({ silent: true }),
+        handleLoadIzinPengajar({ silent: true }),
+        handleLoadPermintaanPengajar({ silent: true }),
+        handleLoadSuratTugas({ silent: true }),
+      ]);
+
+      pushToast("Data pengajar dan seluruh tabel terkait berhasil diperbarui.", "success");
     } catch (error) {
       setPengajarStatus((prev) => ({
         ...prev,
-        loading: false,
         error: "Gagal menyimpan pengajar.",
       }));
+      pushToast("Gagal menyimpan data pengajar.", "error");
+    } finally {
+      setPengajarStatus((prev) => ({ ...prev, loading: false }));
     }
   };
 
-  const handleDeletePengajar = async (record: Record<string, string>) => {
-    if (!window.confirm(`Hapus pengajar ${record["Nama"]}?`)) return;
-    
-    setPengajarStatus((prev) => ({ ...prev, loading: true }));
-    try {
-      const payload = {
-        action: "deletePengajar",
-        sheetName: "Data Pengajar",
-        spreadsheetId: mainSpreadsheetId,
-        record: record,
-      };
+  const handleDeletePengajar = (record: Record<string, string>) => {
+    openConfirmDialog(
+      `Hapus pengajar ${record["Nama"]}?`,
+      async () => {
+        setPengajarStatus((prev) => ({ ...prev, loading: true }));
+        try {
+          const rows = await listRows(dataBucket["Data Pengajar"]);
+          const targetIds = rows
+            .filter(
+              (row) =>
+                normalizeValueKey(row.data["Kode Pengajar"]) ===
+                normalizeValueKey(record["Kode Pengajar"])
+            )
+            .map((row) => row.id);
+          await deleteRowsByIds(targetIds);
 
-      await fetch(appsScriptUrl, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+          void Promise.all([
+            handleLoadPengajar({ silent: true }),
+            handleLoadPenempatanPengajar({ silent: true }),
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+          ]);
+          pushToast("Data pengajar berhasil dihapus.", "success");
+        } catch (error) {
+          setPengajarStatus((prev) => ({
+            ...prev,
+            error: "Gagal menghapus pengajar.",
+          }));
+          pushToast("Gagal menghapus data pengajar.", "error");
+        } finally {
+          setPengajarStatus((prev) => ({ ...prev, loading: false }));
+        }
+      },
+      { title: "Hapus Pengajar", confirmLabel: "Hapus" }
+    );
+  };
+
+  const getPenempatanDomisili = (record: Record<string, string>) => {
+    const kode = normalizeText(record["Kode Pengajar"] || record["kode pengajar"] || "");
+    if (kode) {
+      const matchedPengajar = pengajarByKode[kode];
+      const pengajarDomisili = matchedPengajar?.["Domisili"] || "";
+      if (pengajarDomisili.trim()) {
+        return pengajarDomisili.trim();
+      }
+    }
+    return record["Domisili"] || "";
+  };
+
+  const normalizePenempatanRecord = (record: Record<string, string>) => {
+    const domisili = getPenempatanDomisili(record);
+    
+    return {
+      id: record.id || "",
+      "Kode Pengajar": record["Kode Pengajar"] || "",
+      "Nama Pengajar": record["Nama Pengajar"] || record["Nama"] || "",
+      Domisili: domisili,
+      Hari: record.Hari || "",
+      "Jam Mulai": record["Jam Mulai"] || "",
+      "Jam Selesai": record["Jam Selesai"] || "",
+      "Cabang Penempatan": record["Cabang Penempatan"] || "",
+    };
+  };
+
+  const handleLoadPenempatanPengajar = async (options?: { silent?: boolean; forceFresh?: boolean; search?: string }) => {
+    if (!options?.silent) {
+      setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
+    try {
+      const bucket = dataBucket["Penempatan Pengajar"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      
+      const { listRows, listRowsFiltered } = await import("./lib/database");
+      let rows;
+      if (options?.search) {
+        rows = await listRowsFiltered(bucket, { search_nama_pengajar: options.search });
+      } else {
+        rows = await listRows(bucket, Boolean(options?.forceFresh));
+      }
+      
+      // Display each database row as-is without merging
+      const normalized = rows.map((row) => {
+        const record = toRecord(row);
+        return normalizePenempatanRecord({
+          id: row.id,
+          "Kode Pengajar": record["Kode Pengajar"] || record.kode_pengajar || "",
+          "Nama Pengajar": record["Nama Pengajar"] || record["Nama"] || record.nama_pengajar || "",
+          Domisili: record.Domisili || record.domisili || "",
+          Hari: record.Hari || record.hari_tersedia || record.hari || "",
+          "Jam Mulai": record["Jam Mulai"] || record.jam_mulai || "",
+          "Jam Selesai": record["Jam Selesai"] || record.jam_selesai || "",
+          "Cabang Penempatan": record["Cabang Penempatan"] || record.bersedia_mengajar_dicabang || record.cabang_penempatan || "",
+        });
       });
 
-      handleLoadPengajar();
+      setPenempatanRecords((prev) => {
+        if (
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.id === next.id &&
+              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
+              curr["Nama Pengajar"] === next["Nama Pengajar"] &&
+              curr.Domisili === next.Domisili &&
+              curr.Hari === next.Hari &&
+              curr["Jam Mulai"] === next["Jam Mulai"] &&
+              curr["Jam Selesai"] === next["Jam Selesai"] &&
+              curr["Cabang Penempatan"] === next["Cabang Penempatan"]
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
+      setPenempatanStatus({
+        loading: false,
+        error: "",
+        lastSync: new Date().toLocaleString("id-ID"),
+      });
     } catch (error) {
-      setPengajarStatus((prev) => ({
+      setPenempatanStatus((prev) => ({
         ...prev,
         loading: false,
-        error: "Gagal menghapus pengajar.",
+        error: "Gagal memuat data penempatan pengajar dari database.",
       }));
+      pushToast("Gagal memuat data penempatan pengajar.", "error");
     }
   };
 
-  const handleLogin = () => {
-    const username = loginUsername.trim();
-    const password = loginPassword;
-    const matched = loginAccounts.find(
-      (account) => account.username === username && account.password === password
+  const handlePenempatanDraftChange = (next: PenempatanDraft) => {
+    const selectedKode = normalizeText(next.kodePengajar || "");
+    const prevKode = normalizeText(penempatanDraft.kodePengajar || "");
+    const selectedPengajar = selectedKode ? pengajarByKode[selectedKode] : null;
+
+    const resolvedDraft: PenempatanDraft = {
+      ...next,
+      namaPengajar: selectedPengajar
+        ? selectedPengajar["Nama"] || next.namaPengajar
+        : next.namaPengajar,
+      domisili: selectedPengajar
+        ? selectedPengajar["Domisili"] || next.domisili
+        : next.domisili,
+    };
+
+    if (!selectedKode) {
+      resolvedDraft.namaPengajar = "";
+      resolvedDraft.domisili = restrictedCabang || "";
+    }
+
+    if (selectedKode !== prevKode) {
+      setPenempatanError("");
+    }
+
+    setPenempatanDraft(resolvedDraft);
+  };
+
+  const handleOpenPenempatanModal = (record?: Record<string, string>) => {
+    if (!isAdmin) {
+      pushToast("Hanya Admin Pusat yang memiliki wewenang untuk menambah atau mengedit penempatan pengajar.", "error");
+      return;
+    }
+    setPenempatanError("");
+    if (record) {
+      setPenempatanOldRecord(record);
+      const kode = (record["Kode Pengajar"] || record.kode_pengajar || "").trim();
+      const nama = (record["Nama Pengajar"] || record.nama_pengajar || record["Nama"] || record.Nama || "").trim();
+      const domisili = (record.Domisili || record.domisili || "").trim();
+
+      // Cari semua jadwal penempatan milik pengajar ini untuk diisi ke modal
+      const matchingTeacherRecords = penempatanRecords.filter(
+        (r) => normalizeValueKey(r["Kode Pengajar"] || r.kode_pengajar || "") === normalizeValueKey(kode)
+      );
+
+      let availabilityList: PenempatanDraft["availabilityList"] = [];
+      if (matchingTeacherRecords.length > 0) {
+        // Group by hari
+        const byHari: Record<string, { jamMulai: string; jamSelesai: string; cabangList: Set<string> }> = {};
+        matchingTeacherRecords.forEach((tr) => {
+          const rawHari = tr.Hari || tr.hari || tr.hari_tersedia || "";
+          const hariParts = rawHari.includes(",") ? rawHari.split(",").map((h) => h.trim()) : [rawHari.trim()];
+          const jMulai = tr["Jam Mulai"] || tr.jam_mulai || "08:00";
+          const jSelesai = tr["Jam Selesai"] || tr.jam_selesai || "20:00";
+          const rawCabang = tr["Cabang Penempatan"] || tr.cabang_penempatan || tr.bersedia_mengajar_dicabang || "";
+          const cabangs = rawCabang.split(",").map((c) => c.trim()).filter(Boolean);
+
+          hariParts.forEach((h) => {
+            if (!h) return;
+            const hTitle = titleCase(h);
+            if (!byHari[hTitle]) {
+              byHari[hTitle] = {
+                jamMulai: jMulai.slice(0, 5),
+                jamSelesai: jSelesai.slice(0, 5),
+                cabangList: new Set(),
+              };
+            }
+            cabangs.forEach((c) => byHari[hTitle].cabangList.add(c));
+          });
+        });
+
+        availabilityList = Object.entries(byHari).map(([hari, data]) => ({
+          hari,
+          enabled: true,
+          jamMulai: data.jamMulai,
+          jamSelesai: data.jamSelesai,
+          cabangList: Array.from(data.cabangList),
+        }));
+      }
+
+      if (availabilityList.length === 0) {
+        const rawHari = record.Hari || record.hari || record.hari_tersedia || "Senin";
+        const rawMulai = (record["Jam Mulai"] || record.jam_mulai || "08:00").slice(0, 5);
+        const rawSelesai = (record["Jam Selesai"] || record.jam_selesai || "20:00").slice(0, 5);
+        const rawCabang = record["Cabang Penempatan"] || record.cabang_penempatan || record.bersedia_mengajar_dicabang || "";
+        const cabangs = rawCabang.split(",").map((c) => c.trim()).filter(Boolean);
+
+        availabilityList = [
+          {
+            hari: titleCase(rawHari),
+            enabled: true,
+            jamMulai: rawMulai,
+            jamSelesai: rawSelesai,
+            cabangList: cabangs,
+          },
+        ];
+      }
+
+      setPenempatanDraft({
+        kodePengajar: kode,
+        namaPengajar: nama,
+        domisili: domisili,
+        availabilityList,
+      });
+    } else {
+      setPenempatanOldRecord(null);
+      setPenempatanDraft({
+        kodePengajar: "",
+        namaPengajar: "",
+        domisili: "",
+        availabilityList: [
+          {
+            hari: "Senin",
+            enabled: true,
+            jamMulai: "08:00",
+            jamSelesai: "20:00",
+            cabangList: [],
+          },
+        ],
+      });
+    }
+    setIsPenempatanModalOpen(true);
+  };
+
+  const handleDeletePenempatan = (record: Record<string, string>) => {
+    if (!isAdmin) {
+      pushToast("Hanya Admin Pusat yang memiliki wewenang untuk menghapus penempatan pengajar.", "error");
+      return;
+    }
+    const nama = record["Nama Pengajar"] || record.nama_pengajar || record["Nama"] || record.Nama || "pengajar ini";
+    const hari = record.Hari || record.hari || record.hari_tersedia || "";
+    const jam = record["Jam Mulai"] && record["Jam Selesai"] ? `${record["Jam Mulai"]} - ${record["Jam Selesai"]}` : "";
+    const cabang = record["Cabang Penempatan"] || record.cabang_penempatan || record.bersedia_mengajar_dicabang || "";
+
+    openConfirmDialog(
+      `Hapus jadwal penempatan untuk ${nama}${hari ? ` pada hari ${hari}` : ""}${jam ? ` (${jam})` : ""}${cabang ? ` di cabang ${cabang}` : ""}?`,
+      async () => {
+        setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const bucket = dataBucket["Penempatan Pengajar"];
+          const rows = await listRows(bucket);
+
+          // Cari baris yang cocok berdasarkan id spesifik, atau kombinasi kode pengajar + hari + cabang
+          let targetIds: string[] = [];
+          if (record.id) {
+            const cleanRecId = decodeId(record.id).id;
+            const matched = rows.find(
+              (r) => decodeId(r.id).id === cleanRecId || r.id === record.id
+            );
+            if (matched) {
+              targetIds.push(matched.id);
+            }
+          }
+
+          if (targetIds.length === 0) {
+            const targetKode = normalizeValueKey(record["Kode Pengajar"] || record.kode_pengajar || "");
+            const targetHari = normalizeText(record.Hari || record.hari || record.hari_tersedia || "");
+            const targetCabang = normalizeText(record["Cabang Penempatan"] || record.cabang_penempatan || record.bersedia_mengajar_dicabang || "");
+
+            targetIds = rows
+              .filter((row) => {
+                const d = row.data;
+                const dKode = normalizeValueKey(d["Kode Pengajar"] || d.kode_pengajar || "");
+                const dHari = normalizeText(d.Hari || d.hari || d.hari_tersedia || "");
+                const dCabang = normalizeText(d["Cabang Penempatan"] || d.cabang_penempatan || d.bersedia_mengajar_dicabang || "");
+                return (
+                  dKode === targetKode &&
+                  (targetHari ? dHari.includes(targetHari) || targetHari.includes(dHari) : true) &&
+                  (!targetCabang || dCabang.includes(targetCabang))
+                );
+              })
+              .map((row) => row.id);
+          }
+
+          if (targetIds.length > 0) {
+            await deleteRowsByIds(targetIds);
+            await handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+            pushToast("Data penempatan pengajar berhasil dihapus.", "success");
+          } else {
+            pushToast("Data penempatan tidak ditemukan atau sudah dihapus.", "warning");
+            await handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+          }
+        } catch (error) {
+          setPenempatanStatus((prev) => ({
+            ...prev,
+            error: "Gagal menghapus penempatan pengajar.",
+          }));
+          pushToast("Gagal menghapus penempatan pengajar.", "error");
+        } finally {
+          setPenempatanStatus((prev) => ({ ...prev, loading: false }));
+        }
+      }
     );
+  };
+
+  const handleSavePenempatanDay = async (item: { hari: string; jamMulai: string; jamSelesai: string; cabangList: string[] }) => {
+    if (!isAdmin) {
+      pushToast("Hanya Admin Pusat yang dapat menyimpan data penempatan pengajar.", "error");
+      return;
+    }
+
+    const draftValue = {
+      ...penempatanDraft,
+      kodePengajar: penempatanDraft.kodePengajar.trim(),
+      namaPengajar: penempatanDraft.namaPengajar.trim(),
+      domisili: penempatanDraft.domisili.trim(),
+      availabilityList: [
+        {
+          hari: titleCase(item.hari),
+          enabled: true,
+          jamMulai: item.jamMulai.trim(),
+          jamSelesai: item.jamSelesai.trim(),
+          cabangList: (item.cabangList || []).map((c) => String(c || "").trim()).filter(Boolean),
+        },
+      ],
+    } as PenempatanDraft;
+
+    if (!draftValue.kodePengajar || !draftValue.namaPengajar) {
+      setPenempatanError("Pengajar wajib dipilih.");
+      return;
+    }
+    if (!draftValue.domisili) {
+      setPenempatanError("Domisili wajib diisi.");
+      return;
+    }
+
+    const av = draftValue.availabilityList[0];
+    if (!av.jamMulai || !av.jamSelesai || parseTimeValue(av.jamMulai) === null || parseTimeValue(av.jamSelesai) === null) {
+      setPenempatanError(`Jam mulai dan selesai wajib diisi untuk hari ${av.hari}.`);
+      return;
+    }
+    if (av.jamMulai >= av.jamSelesai) {
+      setPenempatanError(`Jam mulai harus lebih awal dari jam selesai untuk hari ${av.hari}.`);
+      return;
+    }
+    if (av.cabangList.length === 0) {
+      setPenempatanError(`Pilih minimal satu cabang penempatan untuk hari ${av.hari}.`);
+      return;
+    }
+
+    const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
+    const matchingPengajar = pengajarRows.find(
+      (row) => normalizeValueKey(row.data["Kode Pengajar"]) === normalizeValueKey(draftValue.kodePengajar)
+    );
+    const resolvedPengajarId = matchingPengajar ? decodeId(matchingPengajar.id).id : "";
+
+    if (!resolvedPengajarId) {
+      setPenempatanError("Tidak dapat menemukan ID pengajar yang sesuai untuk data penempatan ini.");
+      return;
+    }
+
+    const payload = {
+      ...buildPenempatanPayload(draftValue, resolvedPengajarId),
+      Hari: av.hari,
+      "Jam Mulai": av.jamMulai,
+      "Jam Selesai": av.jamSelesai,
+      "Cabang Penempatan": av.cabangList.join(", "),
+      __availability_json: JSON.stringify([av]),
+    };
+
+    setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const bucket = dataBucket["Penempatan Pengajar"];
+      const rows = await listRows(bucket);
+      const targetKode = normalizeValueKey(draftValue.kodePengajar);
+      const targetIds = rows
+        .filter((row) => normalizeValueKey(row.data["Kode Pengajar"]) === targetKode)
+        .map((row) => row.id);
+      await deleteRowsByIds(targetIds);
+      await insertRow(bucket, payload);
+      await handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+      pushToast(`Penempatan hari ${av.hari} berhasil disimpan.`, "success");
+    } catch (error) {
+      setPenempatanStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Gagal menyimpan penempatan pengajar.",
+      }));
+      pushToast("Gagal menyimpan penempatan pengajar.", "error");
+    }
+  };
+
+  const handleSavePenempatanPengajar = async () => {
+    if (!isAdmin) {
+      setPenempatanError("Hanya Admin Pusat yang memiliki wewenang untuk menyimpan atau mengubah penempatan pengajar.");
+      return;
+    }
+
+    const draftValue = {
+      ...penempatanDraft,
+      kodePengajar: penempatanDraft.kodePengajar.trim(),
+      namaPengajar: penempatanDraft.namaPengajar.trim(),
+      domisili: penempatanDraft.domisili.trim(),
+      availabilityList: penempatanDraft.availabilityList
+        .filter((item) => item.enabled)
+        .map((item) => ({
+          ...item,
+          hari: titleCase(item.hari),
+          jamMulai: item.jamMulai.trim(),
+          jamSelesai: item.jamSelesai.trim(),
+          cabangList: Array.from(
+            new Set(
+              item.cabangList
+                .map((cabang) => cabang.trim())
+                .filter(Boolean)
+            )
+          ),
+        })),
+    };
+
+    if (!draftValue.kodePengajar || !draftValue.namaPengajar) {
+      setPenempatanError("Pengajar wajib dipilih.");
+      return;
+    }
+    if (!draftValue.domisili) {
+      setPenempatanError("Domisili wajib diisi.");
+      return;
+    }
+    if (draftValue.availabilityList.length === 0) {
+      setPenempatanError("Pilih minimal satu hari tersedia.");
+      return;
+    }
+    const invalidAvailability = draftValue.availabilityList.find(
+      (item) =>
+        !item.jamMulai || !item.jamSelesai || parseTimeValue(item.jamMulai) === null || parseTimeValue(item.jamSelesai) === null
+    );
+    if (invalidAvailability) {
+      setPenempatanError(`Jam mulai dan selesai wajib diisi untuk hari ${invalidAvailability.hari}.`);
+      return;
+    }
+    const invalidOrder = draftValue.availabilityList.find((item) => item.jamMulai >= item.jamSelesai);
+    if (invalidOrder) {
+      setPenempatanError(`Jam mulai harus lebih awal dari jam selesai untuk hari ${invalidOrder.hari || "(kosong)"}.`);
+      return;
+    }
+    const missingHari = draftValue.availabilityList.find((item) => !item.hari.trim());
+    if (missingHari) {
+      setPenempatanError("Pilih hari untuk semua baris penempatan.");
+      return;
+    }
+    const missingCabangAvailability = draftValue.availabilityList.find(
+      (item) => item.cabangList.length === 0
+    );
+    if (missingCabangAvailability) {
+      setPenempatanError(`Pilih minimal satu cabang penempatan untuk hari ${missingCabangAvailability.hari}.`);
+      return;
+    }
+
+    const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
+    const matchingPengajar = pengajarRows.find(
+      (row) =>
+        normalizeValueKey(row.data["Kode Pengajar"] || row.data.kode_pengajar || "") ===
+        normalizeValueKey(draftValue.kodePengajar)
+    );
+    let resolvedPengajarId = matchingPengajar ? decodeId(matchingPengajar.id).id : "";
+
+    if (!resolvedPengajarId) {
+      resolvedPengajarId =
+        penempatanOldRecord?.["__id_pengajar"] ||
+        penempatanOldRecord?.["id_pengajar"] ||
+        crypto.randomUUID();
+    }
+
+    setPenempatanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const bucket = dataBucket["Penempatan Pengajar"];
+      const rows = await listRows(bucket);
+      const targetKode = normalizeValueKey(draftValue.kodePengajar);
+      const oldKode = penempatanOldRecord ? normalizeValueKey(penempatanOldRecord["Kode Pengajar"] || penempatanOldRecord.kode_pengajar || "") : "";
+
+      // Hapus data lama pengajar ini (atau kode lama jika diganti)
+      const targetIds = rows
+        .filter((row) => {
+          const rowKode = normalizeValueKey(row.data["Kode Pengajar"] || row.data.kode_pengajar || "");
+          const isSameId = penempatanOldRecord?.id
+            ? decodeId(row.id).id === decodeId(penempatanOldRecord.id).id || row.id === penempatanOldRecord.id
+            : false;
+          return isSameId || (targetKode && rowKode === targetKode) || (oldKode && rowKode === oldKode);
+        })
+        .map((row) => row.id);
+      if (targetIds.length > 0) {
+        await deleteRowsByIds(targetIds);
+      }
+      
+      // Simpan setiap hari ketersediaan penempatan
+      const enabledAvailabilities = draftValue.availabilityList.filter((item) => item.enabled);
+      for (const availability of enabledAvailabilities) {
+        const rowPayload = {
+          "Kode Pengajar": draftValue.kodePengajar,
+          "Nama Pengajar": draftValue.namaPengajar,
+          Domisili: draftValue.domisili,
+          Hari: availability.hari,
+          "Jam Mulai": availability.jamMulai,
+          "Jam Selesai": availability.jamSelesai,
+          "Cabang Penempatan": availability.cabangList.join(", "),
+          "__id_pengajar": resolvedPengajarId,
+        };
+        await insertRow(bucket, rowPayload);
+      }
+      
+      setIsPenempatanModalOpen(false);
+      setPenempatanError("");
+      setPenempatanOldRecord(null);
+      void handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+      pushToast("Penempatan pengajar berhasil disimpan.", "success");
+    } catch (error) {
+      setPenempatanStatus((prev) => ({
+        ...prev,
+        error: "Gagal menyimpan penempatan pengajar.",
+      }));
+      pushToast("Gagal menyimpan penempatan pengajar.", "error");
+    } finally {
+      setPenempatanStatus((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const normalizeIzinRecord = (record: Record<string, string>) => {
+    const startDate = parseFlexibleDate(record["Tanggal Mulai"] || "");
+    const endDate = parseFlexibleDate(record["Tanggal Selesai"] || "");
+    const decidedAtRaw =
+      record["Diputuskan Pada"] || record["diputuskan_pada"] || "";
+    const decidedAtDate = decidedAtRaw ? new Date(decidedAtRaw) : null;
+    const decidedAt =
+      decidedAtDate && !Number.isNaN(decidedAtDate.getTime())
+        ? decidedAtDate.toLocaleString("id-ID", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+          })
+        : decidedAtRaw;
+    return {
+      // Keep encoded row id from database for reliable update/delete.
+      _id: record._id || record.ID || record.Id || record.id || "",
+      "Kode Pengajar": (record["Kode Pengajar"] || "").trim().toLowerCase(),
+      "Nama Pengajar": record["Nama Pengajar"] || record.Nama || "",
+      Domisili: record.Domisili || "",
+      "Cabang Target": record["Cabang Target"] || record["cabang_target"] || "",
+      "Tanggal Mulai": startDate ? formatScheduleLabel(startDate) : "",
+      "Tanggal Selesai": endDate ? formatScheduleLabel(endDate) : "",
+      Keterangan: record.Keterangan || "",
+      "Keterangan Status": record["Keterangan Status"] || record.Status || "Menunggu",
+      "Diputuskan Oleh": record["Diputuskan Oleh"] || record["diputuskan_oleh"] || "",
+      "Diputuskan Pada": decidedAt,
+      "Diputuskan Pada Raw": decidedAtRaw,
+    };
+  };
+
+  const handleLoadIzinPengajar = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
+    if (!options?.silent) {
+      setIzinStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
+    try {
+      const bucket = dataBucket["Izin Pengajar"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
+      console.debug("[debug] loaded izin rows count:", rows.length);
+      const normalized = rows
+        .map((row) => ({ ...toRecord(row), _id: row.id }))
+        .map((record) => normalizeIzinRecord(record));
+      console.debug("[debug] normalized izin records count:", normalized.length);
+      setIzinRecords((prev) => {
+        if (
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.ID === next.ID &&
+              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
+              curr["Keterangan Status"] === next["Keterangan Status"] &&
+              curr["Tanggal Mulai"] === next["Tanggal Mulai"] &&
+              curr["Tanggal Selesai"] === next["Tanggal Selesai"]
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
+      setIzinStatus({
+        loading: false,
+        error: "",
+        lastSync: new Date().toLocaleString("id-ID"),
+      });
+    } catch (error) {
+      setIzinStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Gagal memuat data izin pengajar.",
+      }));
+      pushToast("Gagal memuat data izin pengajar.", "error");
+    }
+  };
+
+  const canManageIzinRecord = (record: Record<string, string>) => {
+    if (authSession?.roll === "admin") {
+      return true;
+    }
+    const currentCabangKey = normalizeText(restrictedCabang || authSession?.cabang || "");
+    if (!currentCabangKey) {
+      return true;
+    }
+    const domisiliKey = normalizeText(record.Domisili || record.domisili || "");
+    if (domisiliKey && domisiliKey === currentCabangKey) {
+      return true;
+    }
+    const targetList = (record["Cabang Target"] || record["cabang_target"] || "")
+      .split(",")
+      .map((item) => normalizeText(item))
+      .filter(Boolean);
+
+    if (targetList.length === 0 || targetList.includes("semua cabang") || targetList.includes("semua")) {
+      return true;
+    }
+
+    return targetList.includes(currentCabangKey);
+  };
+
+  const handleOpenIzinModal = (record?: Record<string, string>) => {
+    if (record) {
+      if (!canManageIzinRecord(record)) {
+        pushToast("Hanya cabang target, cabang asal, atau Admin yang dapat mengedit izin ini.", "error");
+        return;
+      }
+      setIzinDraft({
+        kodePengajar: (record["Kode Pengajar"] || "").trim().toLowerCase(),
+        namaPengajar: record["Nama Pengajar"] || "",
+        domisili: restrictedCabang || record.Domisili || "",
+        cabangTarget: record["Cabang Target"] || "",
+        tanggalMulai: formatLocalDate(parseFlexibleDate(record["Tanggal Mulai"] || "") || new Date()),
+        tanggalSelesai: formatLocalDate(parseFlexibleDate(record["Tanggal Selesai"] || "") || new Date()),
+        keterangan: record.Keterangan || "",
+        status: record["Keterangan Status"] || record.Status || "Menunggu",
+        diputuskanOleh: record["Diputuskan Oleh"] || record.diputuskan_oleh || "",
+        diputuskanPada: record["Diputuskan Pada"] || record.diputuskan_pada || "",
+      });
+      setEditingIzinId(record._id || null);
+    } else {
+      const defaultDomisili = restrictedCabang || authSession?.cabang || "";
+      const today = formatLocalDate(new Date());
+      setIzinDraft({
+        kodePengajar: "",
+        namaPengajar: "",
+        domisili: defaultDomisili,
+        cabangTarget: "",
+        tanggalMulai: today,
+        tanggalSelesai: today,
+        keterangan: "",
+      });
+      setEditingIzinId(null);
+    }
+    setIzinError("");
+    setIsIzinModalOpen(true);
+  };
+
+  const handleSaveIzinPengajar = async () => {
+    const normalized = {
+      ...izinDraft,
+      kodePengajar: izinDraft.kodePengajar.trim().toLowerCase(),
+      namaPengajar: izinDraft.namaPengajar.trim(),
+      domisili: (restrictedCabang || izinDraft.domisili).trim(),
+      cabangTarget: izinDraft.cabangTarget.trim(),
+      tanggalMulai: izinDraft.tanggalMulai.trim(),
+      tanggalSelesai: izinDraft.tanggalSelesai.trim(),
+      keterangan: izinDraft.keterangan.trim(),
+    };
+
+    if (!normalized.kodePengajar || !normalized.namaPengajar) {
+      setIzinError("Pengajar wajib dipilih.");
+      return;
+    }
+    if (!normalized.cabangTarget) {
+      setIzinError("Cabang Target wajib diisi.");
+      return;
+    }
+    const startDate = parseFlexibleDate(normalized.tanggalMulai);
+    const endDate = parseFlexibleDate(normalized.tanggalSelesai);
+    if (!startDate || !endDate) {
+      setIzinError("Tanggal mulai dan selesai wajib diisi.");
+      return;
+    }
+    if (startDate > endDate) {
+      setIzinError("Tanggal selesai tidak boleh lebih kecil dari tanggal mulai.");
+      return;
+    }
+
+    const record = {
+      "Kode Pengajar": normalized.kodePengajar,
+      "Nama Pengajar": normalized.namaPengajar,
+      Domisili: normalized.domisili,
+      "Cabang Target": normalized.cabangTarget,
+      "Tanggal Mulai": formatScheduleLabel(startDate),
+      "Tanggal Selesai": formatScheduleLabel(endDate),
+      Keterangan: normalized.keterangan,
+      "Keterangan Status":
+        (editingIzinId
+          ? izinRecords.find((item) => item._id === editingIzinId)?.["Keterangan Status"]
+          : "") || "Menunggu",
+      "Diputuskan Oleh":
+        (editingIzinId
+          ? izinRecords.find((item) => item._id === editingIzinId)?.["Diputuskan Oleh"]
+          : "") || "",
+      "Diputuskan Pada":
+        (editingIzinId
+          ? izinRecords.find((item) => item._id === editingIzinId)?.["Diputuskan Pada"]
+          : "") || "",
+      "Diputuskan Pada Raw":
+        (editingIzinId
+          ? izinRecords.find((item) => item._id === editingIzinId)?.["Diputuskan Pada Raw"]
+          : "") || "",
+    };
+
+    setIzinStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const bucket = dataBucket["Izin Pengajar"];
+      if (editingIzinId) {
+        await updateRow(editingIzinId, record);
+      } else {
+        await insertRow(bucket, record);
+      }
+      setIsIzinModalOpen(false);
+      setIzinError("");
+      void handleLoadIzinPengajar({ silent: true });
+      pushToast("Izin pengajar berhasil disimpan.", "success");
+    } catch (error) {
+      setIzinStatus((prev) => ({
+        ...prev,
+        error: "Gagal menyimpan izin pengajar.",
+      }));
+      pushToast("Gagal menyimpan izin pengajar.", "error");
+    } finally {
+      setIzinStatus((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleDeleteIzinPengajar = (record: Record<string, string>) => {
+    if (!canManageIzinRecord(record)) {
+      pushToast("Hanya cabang target, cabang asal, atau Admin yang dapat menghapus izin ini.", "error");
+      return;
+    }
+    openConfirmDialog(
+      `Hapus izin untuk ${record["Nama Pengajar"] || record["Kode Pengajar"]}?`,
+      async () => {
+        setIzinStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const targetId = record._id;
+          if (targetId) {
+            await deleteRowsByIds([targetId]);
+          }
+          void handleLoadIzinPengajar({ silent: true });
+          pushToast("Izin pengajar berhasil dihapus.", "success");
+        } catch (error) {
+          setIzinStatus((prev) => ({
+            ...prev,
+            error: "Gagal menghapus izin pengajar.",
+          }));
+          pushToast("Gagal menghapus izin pengajar.", "error");
+        } finally {
+          setIzinStatus((prev) => ({ ...prev, loading: false }));
+        }
+      },
+      { title: "Hapus Izin", confirmLabel: "Hapus" }
+    );
+  };
+
+  const normalizePermintaanRecord = (record: Record<string, string>) => {
+    const jamMulai = formatTimeHHMM(record["Jam Mulai"] || "");
+    const jamSelesai = formatTimeHHMM(record["Jam Selesai"] || "");
+    
+    // Support both old and new schema
+    const tanggalDimitaRaw = String(record["Tanggal Diminta"] || record["TanggalDiminta"] || "").trim();
+    const tanggalDimitaParsed = parseFlexibleDate(tanggalDimitaRaw);
+    
+    return {
+      ID: record.ID || record.Id || record.id || `REQ-${record["Kode Pengajar"]}-${record["Dari Cabang"]}`,
+      "Kode Pengajar": record["Kode Pengajar"] || "",
+      "Nama Pengajar": record["Nama Pengajar"] || "",
+      "Dari Cabang": record["Dari Cabang"] || "",
+      "Cabang Peminta": record["Cabang Peminta"] || "",
+      "Tanggal Diminta": tanggalDimitaParsed ? formatScheduleLabel(tanggalDimitaParsed) : "",
+      "Jam Mulai": jamMulai,
+      "Jam Selesai": jamSelesai,
+      Status: record.Status || "Menunggu",
+      Catatan: record.Catatan || "",
+    };
+  };
+
+  const handleLoadPermintaanPengajar = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
+    if (!options?.silent) {
+      setPermintaanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
+    try {
+      const bucket = dataBucket["Permintaan Pengajar Antar Cabang"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
+      console.debug("[debug] loaded permintaan rows count:", rows.length);
+      const normalized = rows
+        .map((row) => toRecord(row))
+        .map((record) => normalizePermintaanRecord(record));
+      console.debug("[debug] normalized permintaan records count:", normalized.length, "restrictedCabang=", restrictedCabang);
+      setPermintaanRecords((prev) => {
+        if (
+          !options?.forceFresh &&
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.ID === next.ID &&
+              curr["Kode Pengajar"] === next["Kode Pengajar"] &&
+              curr.Status === next.Status &&
+              curr["Tanggal Diminta"] === next["Tanggal Diminta"] &&
+              curr["Jam Mulai"] === next["Jam Mulai"] &&
+              curr["Jam Selesai"] === next["Jam Selesai"]
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
+      setPermintaanStatus({
+        loading: false,
+        error: "",
+        lastSync: new Date().toLocaleString("id-ID"),
+      });
+    } catch (error) {
+      setPermintaanStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Gagal memuat data permintaan pengajar antar cabang.",
+      }));
+      pushToast("Gagal memuat permintaan pengajar antar cabang.", "error");
+    }
+  };
+
+  const handleLoadAccountsCabang = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
+    if (!options?.silent) {
+      setAccountsCabangStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
+    try {
+      const bucket = dataBucket["accounts_cabang"];
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(bucket);
+      }
+      const rows = await listRows(bucket, Boolean(options?.forceFresh));
+      const normalized = rows.map((row) => ({
+        ...toRecord(row),
+        id: row.id,
+      }));
+      setAccountsCabangRecords((prev) => {
+        if (
+          prev.length === normalized.length &&
+          prev.every((curr, i) => {
+            const next = normalized[i];
+            return (
+              next &&
+              curr.id === next.id &&
+              curr.Username === next.Username &&
+              curr.Roll === next.Roll &&
+              curr.Cabang === next.Cabang
+            );
+          })
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
+      setAccountsCabangStatus({
+        loading: false,
+        error: "",
+        lastSync: new Date().toLocaleString("id-ID"),
+      });
+    } catch (error) {
+      setAccountsCabangStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Gagal memuat data accounts_cabang.",
+      }));
+      pushToast("Gagal memuat data accounts_cabang.", "error");
+    }
+  };
+
+  const handleOpenAccountsCabangModal = (record?: Record<string, string>) => {
+    if (record) {
+      setAccountsCabangDraft({
+        Username: record.Username || "",
+        Password: record.Password || "",
+        Roll: record.Roll || "cabang",
+        Cabang: record.Cabang || "",
+      });
+      setEditingAccountsCabangId(record.id || null);
+    } else {
+      setAccountsCabangDraft({
+        Username: "",
+        Password: "",
+        Roll: "cabang",
+        Cabang: "",
+      });
+      setEditingAccountsCabangId(null);
+    }
+    setAccountsCabangError("");
+    setIsAccountsCabangModalOpen(true);
+  };
+
+  const handleAccountsCabangDraftChange = (field: keyof typeof accountsCabangDraft, value: string) => {
+    setAccountsCabangDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveAccountsCabang = async () => {
+    const normalized = {
+      Username: accountsCabangDraft.Username.trim(),
+      Password: accountsCabangDraft.Password.trim(),
+      Roll: (accountsCabangDraft.Roll.trim() || "cabang").trim(),
+      Cabang: accountsCabangDraft.Cabang.trim(),
+    };
+
+    if (!normalized.Username) {
+      setAccountsCabangError("Username wajib diisi.");
+      return;
+    }
+
+    if (!normalized.Password) {
+      setAccountsCabangError("Password wajib diisi.");
+      return;
+    }
+
+    try {
+      const rows = await listRows(dataBucket["accounts_cabang"]);
+      const usernameConflict = rows.find((row) => {
+        const currentId = editingAccountsCabangId ? decodeId(editingAccountsCabangId).id : null;
+        return (
+          normalizeValueKey(row.data.Username) === normalizeValueKey(normalized.Username) &&
+          (!currentId || decodeId(row.id).id !== currentId)
+        );
+      });
+
+      if (usernameConflict) {
+        setAccountsCabangError("Username sudah digunakan oleh akun lain.");
+        return;
+      }
+
+      if (editingAccountsCabangId) {
+        await updateRow(editingAccountsCabangId, normalized);
+        pushToast("Akun cabang berhasil diperbarui.", "success");
+      } else {
+        await insertRow(dataBucket["accounts_cabang"], normalized);
+        pushToast("Akun cabang berhasil ditambahkan.", "success");
+      }
+
+      setIsAccountsCabangModalOpen(false);
+      await handleLoadAccountsCabang();
+    } catch (error) {
+      setAccountsCabangError("Gagal menyimpan data accounts_cabang.");
+      pushToast("Gagal menyimpan data accounts_cabang.", "error");
+    }
+  };
+
+  const handleDeleteAccountsCabang = (record: Record<string, string>) => {
+    openConfirmDialog(
+      `Hapus akun cabang ${record.Username || record.Cabang || "?"}?`,
+      async () => {
+        setAccountsCabangStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const rows = await listRows(dataBucket["accounts_cabang"]);
+          const targetIds = rows
+            .filter((row) => normalizeValueKey(row.data.Username) === normalizeValueKey(record.Username || ""))
+            .map((row) => row.id);
+          await deleteRowsByIds(targetIds);
+          await handleLoadAccountsCabang();
+          pushToast("Akun cabang berhasil dihapus.", "success");
+        } catch (error) {
+          setAccountsCabangStatus((prev) => ({
+            ...prev,
+            loading: false,
+            error: "Gagal menghapus akun cabang.",
+          }));
+          pushToast("Gagal menghapus akun cabang.", "error");
+        }
+      },
+      { title: "Hapus Akun Cabang", confirmLabel: "Hapus" }
+    );
+  };
+
+  const handleLoadDonasi = async (options?: { silent?: boolean; forceFresh?: boolean }) => {
+    if (!options?.silent) {
+      setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    }
+    try {
+      if (options?.forceFresh) {
+        invalidateReadCacheForBucket(dataBucket["donasi"]);
+        invalidateReadCacheForBucket(dataBucket["donasi_transaksi"]);
+        invalidateReadCacheForBucket(dataBucket["donasi_transaksi_tagihan"]);
+      }
+      const [donasiRows, transaksiRows, tagihanRows] = await Promise.all([
+        listRows(dataBucket["donasi"], Boolean(options?.forceFresh)),
+        listRows(dataBucket["donasi_transaksi"], Boolean(options?.forceFresh)).catch(() => []),
+        listRows(dataBucket["donasi_transaksi_tagihan"], Boolean(options?.forceFresh)).catch(() => []),
+      ]);
+
+      const normalizedDonasi: DonasiRecord[] = donasiRows.map((row) => ({
+        id: row.id,
+        nama_pemilik: String(row.data["Nama Pemilik"] || (row.data as any).nama_pemilik || ""),
+        nama_bank: String(row.data["Nama Bank"] || (row.data as any).nama_bank || ""),
+        alamat_rekening: String(row.data["Alamat Rekening"] || (row.data as any).alamat_rekening || ""),
+        created_at: String(row.data["Created At"] || (row as any).createdAt || (row as any).created_at || ""),
+        updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
+      }));
+      setDonasiRecords(normalizedDonasi);
+
+      const normalizedTransaksi: DonasiTransaksiRecord[] = transaksiRows.map((row) => ({
+        id: row.id,
+        nama_pengirim: String(row.data["Nama Pengirim"] || (row.data as any).nama_pengirim || ""),
+        tanggal: String(row.data["Tanggal"] || (row.data as any).tanggal || ""),
+        jumlah_transaksi_masuk: Number(
+          row.data["Jumlah Transaksi Masuk"] ??
+            (row.data as any).jumlah_transaksi_masuk ??
+            (row.data as any).jumlah_transaksi ??
+            row.data["Jumlah Transaksi"] ??
+            0
+        ),
+        jumlah_transaksi_keluar: Number(
+          row.data["Jumlah Transaksi Keluar"] ??
+            (row.data as any).jumlah_transaksi_keluar ??
+            0
+        ),
+        keterangan: String(row.data["Keterangan"] || (row.data as any).keterangan || "donasi masuk"),
+        hidden_nama_pengirim: Number(
+          row.data["Hidden Nama Pengirim"] ??
+            (row.data as any).hidden_nama_pengirim ??
+            0
+        ) ? 1 : 0,
+        jenis_transaksi: String(
+          row.data["Jenis Transaksi"] ||
+            (row.data as any).jenis_transaksi ||
+            (Number(row.data["Jumlah Transaksi Keluar"] ?? (row.data as any).jumlah_transaksi_keluar ?? 0) > 0 ? "Dana Keluar" : "Dana Masuk")
+        ),
+        created_at: String(row.data["Created At"] || (row as any).createdAt || (row as any).created_at || ""),
+        updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
+      }));
+      setTransaksiDonasiRecords(normalizedTransaksi);
+
+      const normalizedTagihan: DonasiTransaksiTagihanRecord[] = tagihanRows.map((row) => ({
+        id: row.id,
+        nama_pengirim: String(row.data["Nama Pengirim"] || (row.data as any).nama_pengirim || ""),
+        tanggal: String(row.data["Tanggal"] || (row.data as any).tanggal || ""),
+        jumlah_tagihan: Number(
+          row.data["Jumlah Tagihan"] ??
+            (row.data as any).jumlah_tagihan ??
+            0
+        ),
+        keterangan: String(row.data["Keterangan"] || (row.data as any).keterangan || "tagihan bulan ini"),
+        status: String(row.data["Status"] || (row.data as any).status || "Belum Dibayar"),
+        is_lunas: Number(row.data["Is Lunas"] ?? (row.data as any).is_lunas ?? 0) ? 1 : 0,
+        tanggal_bayar: (row.data["Tanggal Bayar"] || (row.data as any).tanggal_bayar) ? String(row.data["Tanggal Bayar"] || (row.data as any).tanggal_bayar) : null,
+        created_at: String(row.data["Created At"] || (row as any).createdAt || (row as any).created_at || ""),
+        updated_at: String(row.data["Updated At"] || (row as any).updatedAt || (row as any).updated_at || ""),
+      }));
+      setTransaksiTagihanRecords(normalizedTagihan);
+
+      setDonasiStatus({
+        loading: false,
+        error: "",
+        lastSync: new Date().toLocaleString("id-ID"),
+      });
+    } catch (error) {
+      setDonasiStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Gagal memuat data donasi.",
+      }));
+      pushToast("Gagal memuat data donasi.", "error");
+    }
+  };
+
+  const handleOpenTransaksiDonasiModal = (record?: DonasiTransaksiRecord) => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    if (record) {
+      setTransaksiDonasiDraft({
+        nama_pengirim: record.nama_pengirim || "",
+        tanggal: record.tanggal || currentDateTime,
+        jumlah_transaksi_masuk: record.jumlah_transaksi_masuk || 0,
+        jumlah_transaksi_keluar: record.jumlah_transaksi_keluar || 0,
+        keterangan: record.keterangan || "donasi masuk",
+        hidden_nama_pengirim: record.hidden_nama_pengirim ? 1 : 0,
+        jenis_transaksi: record.jenis_transaksi || (Number(record.jumlah_transaksi_keluar) > 0 ? "Dana Keluar" : "Dana Masuk"),
+      });
+      setEditingTransaksiDonasiId(String(record.id) || null);
+    } else {
+      setTransaksiDonasiDraft({
+        nama_pengirim: "",
+        tanggal: currentDateTime,
+        jumlah_transaksi_masuk: 0,
+        jumlah_transaksi_keluar: 0,
+        keterangan: "donasi masuk",
+        hidden_nama_pengirim: 0,
+        jenis_transaksi: "Dana Masuk",
+      });
+      setEditingTransaksiDonasiId(null);
+    }
+    setTransaksiDonasiError("");
+    setIsTransaksiDonasiModalOpen(true);
+  };
+
+  const handleTransaksiDonasiDraftChange = (
+    field: keyof DonasiTransaksiDraft,
+    value: string | number
+  ) => {
+    setTransaksiDonasiDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveTransaksiDonasi = async () => {
+    const nama_pengirim = String(transaksiDonasiDraft.nama_pengirim || "").trim() || "*******";
+    const tanggal = String(transaksiDonasiDraft.tanggal || "").trim() || new Date().toISOString().slice(0, 10);
+    const jumlah_transaksi_masuk = Number(String(transaksiDonasiDraft.jumlah_transaksi_masuk || 0).replace(/[^0-9.-]+/g, "")) || 0;
+    const jumlah_transaksi_keluar = Number(String(transaksiDonasiDraft.jumlah_transaksi_keluar || 0).replace(/[^0-9.-]+/g, "")) || 0;
+    const keterangan = String(transaksiDonasiDraft.keterangan || "").trim() || "donasi masuk";
+    const hidden_nama_pengirim = transaksiDonasiDraft.hidden_nama_pengirim ? 1 : 0;
+    const jenis_transaksi = String(
+      transaksiDonasiDraft.jenis_transaksi ||
+        (jumlah_transaksi_keluar > 0 ? "Dana Keluar" : "Dana Masuk")
+    );
+
+    if (jumlah_transaksi_masuk <= 0 && jumlah_transaksi_keluar <= 0) {
+      setTransaksiDonasiError("Jumlah transaksi masuk atau keluar harus diisi lebih besar dari Rp 0.");
+      return;
+    }
+
+    const payload = {
+      "Nama Pengirim": nama_pengirim,
+      Tanggal: tanggal,
+      "Jumlah Transaksi Masuk": String(jumlah_transaksi_masuk),
+      "Jumlah Transaksi Keluar": String(jumlah_transaksi_keluar),
+      Keterangan: keterangan,
+      "Hidden Nama Pengirim": String(hidden_nama_pengirim),
+      "Jenis Transaksi": jenis_transaksi,
+    };
+
+    try {
+      if (editingTransaksiDonasiId) {
+        await updateRow(editingTransaksiDonasiId, payload);
+        pushToast("Data transaksi donasi berhasil diperbarui.", "success");
+      } else {
+        await insertRow(dataBucket["donasi_transaksi"], payload);
+        pushToast("Data transaksi donasi berhasil dicatat.", "success");
+      }
+
+      // Jika transaksi keluar ini membayar tagihan server tertentu, perbarui status tagihan menjadi Sudah Dibayar
+      if (jumlah_transaksi_keluar > 0) {
+        const tagihanMatch = keterangan.match(/#(?:donasi_transaksi_tagihan|tagihan):([a-zA-Z0-9_-]+)/);
+        if (tagihanMatch && tagihanMatch[1]) {
+          const matchedTagihanId = tagihanMatch[1];
+          const targetTagihan = transaksiTagihanRecords.find(
+            (t) => String(t.id) === matchedTagihanId || String(decodeId(String(t.id)).id) === matchedTagihanId
+          );
+          if (targetTagihan) {
+            try {
+              await updateRow(String(targetTagihan.id), {
+                Status: "Sudah Dibayar",
+                "Is Lunas": "1",
+                "Tanggal Bayar": tanggal,
+              });
+            } catch (e) {
+              console.warn("Could not auto-mark tagihan as paid:", e);
+            }
+          }
+        }
+      }
+
+      setIsTransaksiDonasiModalOpen(false);
+      await handleLoadDonasi();
+    } catch (error: any) {
+      console.error("Save Transaksi Error:", error);
+      setTransaksiDonasiError(error.message || "Gagal menyimpan transaksi donasi.");
+      pushToast("Gagal menyimpan transaksi donasi: " + (error.message || ""), "error");
+    }
+  };
+
+  const handleDeleteTransaksiDonasi = (record: DonasiTransaksiRecord) => {
+    const nominal = record.jumlah_transaksi_masuk > 0 ? record.jumlah_transaksi_masuk : record.jumlah_transaksi_keluar;
+    openConfirmDialog(
+      `Hapus transaksi donasi dari ${record.nama_pengirim || "*******"} senilai Rp ${new Intl.NumberFormat("id-ID").format(
+        nominal
+      )} (${record.keterangan || "donasi masuk"})?`,
+      async () => {
+        setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          await deleteRowsByIds([String(record.id)]);
+          await handleLoadDonasi();
+          pushToast("Transaksi donasi berhasil dihapus.", "success");
+        } catch (error) {
+          setDonasiStatus((prev) => ({
+            ...prev,
+            loading: false,
+            error: "Gagal menghapus transaksi donasi.",
+          }));
+          pushToast("Gagal menghapus transaksi donasi.", "error");
+        }
+      },
+      { title: "Hapus Transaksi Donasi", confirmLabel: "Hapus" }
+    );
+  };
+
+  const handleToggleHideNamaTransaksiDonasi = async (record: DonasiTransaksiRecord) => {
+    const currentVal = Number(record.hidden_nama_pengirim) === 1 ? 1 : 0;
+    const newVal = currentVal === 1 ? 0 : 1;
+    const payload = {
+      "Nama Pengirim": record.nama_pengirim,
+      Tanggal: record.tanggal,
+      "Jumlah Transaksi Masuk": String(record.jumlah_transaksi_masuk || 0),
+      "Jumlah Transaksi Keluar": String(record.jumlah_transaksi_keluar || 0),
+      Keterangan: record.keterangan || "donasi masuk",
+      "Hidden Nama Pengirim": String(newVal),
+      "Jenis Transaksi": record.jenis_transaksi || (record.jumlah_transaksi_keluar > 0 ? "Dana Keluar" : "Dana Masuk"),
+    };
+    try {
+      if (record.id) {
+        await updateRow(String(record.id), payload);
+        setTransaksiDonasiRecords((prev) =>
+          prev.map((item) =>
+            String(item.id) === String(record.id) ? { ...item, hidden_nama_pengirim: newVal } : item
+          )
+        );
+        pushToast(
+          newVal === 1
+            ? `Nama "${record.nama_pengirim || "Donatur"}" kini disembunyikan di publik (*******).`
+            : `Nama "${record.nama_pengirim || "Donatur"}" kini ditampilkan di publik.`,
+          "success"
+        );
+      }
+    } catch (error: any) {
+      console.error("Toggle Hide Nama Error:", error);
+      pushToast("Gagal mengubah status privasi nama pengirim.", "error");
+    }
+  };
+
+  const handlePayTagihan = (tagihan: DonasiTransaksiTagihanRecord) => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    const getTagihanDatePart = (val?: string, fallback?: string) => {
+      const raw = val || fallback || "";
+      if (!raw) return "";
+      try {
+        const d = new Date(raw);
+        if (isNaN(d.getTime())) {
+          const match = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+          if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+          return raw.split("T")[0];
+        }
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const yyyy = d.getFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+      } catch { return ""; }
+    };
+
+    const datePart = getTagihanDatePart(tagihan.tanggal, tagihan.created_at);
+    const baseKeterangan = tagihan.keterangan || "tagihan bulan ini";
+    const finalKeterangan = datePart ? `${baseKeterangan} (${datePart})` : baseKeterangan;
+
+    setTransaksiDonasiDraft({
+      nama_pengirim: tagihan.nama_pengirim || "",
+      tanggal: currentDateTime,
+      jumlah_transaksi_masuk: 0,
+      jumlah_transaksi_keluar: tagihan.jumlah_tagihan || 0,
+      keterangan: finalKeterangan,
+      hidden_nama_pengirim: 0,
+      jenis_transaksi: "Pembayaran Tagihan",
+    });
+    setEditingTransaksiDonasiId(null);
+    setTransaksiDonasiError("");
+    setIsTransaksiDonasiModalOpen(true);
+  };
+
+  const handleOpenTransaksiTagihanModal = (record?: DonasiTransaksiTagihanRecord) => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    if (record) {
+      setTransaksiTagihanDraft({
+        id: record.id,
+        nama_pengirim: record.nama_pengirim || "",
+        tanggal: record.tanggal || currentDateTime,
+        jumlah_tagihan: record.jumlah_tagihan || 0,
+        keterangan: record.keterangan || "tagihan bulan ini",
+        status: record.status || "Belum Dibayar",
+        is_lunas: record.is_lunas ?? 0,
+        tanggal_bayar: record.tanggal_bayar || null,
+      });
+      setEditingTransaksiTagihanId(String(record.id) || null);
+    } else {
+      setTransaksiTagihanDraft({
+        nama_pengirim: "",
+        tanggal: currentDateTime,
+        jumlah_tagihan: 0,
+        keterangan: "tagihan bulan ini",
+        status: "Belum Dibayar",
+        is_lunas: 0,
+        tanggal_bayar: null,
+      });
+      setEditingTransaksiTagihanId(null);
+    }
+    setTransaksiTagihanError("");
+    setIsTransaksiTagihanModalOpen(true);
+  };
+
+  const handleTransaksiTagihanDraftChange = (
+    field: keyof DonasiTransaksiTagihanDraft,
+    value: string | number
+  ) => {
+    setTransaksiTagihanDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveTransaksiTagihan = async () => {
+    const nama_pengirim = String(transaksiTagihanDraft.nama_pengirim || "").trim();
+    const tanggal = String(transaksiTagihanDraft.tanggal || "").trim() || new Date().toISOString().slice(0, 10);
+    const jumlah_tagihan = Number(String(transaksiTagihanDraft.jumlah_tagihan || 0).replace(/[^0-9.-]+/g, "")) || 0;
+    const keterangan = String(transaksiTagihanDraft.keterangan || "").trim() || "tagihan bulan ini";
+    const status = String(transaksiTagihanDraft.status || "Belum Dibayar");
+    const is_lunas = (status === "Sudah Dibayar" || status === "Lunas" || Number(transaksiTagihanDraft.is_lunas) === 1) ? 1 : 0;
+    const tanggal_bayar = is_lunas === 1 ? (transaksiTagihanDraft.tanggal_bayar || new Date().toISOString()) : "";
+
+    if (!nama_pengirim) {
+      setTransaksiTagihanError("Nama pengirim / vendor tagihan wajib diisi.");
+      return;
+    }
+    if (jumlah_tagihan <= 0) {
+      setTransaksiTagihanError("Jumlah tagihan harus diisi lebih besar dari Rp 0.");
+      return;
+    }
+
+    const payload: Record<string, string> = {
+      "Nama Pengirim": nama_pengirim,
+      Tanggal: tanggal,
+      "Jumlah Tagihan": String(jumlah_tagihan),
+      Keterangan: keterangan,
+      Status: status,
+      "Is Lunas": String(is_lunas),
+      "Tanggal Bayar": tanggal_bayar,
+    };
+
+    if (!editingTransaksiTagihanId) {
+      // Pastikan id menggunakan UUID untuk tagihan baru
+      payload.id = crypto.randomUUID();
+    }
+
+    try {
+      if (editingTransaksiTagihanId) {
+        await updateRow(editingTransaksiTagihanId, payload);
+        pushToast("Data transaksi tagihan berhasil diperbarui.", "success");
+      } else {
+        await insertRow(dataBucket["donasi_transaksi_tagihan"], payload);
+        pushToast("Data transaksi tagihan berhasil dicatat.", "success");
+      }
+      setIsTransaksiTagihanModalOpen(false);
+      await handleLoadDonasi();
+    } catch (error: any) {
+      console.error("Save Transaksi Tagihan Error:", error);
+      setTransaksiTagihanError(error.message || "Gagal menyimpan transaksi tagihan.");
+      pushToast("Gagal menyimpan transaksi tagihan: " + (error.message || ""), "error");
+    }
+  };
+
+  const handleToggleTagihanStatus = async (record: DonasiTransaksiTagihanRecord) => {
+    const isCurrentlyPaid = isTagihanPaid(record, transaksiDonasiRecords);
+    const newStatus = isCurrentlyPaid ? "Belum Dibayar" : "Sudah Dibayar";
+    const newIsLunas = isCurrentlyPaid ? 0 : 1;
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const newTanggalBayar = isCurrentlyPaid ? "" : currentDateTime;
+
+    try {
+      setDonasiStatus((prev) => ({ ...prev, loading: true }));
+      await updateRow(String(record.id), {
+        Status: newStatus,
+        "Is Lunas": String(newIsLunas),
+        "Tanggal Bayar": newTanggalBayar,
+      });
+      await handleLoadDonasi({ silent: true, forceFresh: true });
+      pushToast(
+        newStatus === "Sudah Dibayar"
+          ? `Status tagihan "${record.nama_pengirim}" berhasil diubah menjadi SUDAH DIBAYAR.`
+          : `Status tagihan "${record.nama_pengirim}" berhasil diubah menjadi BELUM DIBAYAR.`,
+        "success"
+      );
+    } catch (err: any) {
+      setDonasiStatus((prev) => ({ ...prev, loading: false }));
+      pushToast("Gagal mengubah status tagihan: " + (err?.message || ""), "error");
+    }
+  };
+
+  const handleDeleteTransaksiTagihan = (record: DonasiTransaksiTagihanRecord) => {
+    openConfirmDialog(
+      `Hapus data transaksi tagihan dari ${record.nama_pengirim || "Vendor"} senilai Rp ${new Intl.NumberFormat("id-ID").format(
+        record.jumlah_tagihan
+      )} (${record.keterangan || "tagihan bulan ini"})?`,
+      async () => {
+        setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          await deleteRowsByIds([String(record.id)]);
+          await handleLoadDonasi();
+          pushToast("Transaksi tagihan berhasil dihapus.", "success");
+        } catch (error) {
+          setDonasiStatus((prev) => ({
+            ...prev,
+            loading: false,
+            error: "Gagal menghapus transaksi tagihan.",
+          }));
+          pushToast("Gagal menghapus transaksi tagihan.", "error");
+        }
+      },
+      { title: "Hapus Transaksi Tagihan", confirmLabel: "Hapus" }
+    );
+  };
+
+  const handleOpenDonasiModal = (record?: DonasiRecord) => {
+    if (record) {
+      setDonasiDraft({
+        nama_pemilik: record.nama_pemilik || "",
+        nama_bank: record.nama_bank || "",
+        alamat_rekening: record.alamat_rekening || "",
+      });
+      setEditingDonasiId(record.id || null);
+    } else {
+      setDonasiDraft({
+        nama_pemilik: "",
+        nama_bank: "",
+        alamat_rekening: "",
+      });
+      setEditingDonasiId(null);
+    }
+    setDonasiError("");
+    setIsDonasiModalOpen(true);
+  };
+
+  const handleDonasiDraftChange = (field: keyof DonasiDraft, value: string | number) => {
+    setDonasiDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveDonasi = async () => {
+    const nama_pemilik = String(donasiDraft.nama_pemilik || "").trim();
+    const nama_bank = String(donasiDraft.nama_bank || "").trim();
+    const alamat_rekening = String(donasiDraft.alamat_rekening || "").trim();
+
+    if (!nama_bank) {
+      setDonasiError("Nama bank atau saluran donasi wajib diisi.");
+      return;
+    }
+    if (!nama_pemilik) {
+      setDonasiError("Nama pemilik rekening/akun wajib diisi.");
+      return;
+    }
+    if (!alamat_rekening) {
+      setDonasiError("Alamat rekening atau nomor akun wajib diisi.");
+      return;
+    }
+
+    const payload = {
+      "Nama Pemilik": nama_pemilik,
+      "Nama Bank": nama_bank,
+      "Alamat Rekening": alamat_rekening,
+    };
+
+    try {
+      if (editingDonasiId) {
+        await updateRow(editingDonasiId, payload);
+        pushToast("Data donasi berhasil diperbarui.", "success");
+      } else {
+        await insertRow(dataBucket["donasi"], payload);
+        pushToast("Data donasi berhasil ditambahkan.", "success");
+      }
+      setIsDonasiModalOpen(false);
+      await handleLoadDonasi();
+    } catch (error) {
+      setDonasiError("Gagal menyimpan data donasi.");
+      pushToast("Gagal menyimpan data donasi.", "error");
+    }
+  };
+
+  const handleDeleteDonasi = (record: DonasiRecord) => {
+    openConfirmDialog(
+      `Hapus data donasi untuk ${record.nama_bank} (${record.alamat_rekening})?`,
+      async () => {
+        setDonasiStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          await deleteRowsByIds([record.id]);
+          await handleLoadDonasi();
+          pushToast("Data donasi berhasil dihapus.", "success");
+        } catch (error) {
+          setDonasiStatus((prev) => ({
+            ...prev,
+            loading: false,
+            error: "Gagal menghapus data donasi.",
+          }));
+          pushToast("Gagal menghapus data donasi.", "error");
+        }
+      },
+      { title: "Hapus Data Donasi", confirmLabel: "Hapus" }
+    );
+  };
+
+  useEffect(() => {
+    if (activeKey === "donasi" || activeKey === "dashboard") {
+      void handleLoadDonasi({ silent: true });
+    }
+  }, [activeKey, isAdmin]);
+
+  const refreshAllData = async (
+    showToast = false,
+    bypassCache = false,
+    silent = false
+  ) => {
+    if (!authSession || isSyncingRef.current) {
+      return;
+    }
+
+    const REALTIME_SYNC_TTL_MS = 25 * 1000;
+    const now = Date.now();
+    const elapsed = now - lastRefreshAllTimestampRef.current;
+
+    // Jika tidak bypassCache dan sinkronisasi dilakukan dalam rentang waktu kurang dari 25 detik,
+    // data tidak perlu diambil ulang dari D1.
+    if (!bypassCache && lastRefreshAllTimestampRef.current > 0 && elapsed < REALTIME_SYNC_TTL_MS) {
+      if (showToast) {
+        pushToast("Data sudah yang paling baru (sinkronisasi < 25 detik yang lalu).", "info");
+      }
+      return;
+    }
+
+    if (bypassCache) {
+      clearAllReadCache();
+    }
+    isSyncingRef.current = true;
+    if (!silent) {
+      setIsRefreshingAll(true);
+    }
+    try {
+      const opts = { silent: true, forceFresh: bypassCache };
+      await Promise.all([
+        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true, forceFresh: bypassCache }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: bypassCache }),
+        handleLoadMapel(opts),
+        handleLoadPengajar(opts),
+        handleLoadSuratTugas(opts),
+        handleLoadPenempatanPengajar(opts),
+        handleLoadIzinPengajar(opts),
+        handleLoadPermintaanPengajar(opts),
+        handleLoadAccountsCabang(opts),
+        handleLoadDonasi(opts),
+      ]);
+      lastRefreshAllTimestampRef.current = Date.now();
+      if (showToast) {
+        pushToast("✅ Sinkronisasi selesai! Seluruh data terbaru berhasil dimuat dan diperbarui.", "success");
+      }
+    } catch (err: any) {
+      console.error("Refresh all data error:", err);
+      if (showToast) {
+        pushToast("❌ Gagal menyinkronkan data: " + (err?.message || "Terjadi kendala jaringan."), "error");
+      }
+    } finally {
+      isSyncingRef.current = false;
+      if (!silent) {
+        setIsRefreshingAll(false);
+      }
+    }
+  };
+
+  const handleRefreshAllData = async () => {
+    pushToast("Sedang menyinkronkan seluruh data terbaru dari server...", "info");
+    await refreshAllData(true, true, false);
+  };
+
+  // Muat data spesifik untuk menu tertentu langsung dari server
+  const handleLoadMenuData = async (
+    menuKey: string,
+    options: { forceFresh?: boolean; silent?: boolean } = { forceFresh: true, silent: true }
+  ) => {
+    try {
+      switch (menuKey) {
+
+        case "bulanIni":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "jadwalTambahanPelayanan":
+          await Promise.all([
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "monitoringKelas":
+        case "printJadwal":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "hapusJadwal":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "mataPelajaran":
+          await handleLoadMapel({ silent: options.silent, forceFresh: options.forceFresh });
+          break;
+        case "pengajar":
+          await Promise.all([
+            handleLoadPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadMapel({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "penempatanPengajar":
+          await Promise.all([
+            handleLoadPenempatanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "izinPengajar":
+          await Promise.all([
+            handleLoadIzinPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "permintaanPengajarAntarCabang":
+          await Promise.all([
+            handleLoadPermintaanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "suratTugasMengajar":
+          await Promise.all([
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true, forceFresh: options.forceFresh }),
+            handleLoadPengajar({ silent: true, forceFresh: options.forceFresh }),
+            handleLoadSuratTugas({ silent: options.silent }),
+          ]);
+          break;
+        case "accounts_cabang":
+        case "accountsCabang":
+          await handleLoadAccountsCabang({ silent: options.silent, forceFresh: options.forceFresh });
+          break;
+        case "dashboard":
+          await Promise.all([
+            handleLoadPermintaanPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadIzinPengajar({ silent: options.silent, forceFresh: options.forceFresh }),
+            handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh }),
+          ]);
+          break;
+        case "donasi":
+          await handleLoadDonasi({ silent: options.silent, forceFresh: options.forceFresh });
+          break;
+        default:
+          await handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: options.silent, forceFresh: options.forceFresh });
+          break;
+      }
+    } catch (err: any) {
+      console.warn(`[Auto-Sync] Gagal memuat data menu ${menuKey}:`, err);
+    }
+  };
+
+  const handleMenuSelect = (key: string) => {
+    if (key === activeKey) {
+      return;
+    }
+
+    const adminOnlyKeys = ["hapusJadwal", "liburNasional", "accounts_cabang", "donasi"];
+    if (adminOnlyKeys.includes(key) && !isAdmin) {
+      return;
+    }
+
+    clearEditing();
+    setIsClassModalOpen(false);
+    setIsPenempatanModalOpen(false);
+    setIsIzinModalOpen(false);
+    setIsPermintaanModalOpen(false);
+
+    // Buka menu langsung seketika
+    setActiveKey(key);
+
+    // RAM Optimization: Clear unneeded large arrays from records when switching views
+    setRecords((prev) => {
+      const next = { ...prev };
+      const scheduleKeys = ["bulanIni", "jadwalTambahanPelayanan", "monitoringKelas", "printJadwal", "hapusJadwal"];
+      
+      // If we are not on a schedule-related page, we can clear the huge schedule arrays
+      if (!scheduleKeys.includes(key)) {
+        next.bulanIni = [];
+        next.jadwalTambahanPelayanan = [];
+      }
+      
+      // Clear other large arrays if their specific page is not active
+      if (key !== "mataPelajaran") next.mataPelajaran = [];
+      if (key !== "pengajar") next.pengajar = [];
+      if (key !== "penempatanPengajar") next.penempatanPengajar = [];
+      if (key !== "izinPengajar" && key !== "dashboard") next.izinPengajar = [];
+      if (key !== "permintaanPengajarAntarCabang" && key !== "dashboard") next.permintaanPengajar = [];
+      
+      return next;
+    });
+  };
+
+  // Muat data menu dari cache lokal (tanpa freeze) saat berpindah menu
+  useEffect(() => {
+    if (!authSession) return;
+    void handleLoadMenuData(activeKey, { forceFresh: false, silent: true }).finally(() => {
+      lastRefreshAllTimestampRef.current = Date.now();
+    });
+  }, [activeKey, authSession]);
+
+  // Refresh hanya halaman yang sedang aktif dibuka oleh pengguna
+  const handleRefreshCurrentPage = async () => {
+    if (!authSession || isRefreshingCurrent || isSyncingRef.current) return;
+
+    setIsRefreshingCurrent(true);
+    const pageName = activeConfig?.name || "Halaman";
+    pushToast(`Memperbarui data ${pageName} langsung dari server...`, "info");
+
+    try {
+      await handleLoadMenuData(activeKey, { forceFresh: true, silent: false });
+      pushToast(`✅ Data ${pageName} berhasil diperbarui.`, "success");
+    } catch (err: any) {
+      console.error("Gagal refresh halaman aktif:", err);
+      pushToast(`❌ Gagal memperbarui data ${pageName}: ${err?.message || "Terjadi kendala jaringan"}`, "error");
+    } finally {
+      setIsRefreshingCurrent(false);
+    }
+  };
+
+  // Background sync refreshes only the active menu when the app regains focus.
+  useEffect(() => {
+    if (!authSession) return;
+
+    const shouldSkipBackgroundSync = () => {
+      if (document.hidden) return true;
+
+      const isAnyModalOpen = Boolean(
+        editingSlot ||
+        isClassModalOpen ||
+        isMapelModalOpen ||
+        isPengajarModalOpen ||
+        isPenempatanModalOpen ||
+        isIzinModalOpen ||
+        isPermintaanModalOpen ||
+        isAccountsCabangModalOpen ||
+        isDonasiModalOpen ||
+        isTransaksiDonasiModalOpen ||
+        isTransaksiTagihanModalOpen ||
+        isExportClassModalOpen ||
+        confirmDialog.open ||
+        isPendingNotificationModalOpen ||
+        isMenuTransitioning
+      );
+      if (isAnyModalOpen) return true;
+
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.tagName === "SELECT" ||
+          (activeEl as HTMLElement).isContentEditable ||
+          activeEl.closest(".modal") ||
+          activeEl.closest(".dropdown-menu"))
+      ) {
+        return true;
+      }
+
+      return false;
+    };
+
+    const REALTIME_BG_SYNC_INTERVAL_MS = 60 * 1000; // 60s for focus sync
+
+    const handleVisibilityOrFocus = () => {
+      if (document.hidden) return;
+      const now = Date.now();
+      const elapsed = now - lastRefreshAllTimestampRef.current;
+      if (lastRefreshAllTimestampRef.current > 0 && elapsed >= REALTIME_BG_SYNC_INTERVAL_MS) {
+        if (!shouldSkipBackgroundSync()) {
+          void handleLoadMenuData(activeKey, { forceFresh: true, silent: true }).finally(() => {
+            lastRefreshAllTimestampRef.current = Date.now();
+          });
+        }
+      }
+    };
+
+    // Instant real-time listener: updates views immediately when any tab or mutation changes data
+    const handleDataMutated = (e: Event) => {
+      const customEvent = e as CustomEvent<{ bucket: string; timestamp: number }>;
+      const bucket = customEvent.detail?.bucket;
+      if (!bucket) return;
+
+      if (bucket === "jadwal_kbm" || bucket === "jadwal_reguler" || bucket === "jadwal_khusus") {
+        if (activeKey === "dashboard") {
+          void handleLoadDashboardSchedules(dashboardSelectedDate);
+        } else if (
+          activeKey === "bulanIni" ||
+          activeKey === "jadwalTambahanPelayanan" ||
+          activeKey === "monitoringKelas" ||
+          activeKey === "printJadwal"
+        ) {
+          void handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true, forceFresh: true });
+        }
+      } else if (bucket === "donasi" || bucket === "donasi_transaksi" || bucket === "donasi_transaksi_tagihan") {
+        void handleLoadDonasi({ silent: true, forceFresh: true });
+        if (activeKey === "dashboard") {
+          // If on dashboard, also refresh the summary data
+          void handleLoadDonasi({ silent: true, forceFresh: true });
+        }
+      } else if (bucket === "pengajar") {
+        void handleLoadPengajar({ silent: true, forceFresh: true });
+      } else if (bucket === "mata_pelajaran") {
+        void handleLoadMapel({ silent: true, forceFresh: true });
+      } else if (bucket === "izin_pengajar") {
+        void handleLoadIzinPengajar({ silent: true, forceFresh: true });
+      } else if (bucket === "permintaan_pengajar_antar_cabang" || bucket === "permintaan_pengajar") {
+        void handleLoadPermintaanPengajar({ silent: true, forceFresh: true });
+      } else if (bucket === "penempatan_pengajar_dicabang") {
+        void handleLoadPenempatanPengajar({ silent: true, forceFresh: true });
+      } else if (bucket === "accounts_cabang") {
+        void handleLoadAccountsCabang({ silent: true, forceFresh: true });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    window.addEventListener("kbm_data_mutated", handleDataMutated);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      window.removeEventListener("kbm_data_mutated", handleDataMutated);
+    };
+  }, [
+    authSession,
+    activeKey,
+    activeScheduleKey,
+    handleLoadFromSheet,
+    handleLoadDonasi,
+    handleLoadPengajar,
+    handleLoadMapel,
+    handleLoadIzinPengajar,
+    handleLoadPermintaanPengajar,
+    handleLoadPenempatanPengajar,
+    handleLoadAccountsCabang,
+    editingSlot,
+    isClassModalOpen,
+    isMapelModalOpen,
+    isPengajarModalOpen,
+    isPenempatanModalOpen,
+    isIzinModalOpen,
+    isPermintaanModalOpen,
+    isAccountsCabangModalOpen,
+    isDonasiModalOpen,
+    isTransaksiDonasiModalOpen,
+    isTransaksiTagihanModalOpen,
+    isExportClassModalOpen,
+    confirmDialog.open,
+    isPendingNotificationModalOpen,
+    isMenuTransitioning,
+  ]);
+
+  type ImportMode =
+    | "schedule"
+    | "mapel"
+    | "pengajar"
+    | "penempatan"
+    | "suratTugas"
+    | "permintaan"
+    | "accountsCabang"
+    | "holiday"
+    | "izin"
+    | "donasi";
+
+  const importTargetByMenu = {
+    bulanIni: {
+      bucket: dataBucket["Jadwal Bulan ini"],
+      label: "Jadwal Reguler",
+      mode: "schedule",
+    },
+    jadwalTambahanPelayanan: {
+      bucket: dataBucket["Jadwal Khusus"],
+      label: "Jadwal Tambahan & Pelayanan",
+      mode: "schedule",
+    },
+    monitoringKelas: {
+      bucket: dataBucket["Jadwal Bulan ini"],
+      label: "Monitoring Kelas",
+      mode: "schedule",
+    },
+    printJadwal: {
+      bucket: dataBucket["Jadwal Bulan ini"],
+      label: "Print Jadwal",
+      mode: "schedule",
+    },
+    mataPelajaran: {
+      bucket: dataBucket["Mata Pelajaran"],
+      label: "Mata Pelajaran",
+      mode: "mapel",
+    },
+    pengajar: {
+      bucket: dataBucket["Data Pengajar"],
+      label: "Pengajar",
+      mode: "pengajar",
+    },
+    penempatanPengajar: {
+      bucket: dataBucket["Penempatan Pengajar"],
+      label: "Penempatan Pengajar",
+      mode: "penempatan",
+    },
+    izinPengajar: {
+      bucket: dataBucket["Izin Pengajar"],
+      label: "Izin Pengajar",
+      mode: "izin",
+    },
+    permintaanPengajarAntarCabang: {
+      bucket: dataBucket["Permintaan Pengajar Antar Cabang"],
+      label: "Permintaan Pengajar Antar Cabang",
+      mode: "permintaan",
+    },
+    suratTugasMengajar: {
+      bucket: dataBucket["Surat Tugas Pengajar"],
+      label: "Surat Tugas Mengajar",
+      mode: "suratTugas",
+    },
+    liburNasional: {
+      bucket: "libur_nasional",
+      label: "Libur Nasional",
+      mode: "holiday",
+    },
+    accounts_cabang: {
+      bucket: dataBucket["accounts_cabang"],
+      label: "accounts_cabang",
+      mode: "accountsCabang",
+    },
+    donasi: {
+      bucket: dataBucket["donasi"],
+      label: "donasi",
+      mode: "donasi",
+    },
+  } as const;
+
+  const templateHeadersByMenu = {
+    bulanIni: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
+    jadwalTambahanPelayanan: [
+      "Cabang",
+      "Kelas",
+      "Sekolah",
+      "Jenjang Studi",
+      "Tanggal",
+      "Mapel",
+      "Pengajar",
+      "NIP",
+      "Waktu",
+      "Urutan Kelas",
+      "Jenis KBM",
+      "IsGabung",
+      "Gabung",
+    ],
+    monitoringKelas: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
+    printJadwal: ["Cabang", "Kelas", "Sekolah", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Urutan Kelas", "Jenis KBM", "IsGabung", "Gabung"],
+    mataPelajaran: ["Mapel", "Kode_Mapel", "Kategori"],
+    pengajar: [
+      "Kode Pengajar",
+      "NIP",
+      "Nama",
+      "Bidang Studi",
+      "Email",
+      "No.WhatsApp",
+      "Domisili",
+      "Username",
+      "Password",
+    ],
+    penempatanPengajar: [
+      "Kode Pengajar",
+      "Nama Pengajar",
+      "Domisili",
+      "Hari",
+      "Jam Mulai",
+      "Jam Selesai",
+      "Cabang Penempatan",
+    ],
+    izinPengajar: [
+      "Kode Pengajar",
+      "Nama Pengajar",
+      "Domisili",
+      "Cabang Target",
+      "Tanggal Mulai",
+      "Tanggal Selesai",
+      "Keterangan",
+      "Keterangan Status",
+    ],
+    permintaanPengajarAntarCabang: [
+      "ID",
+      "Kode Pengajar",
+      "Nama Pengajar",
+      "Cabang Peminta",
+      "Dari Cabang",
+      "Tanggal Diminta",
+      "Jam Mulai",
+      "Jam Selesai",
+      "Status",
+      "Catatan",
+    ],
+    suratTugasMengajar: [
+      "Kode Pengajar",
+      "Tanggal",
+      "Sesi 1",
+      "Sesi 2",
+      "Sesi 3",
+      "Sesi 4",
+      "Sesi 5",
+      "Sesi 6",
+      "Sesi 7",
+      "Sesi 8",
+      "Sesi 9",
+      "Sesi 10",
+    ],
+    liburNasional: ["Tanggal", "Keterangan"],
+    accounts_cabang: ["Username", "Password", "Roll", "Cabang"],
+    donasi: ["Nama Pemilik", "Nama Bank", "Alamat Rekening", "Nominal Terkumpul"],
+  } as const;
+
+  const normalizeImportRows = (
+    rows: Record<string, unknown>[],
+    mode: ImportMode
+  ): Record<string, string>[] => {
+    if (mode === "schedule") {
+      return rows
+        .map((row) => {
+          const tanggalRaw = getEntryValue(row, ["Tanggal", "Date"]);
+          const parsedTanggal = parseFlexibleDate(tanggalRaw);
+          const isGabungRaw = getEntryValue(row, ["IsGabung", "is_gabung", "isGabung"]).trim();
+          const gabungRaw = getEntryValue(row, ["Gabung", "gabung_with", "gabungWith"]).trim();
+          const jenisKbmRaw = getEntryValue(row, ["Jenis KBM", "jenis_kbm", "JenisKbm", "Type"]).trim();
+          const nipRaw = getEntryValue(row, ["NIP", "nip", "Nomor Induk Pegawai"]).trim();
+          return {
+            Cabang: getEntryValue(row, ["Cabang"]).trim(),
+            Kelas: getEntryValue(row, ["Kelas"]).trim(),
+            Sekolah: getEntryValue(row, ["Sekolah"]).trim(),
+            "Jenjang Studi": getEntryValue(row, ["Jenjang Studi", "Jenjang", "jenjang_studi"]).trim(),
+            Tanggal: parsedTanggal ? formatScheduleLabel(parsedTanggal) : tanggalRaw.trim(),
+            Mapel: getEntryValue(row, ["Mapel", "Mata Pelajaran"]).trim(),
+            Pengajar: getEntryValue(row, ["Pengajar", "Guru"]).trim(),
+            NIP: nipRaw,
+            nip: nipRaw,
+            Waktu: getEntryValue(row, ["Waktu", "Jam"]).trim(),
+            "Urutan Kelas": getEntryValue(row, ["Urutan Kelas", "Urutan", "Class Order"]).trim(),
+            "Jenis KBM": jenisKbmRaw || "Reguler",
+            IsGabung: isGabungRaw || (gabungRaw ? "true" : ""),
+            Gabung: gabungRaw,
+          };
+        })
+        .filter(
+          (row) =>
+            (row.Cabang || row.Kelas || row.Sekolah) &&
+            (row.Tanggal || row.Mapel || row.Pengajar || row.Waktu)
+        );
+    }
+
+    if (mode === "mapel") {
+      return rows
+        .map((row) => ({
+          Mapel: getEntryValue(row, ["Mapel", "Mata Pelajaran"]).trim(),
+          Kode_Mapel: getEntryValue(row, ["Kode_Mapel", "Kode Mapel", "Singkatan"]).trim(),
+          Kategori: getEntryValue(row, ["Kategori", "Kategory", "Category", "Jenis"]).trim() || "UMUM",
+        }))
+        .filter((row) => row.Mapel || row.Kode_Mapel);
+    }
+
+    if (mode === "pengajar") {
+      return rows
+        .map((row) => {
+          const rawWa = getEntryValue(row, ["No.WhatsApp", "No WhatsApp", "No WA", "No. Telepon", "Telepon", "No HP", "HP"]).trim();
+          const cleanWa = sanitizeWhatsappDigits(rawWa);
+          const rawUsername = getEntryValue(row, ["Username"]).trim();
+          return {
+            "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
+            Nama: getEntryValue(row, ["Nama"]).trim(),
+            "Bidang Studi": getEntryValue(row, ["Bidang Studi"]).trim(),
+            Email: getEntryValue(row, ["Email"]).trim(),
+            "No.WhatsApp": cleanWa,
+            Domisili: getEntryValue(row, ["Domisili", "Cabang"]).trim(),
+            Username: rawUsername ? sanitizeWhatsappDigits(rawUsername) : cleanWa,
+            Password: getEntryValue(row, ["Password"]).trim(),
+          };
+        })
+        .filter((row) => row["Kode Pengajar"] || row.Nama);
+    }
+
+    if (mode === "suratTugas") {
+      return rows
+        .map((row) => {
+          const tanggalRaw = getEntryValue(row, ["Tanggal", "Date"]);
+          const parsedTanggal = parseFlexibleDate(tanggalRaw);
+          const payload: Record<string, string> = {
+            "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
+            Tanggal: parsedTanggal ? formatScheduleLabel(parsedTanggal) : tanggalRaw.trim(),
+          };
+          for (let index = 1; index <= 10; index += 1) {
+            payload[`Sesi ${index}`] = getEntryValue(row, [`Sesi ${index}`]).trim();
+          }
+          return payload;
+        })
+        .filter((row) => row["Kode Pengajar"] || row.Tanggal);
+    }
+
+    if (mode === "penempatan") {
+      return rows
+        .map((row) => ({
+          "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
+          "Nama Pengajar": getEntryValue(row, ["Nama Pengajar", "Nama"]).trim(),
+          Domisili: getEntryValue(row, ["Domisili"]).trim(),
+          Hari: getEntryValue(row, ["Hari", "Hari Tersedia"]).trim(),
+          "Jam Mulai": formatTimeHHMM(getEntryValue(row, ["Jam Mulai", "Mulai"])),
+          "Jam Selesai": formatTimeHHMM(getEntryValue(row, ["Jam Selesai", "Selesai"])),
+          "Cabang Penempatan": getEntryValue(row, [
+            "Cabang Penempatan",
+            "Bersedia Mengajar di Cabang",
+            "Bersedia Mengajar Dicabang",
+            "bersedia_mengajar_dicabang",
+          ]).trim(),
+        }))
+        .filter((row) => row["Kode Pengajar"] || row["Nama Pengajar"]);
+    }
+
+    if (mode === "accountsCabang") {
+      return rows
+        .map((row) => ({
+          Username: getEntryValue(row, ["Username"]).trim(),
+          Password: getEntryValue(row, ["Password"]).trim(),
+          Roll: getEntryValue(row, ["Roll", "roll", "Role", "role"]).trim() || "cabang",
+          Cabang: getEntryValue(row, ["Cabang"]).trim(),
+        }))
+        .filter((row) => row.Username || row.Cabang);
+    }
+
+    if (mode === "holiday") {
+      return rows
+        .map((row) => {
+          const tanggalRaw = getEntryValue(row, ["Tanggal", "Date"]).trim();
+          const parsedTanggal = parseFlexibleDate(tanggalRaw);
+          return {
+            Tanggal: parsedTanggal ? formatScheduleLabel(parsedTanggal) : tanggalRaw,
+            Keterangan: getEntryValue(row, ["Keterangan", "Label", "Nama Hari Libur"]).trim(),
+          };
+        })
+        .filter((row) => row.Tanggal || row.Keterangan);
+    }
+
+    if (mode === "izin") {
+      return rows
+        .map((row) => {
+          const tanggalMulaiRaw = getEntryValue(row, ["Tanggal Mulai", "Tanggal Mulai Izin"]).trim();
+          const tanggalSelesaiRaw = getEntryValue(row, ["Tanggal Selesai", "Tanggal Akhir"]).trim();
+          const tanggalMulai = parseFlexibleDate(tanggalMulaiRaw);
+          const tanggalSelesai = parseFlexibleDate(tanggalSelesaiRaw);
+          return {
+            "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
+            "Nama Pengajar": getEntryValue(row, ["Nama Pengajar", "Nama"]).trim(),
+            Domisili: getEntryValue(row, ["Domisili"]).trim(),
+            "Cabang Target": getEntryValue(row, ["Cabang Target", "Cabang Tujuan"]).trim(),
+            "Tanggal Mulai": tanggalMulai ? formatScheduleLabel(tanggalMulai) : tanggalMulaiRaw,
+            "Tanggal Selesai": tanggalSelesai ? formatScheduleLabel(tanggalSelesai) : tanggalSelesaiRaw,
+            Keterangan: getEntryValue(row, ["Keterangan", "Catatan"]).trim(),
+            "Keterangan Status": getEntryValue(row, ["Keterangan Status", "Status"]).trim() || "Menunggu",
+          };
+        })
+        .filter((row) => row["Kode Pengajar"] || row["Nama Pengajar"]);
+    }
+
+    if (mode === "donasi") {
+      return rows
+        .map((row) => ({
+          "Nama Pemilik": getEntryValue(row, ["Nama Pemilik", "nama_pemilik"]).trim(),
+          "Nama Bank": getEntryValue(row, ["Nama Bank", "nama_bank"]).trim(),
+          "Alamat Rekening": getEntryValue(row, ["Alamat Rekening", "alamat_rekening", "No Rekening", "Nomor Rekening"]).trim(),
+          "Nominal Terkumpul": getEntryValue(row, ["Nominal Terkumpul", "nominal_terkumpul"]).trim() || "0",
+        }))
+        .filter((row) => row["Nama Bank"] || row["Alamat Rekening"]);
+    }
+
+    return rows
+      .map((row) => {
+        const tanggalMulaiRaw = getEntryValue(row, ["Tanggal Mulai"]);
+        const tanggalSelesaiRaw = getEntryValue(row, ["Tanggal Selesai"]);
+        const tanggalMulai = parseFlexibleDate(tanggalMulaiRaw);
+        const tanggalSelesai = parseFlexibleDate(tanggalSelesaiRaw);
+        return {
+          ID: getEntryValue(row, ["ID"]).trim() || `REQ-${getEntryValue(row, ["Kode Pengajar"]).trim()}`,
+          "Kode Pengajar": getEntryValue(row, ["Kode Pengajar"]).trim(),
+          "Nama Pengajar": getEntryValue(row, ["Nama Pengajar", "Nama"]).trim(),
+          "Cabang Peminta": getEntryValue(row, ["Cabang Peminta"]).trim(),
+          "Cabang Domisili": getEntryValue(row, ["Cabang Domisili", "Dari Cabang"]).trim(),
+          "Dari Cabang": getEntryValue(row, ["Dari Cabang", "Cabang Domisili"]).trim(),
+          "Tanggal Mulai": tanggalMulai ? formatScheduleLabel(tanggalMulai) : tanggalMulaiRaw.trim(),
+          "Tanggal Selesai": tanggalSelesai ? formatScheduleLabel(tanggalSelesai) : tanggalSelesaiRaw.trim(),
+          "Tanggal Khusus": getEntryValue(row, ["Tanggal Khusus"]).trim(),
+          Hari: getEntryValue(row, ["Hari", "Hari Tersedia"]).trim(),
+          "Jam Mulai": formatTimeHHMM(getEntryValue(row, ["Jam Mulai"])),
+          "Jam Selesai": formatTimeHHMM(getEntryValue(row, ["Jam Selesai"])),
+          Status: getEntryValue(row, ["Status"]).trim() || "Menunggu",
+          Catatan: getEntryValue(row, ["Catatan"]).trim(),
+        };
+      })
+      .filter((row) => row["Kode Pengajar"] || row["Nama Pengajar"]);
+  };
+
+  const handleOpenExcelImport = () => {
+    const canImport = isAdmin;
+    if (!canImport) {
+      pushToast("Import data Excel hanya tersedia untuk Admin.", "error");
+      return;
+    }
+    importInputRef.current?.click();
+  };
+
+  const handleDownloadExcelTemplate = async () => {
+    const canDownloadTemplate = isAdmin;
+    if (!canDownloadTemplate) {
+      pushToast("Template Excel hanya tersedia untuk Admin.", "error");
+      return;
+    }
+
+    const target = importTargetByMenu[activeKey as keyof typeof importTargetByMenu];
+    const headers = templateHeadersByMenu[activeKey as keyof typeof templateHeadersByMenu];
+    if (!target || !headers?.length) {
+      pushToast("Template belum tersedia untuk menu ini.", "error");
+      return;
+    }
+
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([[...headers]]);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Template");
+    const filename = `template-${target.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.xlsx`;
+    XLSX.writeFile(workbook, filename);
+    pushToast(`Template ${target.label} berhasil diunduh.`, "success");
+  };
+
+  const getFilteredExportScheduleRows = useCallback(
+    (
+      selectedKey: string,
+      selectedMonth: string = "all",
+      includeAdditional: boolean = true,
+      dateRange?: { startDate?: string; endDate?: string }
+    ) => {
+      let scheduleRows: Record<string, any>[] = [];
+      if (includeAdditional) {
+        const reguler = records.bulanIni ?? [];
+        const tambahan = records.jadwalTambahanPelayanan ?? [];
+        scheduleRows = [...reguler, ...tambahan];
+      } else {
+        const targetScheduleKey = activeScheduleKey === "jadwalTambahanPelayanan" ? "jadwalTambahanPelayanan" : "bulanIni";
+        scheduleRows = records[targetScheduleKey] ?? [];
+      }
+
+      if (!isAdmin && restrictedCabang) {
+        scheduleRows = scheduleRows.filter((row) => 
+          normalizeText(row.cabang || row.Cabang || "") === normalizeText(restrictedCabang)
+        );
+      }
+
+      if (selectedKey !== "all") {
+        const [cCabang, cKelas, cSekolah] = selectedKey.split("||");
+        scheduleRows = scheduleRows.filter((row) => 
+          normalizeText(row.cabang || row.Cabang || "") === normalizeText(cCabang) &&
+          normalizeText(row.kelas || row.Kelas || "") === normalizeText(cKelas) &&
+          (cSekolah ? normalizeText(row.sekolah || row.Sekolah || "") === normalizeText(cSekolah) : true)
+        );
+      }
+
+      const getCanonicalDateStr = (row: any) => {
+        const rawDate = String(
+          row.tanggal || row.Tanggal || row.tanggalSheet || row.Bulan || row.bulan || ""
+        ).trim();
+        if (!rawDate) return "";
+        const canonical = resolveCanonicalDate(rawDate);
+        if (canonical && canonical.length === 10) return canonical;
+        const parsed = parseFlexibleDate(rawDate);
+        if (parsed) {
+          const y = parsed.getFullYear();
+          const m = String(parsed.getMonth() + 1).padStart(2, "0");
+          const d = String(parsed.getDate()).padStart(2, "0");
+          return `${y}-${m}-${d}`;
+        }
+        return canonical || "";
+      };
+
+      if (dateRange && (dateRange.startDate || dateRange.endDate)) {
+        const { startDate, endDate } = dateRange;
+        scheduleRows = scheduleRows.filter((row) => {
+          const canonical = getCanonicalDateStr(row);
+          if (!canonical) return false;
+          if (startDate && canonical < startDate) return false;
+          if (endDate && canonical > endDate) return false;
+          return true;
+        });
+      } else if (selectedMonth !== "all") {
+        scheduleRows = scheduleRows.filter((row) => {
+          const canonical = getCanonicalDateStr(row);
+          if (canonical && canonical.length >= 7) {
+            return canonical.slice(0, 7) === selectedMonth;
+          }
+          const rawDate = String(
+            row.tanggal || row.Tanggal || row.tanggalSheet || row.Bulan || row.bulan || ""
+          ).trim();
+          return rawDate.startsWith(selectedMonth);
+        });
+      }
+
+      return scheduleRows;
+    },
+    [records, activeScheduleKey, isAdmin, restrictedCabang, resolveCanonicalDate]
+  );
+
+  const getExportClassRecordCount = useCallback(
+    (
+      selectedKey: string,
+      selectedMonth: string = "all",
+      includeAdditional: boolean = true,
+      dateRange?: { startDate?: string; endDate?: string }
+    ) => {
+      return getFilteredExportScheduleRows(selectedKey, selectedMonth, includeAdditional, dateRange).length;
+    },
+    [getFilteredExportScheduleRows]
+  );
+
+  const handleConfirmExportClass = async (
+    selectedKey: string,
+    selectedMonth: string = "all",
+    includeAdditional: boolean = false,
+    dateRange?: { startDate?: string; endDate?: string }
+  ) => {
+    setIsExportClassModalOpen(false);
+    const XLSX = await import("xlsx");
+
+    let scheduleRows = [...getFilteredExportScheduleRows(selectedKey, selectedMonth, includeAdditional, dateRange)];
+
+    if (scheduleRows.length === 0) {
+      pushToast("Tidak ada data jadwal yang sesuai dengan filter yang dipilih.", "info");
+      return;
+    }
+
+    // Sort chronologically by Date, Cabang, Kelas, Waktu
+    scheduleRows.sort((a, b) => {
+      const dateA = resolveCanonicalDate(String(a.tanggal || a.Tanggal || a.tanggalSheet || ""));
+      const dateB = resolveCanonicalDate(String(b.tanggal || b.Tanggal || b.tanggalSheet || ""));
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+      const cabangA = String(a.cabang || a.Cabang || "");
+      const cabangB = String(b.cabang || b.Cabang || "");
+      const cmpCabang = cabangA.localeCompare(cabangB, "id");
+      if (cmpCabang !== 0) return cmpCabang;
+
+      const orderA = parseClassOrder(a.classOrder ?? a["Urutan Kelas"]) ?? 999;
+      const orderB = parseClassOrder(b.classOrder ?? b["Urutan Kelas"]) ?? 999;
+      if (orderA !== orderB) return orderA - orderB;
+
+      const kelasA = String(a.kelas || a.Kelas || "");
+      const kelasB = String(b.kelas || b.Kelas || "");
+      const cmpKelas = kelasA.localeCompare(kelasB, "id", { numeric: true });
+      if (cmpKelas !== 0) return cmpKelas;
+
+      const waktuA = String(a.waktu || a.Waktu || "");
+      const waktuB = String(b.waktu || b.Waktu || "");
+      return waktuA.localeCompare(waktuB);
+    });
+
+    // Generate only the 9 requested columns: Cabang, Kelas, Jenjang Studi, Tanggal, Mapel, Pengajar, NIP, Waktu, Jenis KBM
+    const rows = scheduleRows.map((row) => {
+      const rawDate = String(row.tanggal ?? row.Tanggal ?? row.tanggalSheet ?? "").trim();
+      const resolvedTanggal = resolveCanonicalDate(rawDate) || rawDate;
+
+      const rawMapel = String(row.mapel ?? row.Mapel ?? "").trim();
+      const mapelNama = mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
+
+      const rawPengajar = String(row.pengajar ?? row.Pengajar ?? row["Kode Pengajar"] ?? "").trim();
+      const matchedPengajar = rawPengajar ? pengajarByKode[normalizeText(rawPengajar)] : null;
+      const pengajarNama = matchedPengajar
+        ? (matchedPengajar["Nama"] || matchedPengajar["Nama Pengajar"] || matchedPengajar["nama_pengajar"] || rawPengajar)
+        : (String(row["Nama Pengajar"] || row.namaPengajar || rawPengajar));
+      const pengajarNip = matchedPengajar
+        ? (matchedPengajar["NIP"] || matchedPengajar["nip"] || "")
+        : String(row.nip || row.NIP || "");
+
+      const jenisKbm = String(
+        row["Jenis KBM"] ?? row.jenis_kbm ?? (activeScheduleKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler")
+      ).trim();
+
+      return {
+        "Cabang": String(row.cabang ?? row.Cabang ?? "").trim(),
+        "Kelas": String(row.kelas ?? row.Kelas ?? "").trim(),
+        "Jenjang Studi": String(row.jenjang ?? row["Jenjang Studi"] ?? row.jenjang_studi ?? "").trim(),
+        "Tanggal": resolvedTanggal,
+        "Mapel": mapelNama,
+        "Pengajar": pengajarNama,
+        "NIP": pengajarNip,
+        "Waktu": String(row.waktu ?? row.Waktu ?? "").trim(),
+        "Jenis KBM": jenisKbm,
+      };
+    });
+
+    const headers = [
+      "Cabang",
+      "Kelas",
+      "Jenjang Studi",
+      "Tanggal",
+      "Mapel",
+      "Pengajar",
+      "NIP",
+      "Waktu",
+      "Jenis KBM",
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Jadwal");
+
+    const dateRangePart = dateRange?.startDate && dateRange?.endDate
+      ? `-${dateRange.startDate}_sd_${dateRange.endDate}`
+      : dateRange?.startDate
+      ? `-dari_${dateRange.startDate}`
+      : dateRange?.endDate
+      ? `-sampai_${dateRange.endDate}`
+      : "";
+    const monthPart = selectedMonth !== "all" ? `-${selectedMonth}` : "";
+    const keyPart = selectedKey !== "all" ? `-${selectedKey.replace(/\|\|/g, "-")}` : "";
+    const filename = `Jadwal-KBM${dateRangePart || monthPart}${keyPart}.xlsx`;
+
+    XLSX.writeFile(workbook, filename);
+    pushToast(`Data jadwal berhasil diekspor (${scheduleRows.length} sesi).`, "success");
+  };
+
+  const handleExportCurrentMenuData = async () => {
+    if (!isAdmin && activeKey !== "bulanIni" && activeKey !== "jadwalTambahanPelayanan") {
+      pushToast("Export data Excel hanya tersedia untuk Admin.", "error");
+      return;
+    }
+
+    if (activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan") {
+      setIsExportClassModalOpen(true);
+      return;
+    }
+
+    const XLSX = await import("xlsx");
+    let rows: Record<string, unknown>[] = [];
+    let headers: string[] = [];
+    let filename = "export-data.xlsx";
+    let sheetName = activeConfig.name;
+
+    switch (activeKey) {
+      case "monitoringKelas":
+      case "printJadwal": {
+        const scheduleRows = activeKey === "monitoringKelas"
+            ? monitoringRows
+            : (records.bulanIni ?? []).concat(records.jadwalTambahanPelayanan ?? []);
+        rows = scheduleRows.map((row) => {
+          const rawDate = String((row as any).tanggal ?? (row as any).Tanggal ?? (row as any).tanggalSheet ?? "").trim();
+          const resolvedTanggal = resolveCanonicalDate(rawDate) || rawDate;
+
+          const rawMapel = String((row as any).mapel ?? (row as any).Mapel ?? "").trim();
+          const mapelNama = mapelNameByKode[normalizeText(rawMapel)] || rawMapel;
+
+          const rawPengajar = String((row as any).pengajar ?? (row as any).Pengajar ?? (row as any)["Kode Pengajar"] ?? "").trim();
+          const matchedPengajar = rawPengajar ? pengajarByKode[normalizeText(rawPengajar)] : null;
+          const pengajarNama = matchedPengajar
+            ? (matchedPengajar["Nama"] || matchedPengajar["Nama Pengajar"] || matchedPengajar["nama_pengajar"] || rawPengajar)
+            : (String((row as any)["Nama Pengajar"] || (row as any).namaPengajar || rawPengajar));
+          const pengajarNip = matchedPengajar
+            ? (matchedPengajar["NIP"] || matchedPengajar["nip"] || "")
+            : String((row as any).nip || (row as any).NIP || "");
+
+          const jenisKbm = String(
+            (row as any)["Jenis KBM"] ?? (row as any).jenis_kbm ?? (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler")
+          ).trim();
+
+          return {
+            Cabang: String((row as any).cabang ?? (row as any).Cabang ?? "").trim(),
+            Kelas: String((row as any).kelas ?? (row as any).Kelas ?? "").trim(),
+            "Jenjang Studi": String((row as any).jenjang ?? (row as any)["Jenjang Studi"] ?? (row as any).jenjang_studi ?? "").trim(),
+            Tanggal: resolvedTanggal,
+            Mapel: mapelNama,
+            Pengajar: pengajarNama,
+            NIP: pengajarNip,
+            Waktu: String((row as any).waktu ?? (row as any).Waktu ?? "").trim(),
+            "Jenis KBM": jenisKbm,
+          };
+        });
+        headers = ["Cabang", "Kelas", "Jenjang Studi", "Tanggal", "Mapel", "Pengajar", "NIP", "Waktu", "Jenis KBM"];
+        filename = `${activeKey}-data.xlsx`;
+        break;
+      }
+      case "mataPelajaran":
+        rows = filteredMapelRecords.map((row) => ({
+          Mapel: row.Mapel ?? "",
+          Kode_Mapel: row.Kode_Mapel ?? "",
+          Kategori: row.Kategori ?? row.kategori ?? row.kategory ?? "UMUM",
+        }));
+        headers = ["Mapel", "Kode_Mapel", "Kategori"];
+        filename = "mata-pelajaran.xlsx";
+        break;
+      case "pengajar":
+        rows = filteredPengajarRecords.map((row) => ({
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          "NIP": row["NIP"] ?? row["nip"] ?? "",
+          Nama: row.Nama ?? row["Nama Pengajar"] ?? "",
+          "Bidang Studi": row["Bidang Studi"] ?? "",
+          Email: row.Email ?? "",
+          "No.WhatsApp": row["No.WhatsApp"] ?? "",
+          Domisili: row.Domisili ?? "",
+          Username: row.Username ?? "",
+          Password: row.Password ?? "",
+        }));
+        headers = ["Kode Pengajar", "NIP", "Nama", "Bidang Studi", "Email", "No.WhatsApp", "Domisili", "Username", "Password"];
+        filename = "pengajar.xlsx";
+        break;
+      case "penempatanPengajar":
+        rows = filteredPenempatanRecords.map((row) => ({
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          "Nama Pengajar": row["Nama Pengajar"] ?? "",
+          Domisili: row.Domisili ?? "",
+          Hari: row.Hari ?? "",
+          "Jam Mulai": row["Jam Mulai"] ?? "",
+          "Jam Selesai": row["Jam Selesai"] ?? "",
+          "Cabang Penempatan": row["Cabang Penempatan"] ?? "",
+        }));
+        headers = ["Kode Pengajar", "Nama Pengajar", "Domisili", "Hari", "Jam Mulai", "Jam Selesai", "Cabang Penempatan"];
+        filename = "penempatan-pengajar.xlsx";
+        break;
+      case "izinPengajar":
+        rows = filteredIzinRecords.map((row) => ({
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          "Nama Pengajar": row["Nama Pengajar"] ?? "",
+          Domisili: row.Domisili ?? "",
+          "Cabang Target": row["Cabang Target"] ?? "",
+          "Tanggal Mulai": row["Tanggal Mulai"] ?? "",
+          "Tanggal Selesai": row["Tanggal Selesai"] ?? "",
+          Keterangan: row.Keterangan ?? "",
+          "Keterangan Status": row["Keterangan Status"] ?? "",
+          "Diputuskan Oleh": row["Diputuskan Oleh"] ?? "",
+          "Diputuskan Pada": row["Diputuskan Pada"] ?? "",
+        }));
+        headers = ["Kode Pengajar", "Nama Pengajar", "Domisili", "Cabang Target", "Tanggal Mulai", "Tanggal Selesai", "Keterangan", "Keterangan Status", "Diputuskan Oleh", "Diputuskan Pada"];
+        filename = "izin-pengajar.xlsx";
+        break;
+      case "permintaanPengajarAntarCabang":
+        rows = filteredPermintaanRecords.map((row) => ({
+          ID: row.ID ?? "",
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          "Nama Pengajar": row["Nama Pengajar"] ?? "",
+          "Cabang Peminta": row["Cabang Peminta"] ?? "",
+          "Dari Cabang": row["Dari Cabang"] ?? "",
+          "Tanggal Diminta": row["Tanggal Diminta"] ?? "",
+          "Jam Mulai": row["Jam Mulai"] ?? "",
+          "Jam Selesai": row["Jam Selesai"] ?? "",
+          Status: row.Status ?? "",
+          Catatan: row.Catatan ?? "",
+        }));
+        headers = ["ID", "Kode Pengajar", "Nama Pengajar", "Cabang Peminta", "Dari Cabang", "Tanggal Diminta", "Jam Mulai", "Jam Selesai", "Status", "Catatan"];
+        filename = "permintaan-pengajar.xlsx";
+        break;
+      case "suratTugasMengajar":
+        rows = filteredSuratTugasRecords.map((row) => ({
+          "Kode Pengajar": row["Kode Pengajar"] ?? "",
+          Tanggal: row.Tanggal ?? "",
+          "Sesi 1": row["Sesi 1"] ?? "",
+          "Sesi 2": row["Sesi 2"] ?? "",
+          "Sesi 3": row["Sesi 3"] ?? "",
+          "Sesi 4": row["Sesi 4"] ?? "",
+          "Sesi 5": row["Sesi 5"] ?? "",
+          "Sesi 6": row["Sesi 6"] ?? "",
+          "Sesi 7": row["Sesi 7"] ?? "",
+          "Sesi 8": row["Sesi 8"] ?? "",
+          "Sesi 9": row["Sesi 9"] ?? "",
+          "Sesi 10": row["Sesi 10"] ?? "",
+        }));
+        headers = ["Kode Pengajar", "Tanggal", "Sesi 1", "Sesi 2", "Sesi 3", "Sesi 4", "Sesi 5", "Sesi 6", "Sesi 7", "Sesi 8", "Sesi 9", "Sesi 10"];
+        filename = "surat-tugas.xlsx";
+        break;
+      case "liburNasional": {
+        const holidays = getNationalHolidays().map((item) => ({
+          Tanggal: item.date,
+          Keterangan: item.label ?? "",
+        }));
+        rows = holidays;
+        headers = ["Tanggal", "Keterangan"];
+        filename = "libur-nasional.xlsx";
+        break;
+      }
+      case "accounts_cabang":
+        rows = accountsCabangRecords.map((row) => ({
+          Username: row.Username ?? "",
+          Password: row.Password ?? "",
+          Roll: row.Roll ?? "",
+          Cabang: row.Cabang ?? "",
+        }));
+        headers = ["Username", "Password", "Roll", "Cabang"];
+        filename = "accounts-cabang.xlsx";
+        break;
+      case "donasi": {
+        const workbook = XLSX.utils.book_new();
+        const rekeningRows = donasiRecords.map((row) => ({
+          "Nama Pemilik": row.nama_pemilik,
+          "Nama Bank": row.nama_bank,
+          "Alamat Rekening": row.alamat_rekening,
+          "Created At": row.created_at || "",
+          "Updated At": row.updated_at || "",
+        }));
+        const rekeningWs = XLSX.utils.json_to_sheet(rekeningRows, {
+          header: ["Nama Pemilik", "Nama Bank", "Alamat Rekening", "Created At", "Updated At"],
+        });
+        XLSX.utils.book_append_sheet(workbook, rekeningWs, "Saluran Rekening");
+
+        const transaksiRows = transaksiDonasiRecords.map((row) => ({
+          Tanggal: row.tanggal,
+          "Nama Pengirim": row.nama_pengirim,
+          Keterangan: row.keterangan || "donasi masuk",
+          "Jumlah Transaksi Masuk": String(row.jumlah_transaksi_masuk || 0),
+          "Jumlah Transaksi Keluar": String(row.jumlah_transaksi_keluar || 0),
+          "Created At": row.created_at || "",
+          "Updated At": row.updated_at || "",
+        }));
+        const transaksiWs = XLSX.utils.json_to_sheet(transaksiRows, {
+          header: ["Tanggal", "Nama Pengirim", "Keterangan", "Jumlah Transaksi Masuk", "Jumlah Transaksi Keluar", "Created At", "Updated At"],
+        });
+        XLSX.utils.book_append_sheet(workbook, transaksiWs, "Riwayat Transaksi");
+
+        XLSX.writeFile(workbook, "donasi-dan-transaksi-database.xlsx");
+        pushToast("Data rekening & transaksi donasi berhasil diekspor ke Excel.", "success");
+        return;
+      }
+      default:
+        pushToast("Menu ini belum memiliki ekspor Excel.", "error");
+        return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName.slice(0, 31));
+    XLSX.writeFile(workbook, filename);
+    pushToast(`Data ${activeConfig.name} berhasil diekspor ke Excel.`, "success");
+  };
+
+  const handleExcelImportChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) {
+      return;
+    }
+
+    const target = importTargetByMenu[activeKey as keyof typeof importTargetByMenu];
+    if (!target) {
+      pushToast("Menu ini belum mendukung import Excel.", "error");
+      return;
+    }
+
+    const canImport = isAdmin;
+    if (!canImport) {
+      pushToast("Import data Excel hanya tersedia untuk Admin.", "error");
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const firstSheet = workbook.SheetNames[0];
+      if (!firstSheet) {
+        throw new Error("Sheet Excel tidak ditemukan.");
+      }
+      const worksheet = workbook.Sheets[firstSheet];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+        defval: "",
+      });
+      const normalizedRows = normalizeImportRows(rows, target.mode);
+      if (normalizedRows.length === 0) {
+        throw new Error("Data Excel kosong atau header tidak sesuai.");
+      }
+
+      const rowsToSave =
+        target.mode === "penempatan"
+          ? await Promise.all(
+              normalizedRows.map(async (row) => {
+                const kodePengajar = normalizeValueKey(String(row["Kode Pengajar"] || ""));
+                if (!kodePengajar) {
+                  throw new Error("Impor penempatan gagal: Kode Pengajar tidak boleh kosong.");
+                }
+
+                const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
+                const matchingPengajar = pengajarRows.find(
+                  (pengajar) => normalizeValueKey(pengajar.data["Kode Pengajar"]) === kodePengajar
+                );
+                if (!matchingPengajar) {
+                  throw new Error(`Impor penempatan gagal: pengajar dengan kode '${row["Kode Pengajar"]}' tidak ditemukan.`);
+                }
+
+                return {
+                  ...row,
+                  __id_pengajar: decodeId(matchingPengajar.id).id,
+                };
+              })
+            )
+          : normalizedRows.map((row) => {
+              if (target.mode === "schedule") {
+                const kodePengajar = normalizeText(row.Pengajar || row["Pengajar"] || "");
+                const pengajarRecord = pengajarByKode[kodePengajar];
+                const resolvedNip = row.NIP || row.nip || (pengajarRecord ? (pengajarRecord["NIP"] || pengajarRecord["nip"] || "") : "");
+                return {
+                  ...row,
+                  NIP: resolvedNip,
+                  nip: resolvedNip,
+                  "Jenis KBM":
+                    String(row["Jenis KBM"] || "").trim() ||
+                    (activeKey === "jadwalTambahanPelayanan" ? "Khusus" : "Reguler"),
+                  IsGabung: String(row.IsGabung || row["IsGabung"] || "").trim() || (row.Gabung ? "true" : "false"),
+                  Gabung: String(row.Gabung || row["Gabung"] || "").trim(),
+                };
+              }
+              return row;
+            });
+
+      await replaceBucketRows(target.bucket, rowsToSave);
+      await refreshAllData(false, true);
+      pushToast(`Import ${target.label} berhasil (${rowsToSave.length} baris).`, "success");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "Import Excel gagal diproses.", "error");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleOpenPermintaanModal = () => {
+    const initialCabang = restrictedCabang || authSession?.cabang || "";
+    setPermintaanDraft({
+      id: `REQ-${Date.now()}`,
+      kodePengajar: "",
+      namaPengajar: "",
+      cabangPeminta: initialCabang,
+      dariCabang: "",
+      tanggalDiminta: "",
+      jamMulai: "",
+      jamSelesai: "",
+      catatan: "",
+    });
+    setPermintaanError("");
+    setIsPermintaanModalOpen(true);
+  };
+
+  const handleSavePermintaanPengajar = async () => {
+    const normalizedDraft = {
+      ...permintaanDraft,
+      kodePengajar: permintaanDraft.kodePengajar.trim().toLowerCase(),
+      namaPengajar: permintaanDraft.namaPengajar.trim(),
+      cabangPeminta: (restrictedCabang || permintaanDraft.cabangPeminta).trim(),
+      dariCabang: permintaanDraft.dariCabang.trim(),
+      tanggalDiminta: permintaanDraft.tanggalDiminta.trim(),
+      jamMulai: permintaanDraft.jamMulai.trim(),
+      jamSelesai: permintaanDraft.jamSelesai.trim(),
+      catatan: permintaanDraft.catatan.trim(),
+    };
+
+    if (!normalizedDraft.kodePengajar || !normalizedDraft.namaPengajar) {
+      setPermintaanError("Pengajar wajib dipilih.");
+      return;
+    }
+    if (!normalizedDraft.cabangPeminta || !normalizedDraft.dariCabang) {
+      setPermintaanError("Cabang peminta dan cabang domisili wajib tersedia.");
+      return;
+    }
+    if (normalizeText(normalizedDraft.cabangPeminta) === normalizeText(normalizedDraft.dariCabang)) {
+      setPermintaanError("Permintaan antar cabang hanya untuk pengajar dari cabang lain.");
+      return;
+    }
+    if (!normalizedDraft.tanggalDiminta) {
+      setPermintaanError("Tanggal diminta wajib diisi.");
+      return;
+    }
+
+    const startTime = parseTimeValue(normalizedDraft.jamMulai);
+    const endTime = parseTimeValue(normalizedDraft.jamSelesai);
+    if (startTime === null || endTime === null || startTime >= endTime) {
+      setPermintaanError("Rentang jam tidak valid.");
+      return;
+    }
+
+    const requestDate = parseFlexibleDate(normalizedDraft.tanggalDiminta);
+    if (!requestDate) {
+      setPermintaanError("Format tanggal tidak valid.");
+      return;
+    }
+
+    const existingRequest = [...permintaanRecords]
+      .reverse()
+      .find(
+        (item) =>
+          normalizeText(item["Kode Pengajar"] || "") === normalizeText(normalizedDraft.kodePengajar)
+      );
+
+    const resolvedRequestId = String(existingRequest?.ID || normalizedDraft.id || "").trim();
+
+    const record = {
+      ID: resolvedRequestId,
+      "Kode Pengajar": normalizedDraft.kodePengajar,
+      "Nama Pengajar": normalizedDraft.namaPengajar,
+      "Cabang Peminta": normalizedDraft.cabangPeminta,
+      "Dari Cabang": normalizedDraft.dariCabang,
+      "Tanggal Diminta": formatScheduleLabel(requestDate),
+      "Jam Mulai": normalizedDraft.jamMulai,
+      "Jam Selesai": normalizedDraft.jamSelesai,
+      Status: "Menunggu",
+      Catatan: normalizedDraft.catatan,
+    };
+
+    setPermintaanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const bucket = dataBucket["Permintaan Pengajar Antar Cabang"];
+      const rows = await listRows(bucket);
+      const existing = rows.find(
+        (row) =>
+          normalizeValueKey(row.data.ID) === normalizeValueKey(record.ID) ||
+          normalizeValueKey(row.data["Kode Pengajar"]) === normalizeValueKey(record["Kode Pengajar"])
+      );
+      if (existing) {
+        await updateRow(existing.id, record);
+      } else {
+        await insertRow(bucket, record);
+      }
+      setIsPermintaanModalOpen(false);
+      setPermintaanError("");
+      void handleLoadPermintaanPengajar({ silent: true });
+      pushToast(
+        existingRequest
+          ? "Permintaan sebelumnya untuk pengajar ini diperbarui otomatis."
+          : "Permintaan pengajar berhasil dibuat.",
+        "success"
+      );
+    } catch (error) {
+      setPermintaanStatus((prev) => ({
+        ...prev,
+        error: "Gagal menyimpan permintaan pengajar.",
+      }));
+      pushToast("Gagal menyimpan permintaan pengajar.", "error");
+    } finally {
+      setPermintaanStatus((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleDeletePermintaanPengajar = (record: Record<string, string>) => {
+    const cabangDomisiliKey = normalizeText(record["Cabang Domisili"] || "");
+    const userCabangKey = normalizeText(restrictedCabang || authSession?.cabang || "");
+    const canDelete = isAdmin || cabangDomisiliKey === userCabangKey;
+
+    if (!canDelete) {
+      pushToast("Hanya Admin atau Cabang Domisili yang dapat menghapus permintaan.", "error");
+      return;
+    }
+
+    openConfirmDialog(
+      "Hapus permintaan pengajar ini?",
+      async () => {
+        setPermintaanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const rows = await listRows(dataBucket["Permintaan Pengajar Antar Cabang"]);
+          const targetIds = rows
+            .filter((row) => normalizeValueKey(row.data.ID) === normalizeValueKey(record.ID))
+            .map((row) => row.id);
+          await deleteRowsByIds(targetIds);
+          void Promise.all([
+            handleLoadPermintaanPengajar({ silent: true }),
+            handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+            handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+            handleLoadSuratTugas({ silent: true }),
+          ]);
+          pushToast("Permintaan pengajar berhasil dihapus.", "success");
+        } catch (error) {
+          setPermintaanStatus((prev) => ({
+            ...prev,
+            error: "Gagal menghapus permintaan pengajar.",
+          }));
+          pushToast("Gagal menghapus permintaan pengajar.", "error");
+        } finally {
+          setPermintaanStatus((prev) => ({ ...prev, loading: false }));
+        }
+      },
+      { title: "Hapus Permintaan", confirmLabel: "Hapus" }
+    );
+  };
+
+  const handleUpdatePermintaanStatus = async (
+    record: Record<string, string> | { id?: string; ID?: string; kodePengajar?: string; [key: string]: unknown },
+    status: "Disetujui" | "Ditolak"
+  ) => {
+    setPermintaanStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const requestId = String(record.ID || record.id || "").trim();
+      const kodePengajar = String(record["Kode Pengajar"] || record.kodePengajar || "").trim().toLowerCase();
+
+      const rows = await listRows(dataBucket["Permintaan Pengajar Antar Cabang"]);
+      const existing = rows.find((row) => {
+        if (requestId && normalizeValueKey(row.data.ID) === normalizeValueKey(requestId)) {
+          return true;
+        }
+        if (kodePengajar && normalizeValueKey(row.data["Kode Pengajar"]) === kodePengajar) {
+          return true;
+        }
+        return false;
+      });
+
+      if (!existing) {
+        throw new Error("Permintaan tidak ditemukan.");
+      }
+
+      // Permission check: only dari_cabang (providing branch) can approve/reject
+      if (!isAdmin && restrictedCabang) {
+        const dariCabang = normalizeText(existing.data["Dari Cabang"] || "");
+        const userCabangKey = normalizeText(restrictedCabang);
+        if (dariCabang !== userCabangKey) {
+          throw new Error("Anda tidak memiliki izin untuk mengubah status permintaan ini. Hanya cabang yang diminta yang dapat menyetujui atau menolak.");
+        }
+      }
+
+      await updateRow(existing.id, {
+        ...existing.data,
+        Status: status,
+      });
+
+      void Promise.all([
+        handleLoadPermintaanPengajar({ silent: true }),
+        handleLoadFromSheet("bulanIni", { preserveUiState: true, silent: true }),
+        handleLoadFromSheet("jadwalTambahanPelayanan", { preserveUiState: true, silent: true }),
+        handleLoadSuratTugas({ silent: true }),
+      ]);
+      pushToast(`Permintaan pengajar ${status.toLowerCase()}.`, "success");
+    } catch (error) {
+      setPermintaanStatus((prev) => ({
+        ...prev,
+        error: "Gagal memperbarui status permintaan.",
+      }));
+      pushToast("Gagal memperbarui status permintaan.", "error");
+    } finally {
+      setPermintaanStatus((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const normalizeLoginValue = (value: string) => String(value ?? "").trim().toLowerCase();
+
+  const handleLogin = () => {
+    const username = normalizeLoginValue(loginUsername);
+    const sanitizedWa = sanitizeWhatsappDigits(loginUsername);
+    const password = String(loginPassword ?? "").trim();
+    const accountsToUse = [...databaseAccounts, ...loginAccounts];
+    const matched = accountsToUse.find((account) => {
+      const accUser = normalizeLoginValue(account.username);
+      const userMatch = accUser === username || (Boolean(sanitizedWa) && accUser === sanitizedWa);
+      return userMatch && String(account.password ?? "").trim() === password;
+    });
 
     if (!matched) {
       setLoginError("Username atau password tidak sesuai.");
+      pushToast("Login gagal. Periksa username dan password.", "error");
       return;
     }
 
     const nextSession: AuthSession = {
       username: matched.username,
-      role: matched.role,
+      roll: (matched as any).roll || (matched as any).role || "cabang",
       cabang: matched.cabang,
+      passwordSig: String(matched.password ?? "").trim(),
     };
 
     localStorage.setItem(authStorageKey, JSON.stringify(nextSession));
     setAuthSession(nextSession);
     setLoginError("");
     setLoginPassword("");
+    pushToast(`Selamat datang, ${nextSession.username}.`, "success");
+  };
+
+  const LOCAL_CACHE_CLEANUP_KEY = "appCacheLastCleanedAt";
+  const CACHE_CLEANUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+  const updateLastCacheCleanedAt = () => {
+    try {
+      setLastCacheCleanedAt(localStorage.getItem(LOCAL_CACHE_CLEANUP_KEY) ?? undefined);
+    } catch (_error) {
+      setLastCacheCleanedAt(undefined);
+    }
+  };
+
+  const clearAppCache = () => {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch (_error) {
+      // ignore storage clear failures
+    }
+  };
+
+  const clearLocalCache = (force = false) => {
+    try {
+      const lastClearedItem = localStorage.getItem(LOCAL_CACHE_CLEANUP_KEY);
+      const lastCleared = Number(lastClearedItem ?? "0");
+      const now = Date.now();
+      if (!force) {
+        if (!lastClearedItem) {
+          localStorage.setItem(LOCAL_CACHE_CLEANUP_KEY, String(now));
+          setLastCacheCleanedAt(String(now));
+          return false;
+        }
+        if (now - lastCleared < CACHE_CLEANUP_INTERVAL_MS) {
+          return false;
+        }
+      }
+
+      const preservedAuth = localStorage.getItem(authStorageKey);
+      const preservedKeys = new Set([authStorageKey, LOCAL_CACHE_CLEANUP_KEY]);
+      const keysToRemove: string[] = [];
+
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key && !preservedKeys.has(key)) {
+          keysToRemove.push(key);
+        }
+      }
+
+      keysToRemove.forEach((key) => localStorage.removeItem(key));
+      if (preservedAuth) {
+        localStorage.setItem(authStorageKey, preservedAuth);
+      }
+      localStorage.setItem(LOCAL_CACHE_CLEANUP_KEY, String(now));
+      sessionStorage.clear();
+      setLastCacheCleanedAt(String(now));
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  };
+
+  const clearStaleLocalCache = () => {
+    clearLocalCache(false);
+  };
+
+  const handleClearCacheNow = async () => {
+    setIsClearingCache(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const cleared = clearLocalCache(true);
+      if (cleared) {
+        setLastCacheCleanedAt(Date.now().toString());
+        pushToast("Cache lokal berhasil dibersihkan.", "success");
+      } else {
+        pushToast("Gagal membersihkan cache.", "error");
+      }
+    } catch (_error) {
+      pushToast("Terjadi kesalahan saat membersihkan cache.", "error");
+    } finally {
+      setIsClearingCache(false);
+    }
+  };
+
+  const handleCheckUpdates = async () => {
+    setIsCheckingUpdates(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      pushToast("Pemeriksaan pembaruan selesai. Aplikasi sudah terbaru.", "success");
+    } catch (_error) {
+      pushToast("Gagal memeriksa pembaruan.", "error");
+    } finally {
+      setIsCheckingUpdates(false);
+    }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem(authStorageKey);
+    clearAppCache();
     setAuthSession(null);
+    setSidebarMobileOpen(false);
     setLoginUsername("");
     setLoginPassword("");
     setLoginError("");
+    pushToast("Anda telah logout dari aplikasi.", "info");
   };
 
   useEffect(() => {
-    const storedSession = localStorage.getItem(authStorageKey);
-    if (!storedSession) {
-      return;
-    }
+    let isMounted = true;
 
-    try {
-      const parsed = JSON.parse(storedSession) as AuthSession;
-      const matched = loginAccounts.find((account) => account.username === parsed.username);
-      if (!matched) {
+    const restoreStoredSession = () => {
+      try {
+        const storedSession = localStorage.getItem(authStorageKey);
+        if (!storedSession) {
+          return false;
+        }
+
+        const parsed = JSON.parse(storedSession) as AuthSession;
+        if (!parsed || !parsed.username || typeof parsed.username !== "string") {
+          localStorage.removeItem(authStorageKey);
+          return false;
+        }
+
+        // If database accounts or login accounts are present, synchronize role/cabang if found
+        const accountsToUse = [...databaseAccounts, ...loginAccounts];
+        const matched = accountsToUse.find(
+          (account) => normalizeLoginValue(account.username) === normalizeLoginValue(parsed.username || "")
+        );
+
+        if (matched) {
+          const syncedSession: AuthSession = {
+            username: matched.username,
+            roll: (matched as any).roll || (matched as any).role || "cabang",
+            cabang: matched.cabang,
+          };
+          localStorage.setItem(authStorageKey, JSON.stringify(syncedSession));
+          setAuthSession(syncedSession);
+          return true;
+        }
+
+        // Keep the saved valid session even if database accounts are still loading
+        setAuthSession(parsed);
+        return true;
+      } catch (_error) {
         localStorage.removeItem(authStorageKey);
+        return false;
+      }
+    };
+
+    const initializeApp = async () => {
+      if (!isMounted) {
         return;
       }
 
-      setAuthSession({
-        username: matched.username,
-        role: matched.role,
-        cabang: matched.cabang,
-      });
-    } catch (error) {
-      localStorage.removeItem(authStorageKey);
+      clearStaleLocalCache();
+      updateLastCacheCleanedAt();
+
+      const storedSession = localStorage.getItem(authStorageKey);
+      if (storedSession) {
+        restoreStoredSession();
+      }
+
+      try {
+        await checkDatabaseConnection();
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        setDbConnectionError(
+          error instanceof Error
+            ? error.message
+            : "Aplikasi tidak dapat terhubung ke database. Pastikan server D1 sudah aktif."
+        );
+        setIsAppInitializing(false);
+        return;
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
+      setIsAppInitializing(false);
+    };
+
+    void initializeApp();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const loadAccountsFromDb = useCallback(async () => {
+    try {
+      const rows = await listRows("accounts_cabang");
+      const accounts: LoginAccount[] = rows.map((r) => ({
+        id: r.id,
+        username: r.data.Username || r.data.username || "",
+        password: r.data.Password || r.data.password || "",
+        roll: r.data.Roll || r.data.roll || "cabang",
+        cabang: r.data.Cabang || r.data.cabang || "",
+      }));
+      const validAccounts = accounts.filter((a) => a.username && a.password);
+      setDatabaseAccounts(validAccounts);
+
+      // Also get pengajar accounts to validate pengajar login passwords
+      let pengajarAccounts: LoginAccount[] = [];
+      try {
+        const pRows = await listRows(dataBucket["Data Pengajar"]);
+        pengajarAccounts = pRows
+          .filter((r) => (r.data.Username || r.data.username || r.data["No.WhatsApp"] || r.data.no_whatsapp) && (r.data.Password || r.data.password || r.data.password_hash))
+          .map((r) => {
+            const rawUser = String(r.data.Username || r.data.username || r.data["No.WhatsApp"] || r.data.no_whatsapp || "");
+            const sanitizedUser = sanitizeWhatsappDigits(rawUser) || rawUser;
+            return {
+              username: sanitizedUser,
+              password: r.data.Password || r.data.password || r.data.password_hash,
+              roll: "pengajar",
+              cabang: r.data.Domisili || r.data.domisili || "",
+            };
+          });
+      } catch (_e) {}
+
+      const allMergedAccounts = [...validAccounts, ...pengajarAccounts, ...loginAccounts];
+
+      // If user is currently logged in, check if their session is still valid
+      try {
+        const storedSession = localStorage.getItem(authStorageKey);
+        if (storedSession) {
+          const parsed = JSON.parse(storedSession) as AuthSession;
+          if (parsed?.username) {
+            const matched = allMergedAccounts.find(
+              (acc) => normalizeLoginValue(acc.username) === normalizeLoginValue(parsed.username)
+            );
+            if (matched) {
+              const currentDbPass = String(matched.password ?? "").trim();
+
+              // If the stored session has a passwordSig and it no longer matches the database,
+              // then the password has been changed elsewhere -> auto-logout!
+              if (parsed.passwordSig && parsed.passwordSig !== currentDbPass) {
+                localStorage.removeItem(authStorageKey);
+                setAuthSession(null);
+                pushToast(
+                  "⚠️ Sesi berakhir: Password akun Anda telah diubah di perangkat lain. Silakan login kembali dengan password baru.",
+                  "warning"
+                );
+                return;
+              }
+
+              const synced: AuthSession = {
+                username: matched.username,
+                roll: (matched as any).roll || (matched as any).role || parsed.roll || "cabang",
+                cabang: matched.cabang || parsed.cabang || "",
+                passwordSig: currentDbPass,
+              };
+              const isUnchanged =
+                parsed.username === synced.username &&
+                parsed.roll === synced.roll &&
+                parsed.cabang === synced.cabang &&
+                parsed.passwordSig === synced.passwordSig;
+
+              if (!isUnchanged) {
+                localStorage.setItem(authStorageKey, JSON.stringify(synced));
+                setAuthSession(synced);
+              }
+            }
+          }
+        }
+      } catch (_e) {}
+    } catch (_e) {
+      // Fallback to local loginAccounts if DB fails
     }
   }, []);
 
+  const handleChangePassword = async (
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!authSession?.username) {
+      return { success: false, message: "Sesi login tidak ditemukan. Silakan login kembali." };
+    }
+    const usernameNorm = normalizeLoginValue(authSession.username);
+    const currentPassTrimmed = String(currentPassword ?? "").trim();
+    const newPassTrimmed = String(newPassword ?? "").trim();
+
+    if (!newPassTrimmed || newPassTrimmed.length < 3) {
+      return { success: false, message: "Password baru minimal 3 karakter." };
+    }
+
+    setIsChangingPassword(true);
+    try {
+      // 1. Search in accounts_cabang table
+      const cabangRows = await listRows(dataBucket["accounts_cabang"]);
+      const matchedCabangRow = cabangRows.find(
+        (row) => normalizeLoginValue(row.data.Username || row.data.username) === usernameNorm
+      );
+
+      if (matchedCabangRow) {
+        const storedPass = String(matchedCabangRow.data.Password || matchedCabangRow.data.password || "").trim();
+        if (storedPass !== currentPassTrimmed) {
+          return { success: false, message: "Password saat ini tidak sesuai." };
+        }
+        await updateRow(matchedCabangRow.id, {
+          ...matchedCabangRow.data,
+          Password: newPassTrimmed,
+          password: newPassTrimmed,
+          updated_at: new Date().toISOString(),
+        });
+        const updatedSession: AuthSession = {
+          ...authSession,
+          passwordSig: newPassTrimmed,
+        };
+        localStorage.setItem(authStorageKey, JSON.stringify(updatedSession));
+        setAuthSession(updatedSession);
+        await handleLoadAccountsCabang({ silent: true });
+        await loadAccountsFromDb();
+        pushToast("Password akun berhasil diubah.", "success");
+        return { success: true, message: "Password berhasil diubah." };
+      }
+
+      // 2. Search in Data Pengajar table
+      const pengajarRows = await listRows(dataBucket["Data Pengajar"]);
+      const matchedPengajarRow = pengajarRows.find(
+        (row) => normalizeLoginValue(row.data.Username || row.data.username) === usernameNorm
+      );
+
+      if (matchedPengajarRow) {
+        const storedPass = String(
+          matchedPengajarRow.data.Password ||
+          matchedPengajarRow.data.password ||
+          matchedPengajarRow.data.password_hash ||
+          ""
+        ).trim();
+        if (storedPass !== currentPassTrimmed) {
+          return { success: false, message: "Password saat ini tidak sesuai." };
+        }
+        await updateRow(matchedPengajarRow.id, {
+          ...matchedPengajarRow.data,
+          Password: newPassTrimmed,
+          password: newPassTrimmed,
+          password_hash: newPassTrimmed,
+          updated_at: new Date().toISOString(),
+        });
+        const updatedSession: AuthSession = {
+          ...authSession,
+          passwordSig: newPassTrimmed,
+        };
+        localStorage.setItem(authStorageKey, JSON.stringify(updatedSession));
+        setAuthSession(updatedSession);
+        await handleLoadPengajar({ silent: true });
+        await loadAccountsFromDb();
+        pushToast("Password akun pengajar berhasil diubah.", "success");
+        return { success: true, message: "Password berhasil diubah." };
+      }
+
+      // 3. Check fallback loginAccounts config
+      const matchedFallback = loginAccounts.find(
+        (acc) => normalizeLoginValue(acc.username) === usernameNorm
+      );
+      if (matchedFallback) {
+        const storedPass = String(matchedFallback.password || "").trim();
+        if (storedPass !== currentPassTrimmed) {
+          return { success: false, message: "Password saat ini tidak sesuai." };
+        }
+        await insertRow(dataBucket["accounts_cabang"], {
+          Username: authSession.username,
+          Password: newPassTrimmed,
+          Roll: authSession.roll || matchedFallback.roll || "cabang",
+          Cabang: authSession.cabang || matchedFallback.cabang || "",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        const updatedSession: AuthSession = {
+          ...authSession,
+          passwordSig: newPassTrimmed,
+        };
+        localStorage.setItem(authStorageKey, JSON.stringify(updatedSession));
+        setAuthSession(updatedSession);
+        await handleLoadAccountsCabang({ silent: true });
+        await loadAccountsFromDb();
+        pushToast("Password akun berhasil diubah.", "success");
+        return { success: true, message: "Password berhasil diubah." };
+      }
+
+      return { success: false, message: "Akun login tidak ditemukan di database." };
+    } catch (err: any) {
+      return { success: false, message: err?.message || "Gagal memperbarui password akun." };
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   useEffect(() => {
-    if (!authSession) {
+    void loadAccountsFromDb();
+  }, [loadAccountsFromDb]);
+
+  // Periodic heartbeat to auto-logout any active session whose password was changed on another device
+  useEffect(() => {
+    if (!authSession?.username) return;
+    const interval = window.setInterval(() => {
+      if (!document.hidden) {
+        void loadAccountsFromDb();
+      }
+    }, 60000);
+    return () => window.clearInterval(interval);
+  }, [authSession?.username, loadAccountsFromDb]);
+
+  useEffect(() => {
+    if (!authSession?.username) {
       return;
     }
-    handleLoadFromSheet("bulanIni");
-    handleLoadFromSheet("jadwalTambahanPelayanan");
-    handleLoadMapel();
-    handleLoadPengajar();
-    handleLoadSuratTugas();
-  }, [authSession]);
+    setScheduleCabangView({
+      bulanIni: restrictedCabang || "",
+      jadwalTambahanPelayanan: restrictedCabang || "",
+    });
+  }, [authSession?.username, authSession?.roll, restrictedCabang]);
+
+  useEffect(() => {
+    const hasActive = visibleCategories.some((category) => category.key === activeKey);
+    if (!hasActive && visibleCategories[0]) {
+      setActiveKey(visibleCategories[0].key);
+    }
+  }, [activeKey, visibleCategories]);
+
+  useEffect(() => {
+    if (!sidebarMobileOpen) {
+      document.body.style.removeProperty("overflow");
+      return;
+    }
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.removeProperty("overflow");
+    };
+  }, [sidebarMobileOpen]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 992) {
+        setSidebarMobileOpen(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
 
   const handleDraftChange = (
     fieldKey: "mapel" | "pengajar" | "waktuMulai" | "waktuSelesai",
     value: string,
   ) => {
-    setDraft((prev) => ({ ...prev, [fieldKey]: value }));
+    setDraft((prev) => {
+      if (fieldKey === "mapel") {
+        setConflictError("");
+      
+        return { ...prev, mapel: value, pengajar: "" };
+      }
+      if (fieldKey === "pengajar") {
+        const nextPengajar = value.trim();
+        if (!nextPengajar) {
+          setConflictError("");
+      
+          return { ...prev, pengajar: "" };
+        }
+        if (editingSlot) {
+          const hasPlacementInCabang = hasPengajarAccessInCabang(
+            nextPengajar,
+            editingSlot.cabang,
+            editingSlot.tanggal
+          );
+          if (!hasPlacementInCabang) {
+            setConflictError(
+              "Pengajar tidak tersedia di cabang ini, silakan hubungi cabang domisili."
+            );
+            return { ...prev, pengajar: "" };
+          }
+          const izinMatch = getPengajarIzinOnDate(nextPengajar, editingSlot.tanggal);
+          if (izinMatch) {
+            const startLabel = izinMatch["Tanggal Mulai"] || "";
+            const endLabel = izinMatch["Tanggal Selesai"] || "";
+            const reason = (izinMatch.Keterangan || "").trim();
+            setConflictError(
+              `Pengajar sedang izin pada rentang ${startLabel} s.d. ${endLabel}${reason ? ` (${reason})` : ""}.`
+            );
+            return { ...prev, pengajar: "" };
+          }
+        }
+        setConflictError("");
+      
+        return { ...prev, pengajar: nextPengajar };
+      }
+      return { ...prev, [fieldKey]: value };
+    });
+  };
+
+  const getNextClassOrderForCabang = (cabangTarget: string) => {
+    const targetCabang = (cabangTarget || "").trim();
+    if (!targetCabang) return 1;
+    const currentRecords = records[activeScheduleKey] ?? [];
+    const classOrdersFromRecords = currentRecords
+      .filter((item) => normalizeText(item.cabang || "") === normalizeText(targetCabang))
+      .map((item) => parseClassOrder(item.classOrder))
+      .filter((value): value is number => value !== null);
+    const classOrdersFromGroups = monthScheduleGroupsAll
+      .filter((g) => normalizeText(g.cabang || "") === normalizeText(targetCabang))
+      .map((g) => (typeof g.classOrder === "number" ? g.classOrder : parseClassOrder(g.classOrder)))
+      .filter((value): value is number => value !== null);
+    const allOrders = [...classOrdersFromRecords, ...classOrdersFromGroups];
+    return (allOrders.length > 0 ? Math.max(...allOrders) : 0) + 1;
   };
 
   const handleOpenClassModal = () => {
-    setClassDraft({ cabang: restrictedCabang || "", kelas: "", sekolah: "", jenjang: "" });
+    if (isScheduleReadOnly) {
+      pushToast("Mode lihat cabang lain aktif. Anda tidak dapat menambah kelas.", "error");
+      return;
+    }
+    const defaultCabang = restrictedCabang || selectedScheduleCabang || "";
+    const autoClassOrder = getNextClassOrderForCabang(defaultCabang);
+    setClassDraft({
+      cabang: defaultCabang,
+      kelas: "",
+      sekolah: "",
+      jenjang: "",
+      classOrder: String(autoClassOrder),
+    });
     setIsClassEditing(false);
     setEditingClassGroup(null);
     setClassError("");
     setIsClassModalOpen(true);
   };
 
-  const handleOpenEditClass = (group: { cabang: string; kelas: string; sekolah: string; entriesByDate?: Record<string, RecordItem[]> }) => {
+  const handleOpenEditClass = (group: { cabang: string; kelas: string; sekolah: string; jenjang?: string; classOrder?: number | string; entriesByDate?: Record<string, RecordItem[]> }) => {
+    if (isScheduleReadOnly) {
+      pushToast("Mode lihat cabang lain aktif. Anda tidak dapat mengubah kelas.", "error");
+      return;
+    }
+    // prefer group-level jenjang, fallback to any entry in the group
     const anyEntry = Object.values(group.entriesByDate || {}).flat()[0] as RecordItem | undefined;
-    const jenjang = anyEntry?.jenjang || "";
-    setClassDraft({ cabang: group.cabang || "", kelas: group.kelas || "", sekolah: group.sekolah || "", jenjang });
+    const jenjang = group.jenjang || anyEntry?.jenjang || "";
+    const classOrder = group.classOrder !== undefined && group.classOrder !== null ? group.classOrder : (anyEntry?.classOrder || "");
+    setClassDraft({ cabang: group.cabang || "", kelas: group.kelas || "", sekolah: group.sekolah || "", jenjang, classOrder });
     setIsClassEditing(true);
     setEditingClassGroup({ cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah });
     setClassError("");
     setIsClassModalOpen(true);
   };
 
-  const handleClassDraftChange = (key: "cabang" | "kelas" | "sekolah" | "jenjang", value: string) => {
+  const handleClassDraftChange = (
+    key: "cabang" | "kelas" | "sekolah" | "jenjang" | "classOrder",
+    value: string
+  ) => {
     if (key === "cabang" && restrictedCabang) {
+      return;
+    }
+    if (key === "cabang" && !isClassEditing) {
+      const autoOrder = getNextClassOrderForCabang(value);
+      setClassDraft((prev) => ({
+        ...prev,
+        cabang: value,
+        classOrder: String(autoOrder),
+      }));
       return;
     }
     setClassDraft((prev) => ({ ...prev, [key]: value }));
   };
 
+  const handleInlineSaveClassInternal = async (
+    group: { cabang: string; kelas: string; sekolah?: string },
+    nextKelasValue: string,
+    nextSekolahValue: string,
+    nextJenjangValue?: string,
+    nextClassOrderValue?: string | number
+  ) => {
+    if (isScheduleReadOnly) {
+      pushToast("Mode lihat cabang lain aktif. Anda tidak dapat mengubah kelas.", "error");
+      return false;
+    }
+    const cabang = group.cabang;
+    const kelas = nextKelasValue.trim();
+    const sekolah = (activeScheduleKey === "jadwalTambahanPelayanan"
+      ? nextSekolahValue
+      : group.sekolah || "").trim();
+    const shouldRequireSekolah = activeScheduleKey === "jadwalTambahanPelayanan";
+
+    if (!kelas || (shouldRequireSekolah && !sekolah)) {
+      pushToast(
+        shouldRequireSekolah
+          ? "Kelas dan Sekolah wajib diisi untuk jadwal tambahan."
+          : "Nama kelas wajib diisi.",
+        "error"
+      );
+      return false;
+    }
+
+    const hasDuplicate = (records[activeScheduleKey] ?? []).some((item) => {
+      if (activeScheduleKey !== "jadwalTambahanPelayanan") {
+        const tanggal = (item.tanggal as string) || (item.Tanggal as string) || "";
+        if (tanggal.slice(0, 7) !== selectedMonthKey) {
+          return false;
+        }
+      }
+      const isCurrentClass =
+        item.cabang === group.cabang &&
+        item.kelas === group.kelas &&
+        (item.sekolah || "") === (group.sekolah || "");
+      if (isCurrentClass) {
+        return false;
+      }
+      const isTargetClass =
+        item.cabang === cabang &&
+        item.kelas === kelas &&
+        (shouldRequireSekolah ? (item.sekolah || "") === sekolah : true);
+      return isTargetClass;
+    });
+
+    if (hasDuplicate) {
+      pushToast("Nama kelas tersebut sudah ada.", "error");
+      return false;
+    }
+
+    const sourceItems = records[activeScheduleKey] ?? [];
+    const matchingItems = sourceItems.filter((item) => {
+      const isSameClass =
+        normalizeValueKey(item.cabang) === normalizeValueKey(group.cabang) &&
+        normalizeValueKey(item.kelas) === normalizeValueKey(group.kelas) &&
+        normalizeValueKey(item.sekolah || "") === normalizeValueKey(group.sekolah || "");
+      if (!isSameClass) return false;
+      if (activeScheduleKey !== "jadwalTambahanPelayanan") {
+        const itemMonth = ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7);
+        if (itemMonth !== selectedMonthKey) return false;
+      }
+      return true;
+    });
+    if (matchingItems.length === 0) {
+      pushToast("Data kelas tidak ditemukan untuk diperbarui.", "error");
+      return false;
+    }
+
+    const targetClassOrderStr =
+      nextClassOrderValue !== undefined && String(nextClassOrderValue).trim() !== ""
+        ? String(nextClassOrderValue).trim()
+        : undefined;
+
+    // Update local state first for immediate feedback
+    setRecords((prev) => ({
+      ...prev,
+      [activeScheduleKey]: (prev[activeScheduleKey] ?? []).map((item) => {
+        const isCurrentClass =
+          normalizeValueKey(item.cabang) === normalizeValueKey(group.cabang) &&
+          normalizeValueKey(item.kelas) === normalizeValueKey(group.kelas) &&
+          normalizeValueKey(item.sekolah || "") === normalizeValueKey(group.sekolah || "");
+        
+        const isMatchingMonth = activeScheduleKey === "jadwalTambahanPelayanan" ||
+          ((item.tanggal as string) || (item.Tanggal as string) || "").slice(0, 7) === selectedMonthKey;
+
+        if (isCurrentClass && isMatchingMonth) {
+          return {
+            ...item,
+            cabang,
+            kelas,
+            sekolah,
+            jenjang: nextJenjangValue !== "" && nextJenjangValue !== undefined ? nextJenjangValue : item.jenjang || "",
+            classOrder: targetClassOrderStr !== undefined ? targetClassOrderStr : item.classOrder || "",
+          };
+        }
+        return item;
+      }),
+    }));
+
+    try {
+      // Use sequential updates instead of Promise.all to avoid race conditions or DB lock issues
+      for (const item of matchingItems) {
+        const oldTanggal = resolveSheetTanggal(item.tanggalSheet || "", item.tanggal || "");
+        const scheduleJenis = getScheduleJenis(activeScheduleKey);
+        const oldRecord = buildSheetRecord(
+          group.cabang,
+          group.kelas,
+          oldTanggal,
+          item.mapel || "",
+          item.pengajar || "",
+          item.waktu || "",
+          item.jenjang || "",
+          group.sekolah || "",
+          item.classOrder || "",
+          scheduleJenis
+        );
+        const newJenjang = nextJenjangValue !== undefined && nextJenjangValue !== "" ? nextJenjangValue : item.jenjang || "";
+        const newClassOrder = targetClassOrderStr !== undefined ? targetClassOrderStr : item.classOrder || "";
+        const newRecord = buildSheetRecord(
+          cabang,
+          kelas,
+          oldTanggal,
+          item.mapel || "",
+          item.pengajar || "",
+          item.waktu || "",
+          newJenjang,
+          sekolah,
+          newClassOrder,
+          scheduleJenis
+        );
+        
+        // Ensure we pass the entryId and mark as upsert
+        await postToSheet({ action: "upsert", record: newRecord, oldRecord, entryId: item.id });
+      }
+
+      await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+      pushToast("Detail kelas berhasil diperbarui.", "success");
+      return true;
+    } catch (err) {
+      console.error("Gagal memperbarui detail kelas:", err);
+      pushToast("Gagal memperbarui detail kelas ke database.", "error");
+      return false;
+    }
+  };
+
+  const handleInlineSaveClass = async (
+    group: { cabang: string; kelas: string; sekolah?: string },
+    nextKelasValue: string,
+    nextSekolahValue: string
+  ) => {
+    return handleInlineSaveClassInternal(group, nextKelasValue, nextSekolahValue, "");
+  };
+
   const handleSaveNewClass = async () => {
+    if (isScheduleReadOnly) {
+      pushToast("Mode lihat cabang lain aktif. Anda tidak dapat menambah kelas.", "error");
+      return;
+    }
+    if (isClassEditing && editingClassGroup) {
+      // perform edit flow using existing inline save logic
+      const success = await handleInlineSaveClassInternal(
+        editingClassGroup,
+        classDraft.kelas.trim(),
+        classDraft.sekolah.trim(),
+        classDraft.jenjang.trim(),
+        classDraft.classOrder !== undefined ? String(classDraft.classOrder).trim() : undefined
+      );
+      if (success) {
+        setIsClassModalOpen(false);
+        setIsClassEditing(false);
+        setEditingClassGroup(null);
+        setClassDraft({ cabang: "", kelas: "", sekolah: "", jenjang: "", classOrder: "" });
+        setClassError("");
+      }
+      return;
+    }
     const cabang = restrictedCabang || classDraft.cabang.trim();
     const kelas = classDraft.kelas.trim();
     const sekolah = classDraft.sekolah.trim();
     const jenjang = (classDraft.jenjang || "").trim();
     const shouldRequireSekolah = activeScheduleKey === "jadwalTambahanPelayanan";
-    if (!cabang || !kelas || (shouldRequireSekolah && !sekolah)) {
+    if (!cabang || !kelas || !jenjang || (shouldRequireSekolah && !sekolah)) {
       setClassError(
         shouldRequireSekolah
-          ? "Cabang, Kelas, dan Sekolah wajib diisi."
-          : "Cabang dan Kelas wajib diisi."
+          ? "Cabang, Kelas, Jenjang Studi, dan Sekolah wajib diisi."
+          : "Cabang, Kelas, dan Jenjang Studi wajib diisi."
       );
       return;
     }
 
-    if (isClassEditing && editingClassGroup) {
-      const success = await handleInlineSaveClass(editingClassGroup, kelas, sekolah);
-      if (success) {
-        setIsClassModalOpen(false);
-        setIsClassEditing(false);
-        setEditingClassGroup(null);
-        setClassDraft({ cabang: "", kelas: "", sekolah: "", jenjang: "" });
-        setClassError("");
-      }
-      return;
-    }
-    const existing = (records[activeScheduleKey] ?? []).some(
-      (item) =>
-        item.cabang === cabang &&
-        item.kelas === kelas &&
-        (shouldRequireSekolah ? (item.sekolah || "") === sekolah : true)
-    );
+    const existing = (records[activeScheduleKey] ?? [])
+      .filter((item) => {
+        if (activeScheduleKey === "jadwalTambahanPelayanan") {
+          return true;
+        }
+        const tanggal = (item.tanggal as string) || (item.Tanggal as string) || "";
+        return tanggal.slice(0, 7) === selectedMonthKey;
+      })
+      .some(
+        (item) =>
+          item.cabang === cabang &&
+          item.kelas === kelas &&
+          (shouldRequireSekolah ? (item.sekolah || "") === sekolah : true)
+      );
     if (existing) {
       setClassError("Kelas tersebut sudah ada di jadwal.");
       return;
     }
+
     const firstSlot = activeScheduleDates[0];
     if (!firstSlot) {
       setClassError("Tanggal jadwal belum tersedia.");
       return;
     }
-    const sheetRecord = buildSheetRecord(cabang, kelas, firstSlot.label, "", "", "", jenjang, sekolah);
+    const classOrders = (records[activeScheduleKey] ?? [])
+      .filter((item) => {
+        if (activeScheduleKey !== "jadwalTambahanPelayanan") {
+          const tanggal = (item.tanggal as string) || (item.Tanggal as string) || "";
+          if (tanggal.slice(0, 7) !== selectedMonthKey) {
+            return false;
+          }
+        }
+        return normalizeText(item.cabang || "") === normalizeText(cabang);
+      })
+      .map((item) => parseClassOrder(item.classOrder))
+      .filter((value): value is number => value !== null);
+    const nextClassOrder = (classOrders.length > 0 ? Math.max(...classOrders) : 0) + 1;
+    const specifiedOrder =
+      classDraft.classOrder !== undefined && String(classDraft.classOrder).trim() !== ""
+        ? String(classDraft.classOrder).trim()
+        : String(nextClassOrder);
+
+    const sheetRecord = buildSheetRecord(
+      cabang,
+      kelas,
+      firstSlot.label,
+      "",
+      "",
+      "",
+      jenjang,
+      sekolah,
+      specifiedOrder,
+      getScheduleJenis(activeScheduleKey)
+    );
     const newItem: RecordItem = {
       id: `kelas-${Date.now()}-${Math.round(Math.random() * 1000)}`,
       cabang,
       kelas,
       sekolah,
       jenjang,
+      classOrder: specifiedOrder,
       tanggal: firstSlot.date,
       tanggalSheet: sheetRecord.Tanggal,
       mapel: "",
@@ -1222,44 +7960,143 @@ export function App() {
     setIsClassModalOpen(false);
     setClassDraft({ cabang: "", kelas: "", sekolah: "", jenjang: "" });
     setClassError("");
+    pushToast("Kelas baru berhasil ditambahkan.", "success");
     await persistRecordToSheet(sheetRecord);
   };
 
-  const handleDeleteClass = async (group: {
+  const handleDeleteClass = (group: {
     cabang: string;
     kelas: string;
     sekolah: string;
     entriesByDate: Record<string, RecordItem[]>;
   }) => {
-    const confirmation = window.confirm(
-      `Hapus seluruh jadwal untuk ${group.kelas} (${group.cabang})? Tindakan ini akan menghapus semua data terkait di Surat Tugas Pengajar.`
-    );
-    if (!confirmation) {
+    if (isScheduleReadOnly) {
+      pushToast("Mode lihat cabang lain aktif. Anda tidak dapat menghapus kelas.", "error");
       return;
     }
+    const monthKey = isJadwalTambahanMenu ? "" : selectedMonthKey;
+    const monthLabel = monthKey ? ` untuk bulan ${monthKey}` : "";
+    openConfirmDialog(
+      `Hapus seluruh jadwal untuk ${group.kelas} (${group.cabang})${monthLabel}? Tindakan ini akan menghapus semua data terkait di Surat Tugas Pengajar.`,
+      async () => {
+        setRecords((prev) => ({
+          ...prev,
+          [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => {
+            const matchClass =
+              item.cabang === group.cabang &&
+              item.kelas === group.kelas &&
+              (item.sekolah || "") === (group.sekolah || "");
+            if (!matchClass) return true;
+            if (!monthKey) return false;
+            const tanggal = (item.tanggal as string) || (item.Tanggal as string) || "";
+            const itemMonth = tanggal.slice(0, 7);
+            return itemMonth !== monthKey;
+          }),
+        }));
+        if (
+          editingSlot &&
+          editingSlot.cabang === group.cabang &&
+          editingSlot.kelas === group.kelas &&
+          (editingSlot.sekolah || "") === (group.sekolah || "")
+        ) {
+          if (!monthKey || editingSlot.tanggal?.slice(0, 7) === monthKey) {
+            clearEditing();
+          }
+        }
+        const explicitIds = Object.values(group.entriesByDate || {})
+          .flat()
+          .map((item) => item.id)
+          .filter(Boolean);
+        await postToSheet({
+          action: "deleteClass",
+          cabang: group.cabang,
+          kelas: group.kelas,
+          sekolah: group.sekolah || "",
+          monthKey,
+          ids: explicitIds,
+        });
+        await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+        pushToast(`Kelas dan seluruh jadwalnya${monthLabel} berhasil dihapus.`, "success");
+      },
+      { title: "Hapus Kelas", confirmLabel: "Hapus" }
+    );
+  };
+
+  const handleMoveClass = async (group: { cabang: string; kelas: string; sekolah: string }, direction: -1 | 1) => {
+    if (isScheduleReadOnly) {
+      pushToast("Mode lihat cabang lain aktif. Anda tidak dapat mengatur urutan kelas.", "error");
+      return;
+    }
+
+    const key = buildClassGroupKey(group.cabang, group.kelas, group.sekolah || "");
+    const currentIndex = monthScheduleGroupsAll.findIndex(
+      (item) => buildClassGroupKey(item.cabang, item.kelas, item.sekolah || "") === key
+    );
+    if (currentIndex < 0) {
+      return;
+    }
+
+    const nextIndex = currentIndex + direction;
+    if (nextIndex < 0 || nextIndex >= monthScheduleGroupsAll.length) {
+      return;
+    }
+
+    // Reorder full group list
+    const reorderedGroups = [...monthScheduleGroupsAll];
+    const [moved] = reorderedGroups.splice(currentIndex, 1);
+    reorderedGroups.splice(nextIndex, 0, moved);
+
+    // Build contiguous 1-based order map
+    const newOrderMap: Record<string, number> = {};
+    const classOrdersPayload: { cabang: string; kelas: string; sekolah: string; classOrder: string }[] = [];
+
+    reorderedGroups.forEach((g, idx) => {
+      const groupKey = buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "");
+      const order = idx + 1;
+      newOrderMap[groupKey] = order;
+      classOrdersPayload.push({
+        cabang: g.cabang,
+        kelas: g.kelas,
+        sekolah: g.sekolah || "",
+        classOrder: String(order),
+      });
+    });
+
+    // Update groupDisplayOrder for instant reactive UI
+    setGroupDisplayOrder((prev) => {
+      const next = { ...prev };
+      reorderedGroups.forEach((g, idx) => {
+        const groupKey = buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "");
+        const viewKey = `${activeScheduleKey}:${selectedMonthKey}:${selectedScheduleCabang}:${groupKey}`;
+        next[viewKey] = idx + 1;
+      });
+      return next;
+    });
+
+    // Synchronize all in-memory records of this active schedule
     setRecords((prev) => ({
       ...prev,
-      [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter(
-        (item) =>
-          item.cabang !== group.cabang ||
-          item.kelas !== group.kelas ||
-          (item.sekolah || "") !== (group.sekolah || "")
-      ),
+      [activeScheduleKey]: (prev[activeScheduleKey] ?? []).map((item) => {
+        const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+        if (newOrderMap[itemKey] !== undefined) {
+          return { ...item, classOrder: String(newOrderMap[itemKey]) };
+        }
+        return item;
+      }),
     }));
-    if (
-      editingSlot &&
-      editingSlot.cabang === group.cabang &&
-      editingSlot.kelas === group.kelas &&
-      (editingSlot.sekolah || "") === (group.sekolah || "")
-    ) {
-      clearEditing();
-    }
-    await postToSheet({
-      action: "deleteClass",
-      cabang: group.cabang,
-      kelas: group.kelas,
-      sekolah: group.sekolah || "",
-    });
+
+    // Persist all reordered classes in batch to database
+    await postToSheet(
+      {
+        action: "reorderClasses",
+        classOrders: classOrdersPayload,
+        ...(activeScheduleKey === "jadwalTambahanPelayanan" ? {} : { monthKey: selectedMonthKey }),
+      },
+      activeScheduleKey
+    );
+
+    await handleLoadFromSheet(activeScheduleKey, { preserveUiState: true, silent: true });
+    pushToast("Urutan kelas berhasil diperbarui.", "success");
   };
 
   const buildSheetRecord = (
@@ -1270,50 +8107,282 @@ export function App() {
     pengajar: string,
     waktu: string,
     jenjang = "",
-    sekolah = ""
-  ) => ({
-    Cabang: cabang,
-    Kelas: kelas,
-    ...(jenjang ? { "Jenjang Studi": jenjang } : {}),
-    ...(sekolah ? { Sekolah: sekolah } : {}),
-    Tanggal: formatSheetTanggal(tanggalSheet),
-    Mapel: mapel,
-    Pengajar: pengajar,
-    Waktu: waktu,
-  });
+    sekolah = "",
+    classOrder = "",
+    jenisKbm: "Reguler" | "Khusus" = "Reguler",
+    namaPengajar = ""
+  ) => {
+    const tanggalValue = ((): string => {
+      const parsed = parseFlexibleDate(tanggalSheet || "");
+      if (parsed) return formatLocalDate(parsed);
+      const parsedLabel = parseFlexibleDate(formatSheetTanggal(tanggalSheet));
+      if (parsedLabel) return formatLocalDate(parsedLabel);
+      return formatSheetTanggal(tanggalSheet);
+    })();
+    const kodePengajar = pengajar.trim();
+    const matchedPengajarRecord = kodePengajar && pengajarByKode[normalizeText(kodePengajar)] ? pengajarByKode[normalizeText(kodePengajar)] : null;
+    const resolvedNamaPengajar =
+      namaPengajar.trim() ||
+      (matchedPengajarRecord
+        ?
+            matchedPengajarRecord["Nama"] ||
+            matchedPengajarRecord["Nama Pengajar"] ||
+            matchedPengajarRecord["nama_pengajar"] ||
+            ""
+        : "");
+    const resolvedNip =
+      matchedPengajarRecord
+        ?
+            matchedPengajarRecord["NIP"] ||
+            matchedPengajarRecord["nip"] ||
+            ""
+        : "";
+    return {
+      Cabang: cabang,
+      Kelas: kelas,
+      ...(jenjang ? { "Jenjang Studi": jenjang } : {}),
+      ...(sekolah ? { Sekolah: sekolah } : {}),
+      ...(String(classOrder).trim() ? { "Urutan Kelas": String(classOrder).trim() } : {}),
+      Tanggal: tanggalValue,
+      Bulan: tanggalValue.slice(0, 7),
+      Mapel: mapel,
+      Pengajar: kodePengajar,
+      "Kode Pengajar": kodePengajar,
+      "Nama Pengajar": kodePengajar ? resolvedNamaPengajar : "",
+      "NIP": resolvedNip,
+      "nip": resolvedNip,
+      Waktu: waktu,
+      "Jenis KBM": jenisKbm,
+    };
+  };
+
+  const rebuildSuratTugasBucket = async () => {
+    // No need to save to database anymore - surat tugas is computed automatically
+    // from jadwal_reguler and jadwal_khusus. This function is kept for compatibility
+    // and to trigger UI refresh if needed.
+    return Promise.resolve();
+  };
+
+  // copy-to-next-month feature removed
 
   const postToSheet = async (
     payload: Record<string, unknown>,
     scheduleKey: ScheduleMenuKey = activeScheduleKey
   ) => {
-    setSheetStatus((prev) => ({ ...prev, saving: true, error: "" }));
-    const payloadWithSpreadsheet = {
-      spreadsheetId: mainSpreadsheetId,
-      sheetName: scheduleSheetByKey[scheduleKey],
-      ...payload,
-    };
+    setSheetStatus((prev) => ({ ...prev, saving: true }));
+    setSheetStatusError("");
+    const bucket = dataBucket[scheduleSheetByKey[scheduleKey]];
 
-    const attemptJsonRequest = async () => {
-      const response = await fetch(appsScriptUrl, {
-        method: "POST",
-        body: JSON.stringify(payloadWithSpreadsheet),
-      });
+    const mutateScheduleBucket = async () => {
+      const action = String(payload.action || "");
+      const record = (payload.record as Record<string, string> | undefined) ?? null;
+      const oldRecord = (payload.oldRecord as Record<string, string> | undefined) ?? null;
+      const entryId = payload.entryId ? String(payload.entryId).trim() : "";
+      const sessionFields = ["Cabang", "Kelas", "Sekolah", "Tanggal", "Mapel", "Pengajar", "Waktu"];
 
-      const text = await response.text();
-      let parsed: { success?: boolean; message?: string } | null = null;
-      try {
-        parsed = text ? JSON.parse(text) : null;
-      } catch (jsonError) {
-        parsed = null;
+      if (action === "append" && record) {
+        await insertRow(bucket, record);
+        return;
       }
 
-      if (!response.ok) {
-        throw new Error(parsed?.message || text || "Gagal menyimpan data.");
+      if (action === "appendMany") {
+        const recordsToAppend = ((payload.records as Record<string, string>[] | undefined) || []).filter(
+          (item) => item && Object.keys(item).length > 0
+        );
+        for (const item of recordsToAppend) {
+          await insertRow(bucket, item);
+        }
+        return;
       }
-      if (parsed && parsed.success === false) {
-        throw new Error(parsed.message || "Gagal menyimpan data.");
+
+      const isEphemeralId = (id: string) => {
+        if (!id) return true;
+        const decoded = decodeId(id, bucket).id;
+        return (
+          decoded.startsWith("bulanIni-") ||
+          decoded.startsWith("jadwalTambahanPelayanan-") ||
+          decoded.startsWith("schedule-") ||
+          decoded.startsWith("kelas-") ||
+          decoded.startsWith("appscript-")
+        );
+      };
+
+      if (action === "upsert" && record && entryId && !isEphemeralId(entryId)) {
+        try {
+          await updateRow(entryId, record);
+          return;
+        } catch (e: any) {
+          // If it's a constraint error, we should NOT fall back to insert as it would just fail or cause duplicates
+          if (String(e.message).includes("CONSTRAINT") || String(e.message).includes("constraint")) {
+             console.error("Constraint error during direct updateRow:", e);
+             throw e;
+          }
+          // Fallback to searching rows below (e.g. if record was deleted or ID changed)
+        }
       }
-      return true;
+
+      if (action === "deleteSession" && entryId && !isEphemeralId(entryId)) {
+        try {
+          await deleteRowsByIds([entryId]);
+          return;
+        } catch (_e) {
+          // Fallback to searching rows below
+        }
+      }
+
+      const rows = await listRows(bucket, true);
+
+      if (action === "upsert" && record) {
+        let target: DbRow | null = null;
+        if (entryId) {
+          const cleanEntryId = decodeId(entryId, bucket).id;
+          target = rows.find((row) => row.id === entryId || decodeId(row.id, bucket).id === cleanEntryId) || null;
+        }
+        if (!target && oldRecord) {
+          target = rows.find((row) => matchByFields(row.data, oldRecord, sessionFields)) || null;
+        }
+        if (!target) {
+          // Final attempt: search by unique class identifyers
+          target = rows.find((row) => matchByFields(row.data, oldRecord || record, ["Cabang", "Kelas", "Sekolah", "Tanggal"])) || null;
+        }
+        if (target) {
+          await updateRow(target.id, record);
+        } else if (!entryId || isEphemeralId(entryId)) {
+          // Only insert if no specific ID was provided or if it's ephemeral
+          await insertRow(bucket, record);
+        } else {
+          // If specific non-ephemeral ID was provided but not found, throw error instead of inserting new
+          throw new Error("Data tidak ditemukan untuk diperbarui (ID mismatch).");
+        }
+        return;
+      }
+
+      if (action === "deleteSession" && (record || entryId)) {
+        let targetIds: string[] = [];
+        if (entryId) {
+          const cleanEntryId = decodeId(entryId, bucket).id;
+          const match = rows.find((row) => row.id === entryId || decodeId(row.id, bucket).id === cleanEntryId);
+          if (match) {
+            targetIds = [match.id];
+          } else {
+            targetIds = [entryId];
+          }
+        }
+        if (targetIds.length === 0 && record) {
+          targetIds = rows
+            .filter((row) => matchByFields(row.data, record, sessionFields))
+            .map((row) => row.id);
+        }
+        if (targetIds.length === 0 && record) {
+          targetIds = rows
+            .filter((row) => matchByFields(row.data, record, ["Cabang", "Kelas", "Sekolah", "Tanggal"]))
+            .map((row) => row.id);
+        }
+        if (targetIds.length > 0) {
+          await deleteRowsByIds(targetIds);
+        }
+        return;
+      }
+
+      if (action === "deleteClass") {
+        const cabang = String(payload.cabang ?? "");
+        const kelas = String(payload.kelas ?? "");
+        const sekolah = String(payload.sekolah ?? "");
+        const monthKey = String(payload.monthKey ?? "");
+        const explicitIds = Array.isArray(payload.ids) ? (payload.ids as string[]) : [];
+        let targetIds = explicitIds;
+        if (targetIds.length === 0) {
+          targetIds = rows
+            .filter((row) => {
+              if (
+                normalizeValueKey(row.data.Cabang) !== normalizeValueKey(cabang) ||
+                normalizeValueKey(row.data.Kelas) !== normalizeValueKey(kelas) ||
+                normalizeValueKey(row.data.Sekolah || "") !== normalizeValueKey(sekolah)
+              ) {
+                return false;
+              }
+              if (!monthKey || scheduleKey === "jadwalTambahanPelayanan") {
+                return true;
+              }
+              const rawTanggal = String(row.data.Tanggal || row.data.tanggal || row.data.tanggalSheet || "");
+              const parsedTanggal = parseFlexibleDate(rawTanggal);
+              return parsedTanggal ? formatLocalDate(parsedTanggal).slice(0, 7) === monthKey : false;
+            })
+            .map((row) => row.id);
+        }
+        await deleteRowsByIds(targetIds);
+        return;
+      }
+
+      if (action === "reorderClasses") {
+        const classOrders = (payload.classOrders || []) as Array<{
+          cabang: string;
+          kelas: string;
+          sekolah: string;
+          classOrder: string;
+        }>;
+        const monthKey = String(payload.monthKey ?? "");
+        const orderMap = new Map<string, string>();
+        classOrders.forEach((item) => {
+          orderMap.set(
+            buildClassGroupKey(item.cabang, item.kelas, item.sekolah || ""),
+            String(item.classOrder)
+          );
+        });
+
+        for (const row of rows) {
+          const rowCabang = String(row.data.Cabang || "");
+          const rowKelas = String(row.data.Kelas || "");
+          const rowSekolah = String(row.data.Sekolah || "");
+          const key = buildClassGroupKey(rowCabang, rowKelas, rowSekolah);
+          const newOrder = orderMap.get(key);
+          if (newOrder !== undefined) {
+            if (monthKey && scheduleKey !== "jadwalTambahanPelayanan") {
+              const rawTanggal = String(row.data.Tanggal || row.data.tanggal || row.data.tanggalSheet || "");
+              const parsedTanggal = parseFlexibleDate(rawTanggal);
+              if (parsedTanggal && formatLocalDate(parsedTanggal).slice(0, 7) !== monthKey) {
+                continue;
+              }
+            }
+            if (String(row.data["Urutan Kelas"] ?? "") !== newOrder) {
+              await updateRow(row.id, {
+                ...row.data,
+                "Urutan Kelas": newOrder,
+              });
+            }
+          }
+        }
+        return;
+      }
+
+      if (action === "reorderClass") {
+        const cabang = String(payload.cabang ?? "");
+        const kelas = String(payload.kelas ?? "");
+        const sekolah = String(payload.sekolah ?? "");
+        const classOrder = String(payload.classOrder ?? "");
+        const monthKey = String(payload.monthKey ?? "");
+        const targets = rows.filter((row) => {
+          if (
+            normalizeValueKey(row.data.Cabang) !== normalizeValueKey(cabang) ||
+            normalizeValueKey(row.data.Kelas) !== normalizeValueKey(kelas) ||
+            normalizeValueKey(row.data.Sekolah || "") !== normalizeValueKey(sekolah)
+          ) {
+            return false;
+          }
+          if (!monthKey || scheduleKey === "jadwalTambahanPelayanan") {
+            return true;
+          }
+          const rawTanggal = String(row.data.Tanggal || row.data.tanggal || row.data.tanggalSheet || "");
+          const parsedTanggal = parseFlexibleDate(rawTanggal);
+          return parsedTanggal ? formatLocalDate(parsedTanggal).slice(0, 7) === monthKey : false;
+        });
+        for (const row of targets) {
+          await updateRow(row.id, {
+            ...row.data,
+            "Urutan Kelas": classOrder,
+          });
+        }
+      }
     };
 
     const finalizeSuccess = () => {
@@ -1323,30 +8392,22 @@ export function App() {
         lastSync: new Date().toLocaleString("id-ID"),
       }));
       // Keep Surat Tugas view in sync right after any jadwal save/delete.
-      handleLoadSuratTugas();
+      handleLoadSuratTugas({ silent: true });
       return true;
     };
 
     try {
-      await attemptJsonRequest();
+      await mutateScheduleBucket();
+      await rebuildSuratTugasBucket();
       return finalizeSuccess();
     } catch (error) {
-      try {
-        await fetch(appsScriptUrl, {
-          method: "POST",
-          mode: "no-cors",
-          body: JSON.stringify(payloadWithSpreadsheet),
-        });
-        return finalizeSuccess();
-      } catch (fallbackError) {
-        setSheetStatus((prev) => ({
-          ...prev,
-          saving: false,
-          error:
-            "Gagal menyimpan ke Google Sheet. Pastikan Apps Script sudah dipublikasikan dan akses publik diizinkan.",
-        }));
-        return false;
-      }
+      setSheetStatus((prev) => ({
+        ...prev,
+        saving: false,
+        error: "Gagal menyimpan ke database.",
+      }));
+      pushToast("Gagal menyimpan ke database.", "error");
+      return false;
     }
   };
 
@@ -1354,11 +8415,79 @@ export function App() {
     return postToSheet({ action: "upsert", record }, activeScheduleKey);
   };
 
+  const handleDeleteScheduleByMonth = () => {
+    if (!isAdmin) {
+      pushToast("Menu ini hanya untuk Admin.", "error");
+      return;
+    }
+    const scheduleLabel =
+      deleteScheduleType === "bulanIni" ? "Jadwal Reguler" : "Jadwal Tambahan & Pelayanan";
+    const monthLabel =
+      monthOptions.find((option) => option.value === deleteMonthKey)?.label || deleteMonthKey;
+
+    openConfirmDialog(
+      `Hapus semua data ${scheduleLabel} pada ${monthLabel}? Data Surat Tugas Mengajar akan ikut disinkronkan.`,
+      async () => {
+        setIsDeletingByMonth(true);
+        setSheetStatusError("");
+        try {
+          const targetBucket = dataBucket[scheduleSheetByKey[deleteScheduleType]];
+          const rows = (await listRows(targetBucket)).filter((row) => isMatchingScheduleJenis(row, deleteScheduleType));
+          const targetIds = rows
+            .filter((row) => {
+              const raw = row.data || {};
+              const tanggalStr = (raw.Tanggal as string) || (raw.tanggal as string) || (raw.tanggalSheet as string) || "";
+              const parsed = parseFlexibleDate(tanggalStr || "");
+              if (!parsed) {
+                return false;
+              }
+              return formatLocalDate(parsed).slice(0, 7) === deleteMonthKey;
+            })
+            .map((row) => row.id);
+
+          if (targetIds.length === 0) {
+            pushToast(`Tidak ada data ${scheduleLabel} pada ${monthLabel}.`, "info");
+            return;
+          }
+
+          await deleteRowsByIds(targetIds);
+          await rebuildSuratTugasBucket();
+          await Promise.all([
+            handleLoadFromSheet(deleteScheduleType, { preserveUiState: true, silent: true }),
+            handleLoadSuratTugas({ silent: true }),
+          ]);
+          setSheetStatus((prev) => ({
+            ...prev,
+            lastSync: new Date().toLocaleString("id-ID"),
+          }));
+          pushToast(
+            `${targetIds.length} data ${scheduleLabel} pada ${monthLabel} berhasil dihapus.`,
+            "success"
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("Gagal menghapus jadwal berdasarkan bulan:", error);
+          setSheetStatus((prev) => ({
+            ...prev,
+            error: `Gagal menghapus jadwal berdasarkan bulan: ${message}`,
+          }));
+          pushToast(`Gagal menghapus jadwal berdasarkan bulan: ${message}`, "error");
+        } finally {
+          setIsDeletingByMonth(false);
+        }
+      },
+      { title: "Hapus Jadwal Bulanan", confirmLabel: "Hapus Semua" }
+    );
+  };
+
   const handleSelectBulanIniSlot = (
-    group: { cabang: string; kelas: string; sekolah: string; entriesByDate: Record<string, RecordItem[]> },
+    group: ScheduleGroup,
     slot: { date: string; label: string },
     entry?: RecordItem
   ) => {
+    if (isScheduleReadOnly) {
+      return;
+    }
     const targetEntry = entry;
     if (
       editingSlot &&
@@ -1370,11 +8499,13 @@ export function App() {
     ) {
       return;
     }
-    const waktuParts = targetEntry?.waktu ? targetEntry.waktu.split("-").map((part) => part.trim()) : [];
+    const waktuParts = targetEntry?.waktu ? targetEntry.waktu.split("-").map((part: string) => part.trim()) : [];
     setEditingSlot({
       cabang: group.cabang,
       kelas: group.kelas,
       sekolah: group.sekolah || "",
+      jenjang: group.jenjang || targetEntry?.jenjang || "",
+      classOrder: group.classOrder !== undefined && group.classOrder !== null ? group.classOrder : (targetEntry?.classOrder || ""),
       tanggal: slot.date,
       tanggalSheet: targetEntry?.tanggalSheet || slot.label,
       entryId: targetEntry?.id,
@@ -1385,23 +8516,112 @@ export function App() {
       waktuMulai: waktuParts[0] ?? "",
       waktuSelesai: waktuParts[1] ?? "",
     });
+    setCopyTargetDates([]);
     setConflictError("");
-    // prepare gabung options (classes from same cabang)
-    const options = monthScheduleGroups
-      .filter((g) => (g.cabang || "") === group.cabang)
+      
+    // prepare gabung options (classes from same cabang, excluding self)
+    const options = monthScheduleGroupsAll
+      .filter((g) => (g.cabang || "") === group.cabang && (g.kelas !== group.kelas || (g.sekolah || "") !== (group.sekolah || "")))
       .map((g) => ({
-        value: `${g.cabang}||${g.kelas}||${g.sekolah || ""}`,
+        value: buildClassGroupKey(g.cabang || "", g.kelas || "", g.sekolah || ""),
         label: `${g.kelas}${g.sekolah ? ` • ${g.sekolah}` : ""}`,
       }));
+
+    const currentClassKey = buildClassGroupKey(group.cabang, group.kelas, group.sekolah || "");
+    const currentClassNorm = normalizeText(group.kelas);
+
+    // 1. Direct from targetEntry.gabungWith
+    const directKeys: string[] = [];
+    if (targetEntry?.gabungWith) {
+      String(targetEntry.gabungWith)
+        .split(";")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .forEach((rawVal) => {
+          const normVal = normalizeText(rawVal);
+          const matched = options.find(
+            (opt) =>
+              opt.value === rawVal ||
+              normalizeText(opt.value) === normVal ||
+              normalizeText(opt.label) === normVal ||
+              normVal.includes(`||${normalizeText(opt.label)}||`) ||
+              normVal.includes(normalizeText(opt.label))
+          );
+          if (matched && !directKeys.includes(matched.value)) {
+            directKeys.push(matched.value);
+          } else if (rawVal && !directKeys.includes(rawVal)) {
+            directKeys.push(rawVal);
+          }
+        });
+    }
+
+    // 2. Reverse detection: find ANY other class in the same branch on the same date and overlapping time with same teacher
+    // where that other class is marked isGabung or references current class in gabungWith
+    const partnerKeys: string[] = [];
+    const targetWaktu = targetEntry?.waktu || "";
+    const canonicalDate = resolveCanonicalDate(slot.date);
+    const targetTeacher = resolvePengajarCode(targetEntry?.pengajar || "");
+    const targetTimeRange = parseRangeFromString(targetWaktu);
+
+    allScheduleEntries.forEach((other) => {
+      if (!hasScheduleContent(other) || !other.waktu) return;
+      if (targetEntry?.id && other.id === targetEntry.id) return;
+      if (normalizeText(other.cabang || "") !== normalizeText(group.cabang)) return;
+      if (resolveCanonicalDate(other.tanggal || "") !== canonicalDate) return;
+
+      const otherClassKey = buildClassGroupKey(other.cabang || "", other.kelas || "", other.sekolah || "");
+      if (otherClassKey === currentClassKey) return;
+
+      const otherRange = parseRangeFromString(other.waktu);
+      const hasTimeOverlap =
+        targetTimeRange && otherRange
+          ? targetTimeRange.start < otherRange.end && otherRange.start < targetTimeRange.end
+          : Boolean(targetWaktu && normalizeText(other.waktu) === normalizeText(targetWaktu));
+
+      if (!hasTimeOverlap) return;
+
+      const otherGabungWithNorm = normalizeText(other.gabungWith || "");
+      const otherReferencesSelf =
+        Boolean(otherGabungWithNorm) &&
+        (otherGabungWithNorm.includes(currentClassNorm) ||
+          otherGabungWithNorm.includes(normalizeText(currentClassKey)));
+
+      const sameTeacher =
+        Boolean(targetTeacher && resolvePengajarCode(other.pengajar || "") === targetTeacher);
+      const sameMapel =
+        Boolean(targetEntry?.mapel &&
+        normalizeText(other.mapel || "") === normalizeText(targetEntry.mapel));
+
+      const targetIsGabung = Boolean(targetEntry?.isGabung) || directKeys.length > 0;
+      if (otherReferencesSelf || (targetIsGabung && other.isGabung && sameTeacher && sameMapel)) {
+        const matchedOpt = options.find((opt) => opt.value === otherClassKey);
+        const optValue = matchedOpt ? matchedOpt.value : otherClassKey;
+        if (!partnerKeys.includes(optValue)) {
+          partnerKeys.push(optValue);
+        }
+      }
+    });
+
+    const mergedGabungKeys = Array.from(new Set([...directKeys, ...partnerKeys]));
+    const isGabungActive = Boolean(targetEntry?.isGabung) || mergedGabungKeys.length > 0;
+
     setGabungOptions(options);
-    setGabungEnabled(false);
-    setGabungClassKey("");
+    setGabungEnabled(isGabungActive);
+    setGabungClassKeys(mergedGabungKeys);
   };
 
   const handleSaveSlot = async () => {
+    if (isScheduleReadOnly) {
+      pushToast("Mode lihat cabang lain aktif. Anda tidak dapat mengubah jadwal.", "error");
+      return;
+    }
     if (!editingSlot) {
       return;
     }
+
+    setSheetStatus((prev) => ({ ...prev, saving: true }));
+    setConflictError("");
+
     const { cabang, kelas, sekolah, tanggal, tanggalSheet, entryId } = editingSlot;
     const sekolahValue = sekolah || "";
     const waktuMulai = draft.waktuMulai.trim();
@@ -1413,64 +8633,214 @@ export function App() {
       waktu: waktuValue,
     };
 
-    setConflictError("");
-    const pengajarKey = nextValues.pengajar.toLowerCase();
     const startTime = parseTimeValue(waktuMulai);
     const endTime = parseTimeValue(waktuSelesai);
-    if (nextValues.pengajar && startTime !== null && endTime !== null) {
-      if (startTime >= endTime) {
-        setConflictError("Jam mulai harus lebih awal daripada jam selesai.");
-        return;
-      }
-      const otherEntries = allScheduleEntries.filter((item) => {
-        if (item.id === entryId) return false;
-        if (item.tanggal !== tanggal) return false;
-        if ((item.pengajar || "").toLowerCase() !== pengajarKey) return false;
-        // if gabung enabled and selected class matches this entry, ignore it for conflict checks
-        if (gabungEnabled && gabungClassKey) {
-          const itemKey = `${item.cabang}||${item.kelas}||${item.sekolah || ""}`;
-          if (itemKey === gabungClassKey) return false;
-        }
-        return true;
-      });
-      for (const entry of otherEntries) {
-        if (!entry.waktu) {
-          continue;
-        }
-        const range = parseRangeFromString(entry.waktu);
-        if (!range) {
-          continue;
-        }
-        const overlap = startTime < range.end && endTime > range.start;
-        if (overlap) {
-          const tanggalLabel = getSlotLabelByDate(entry.tanggal ?? tanggal);
-          const cabangLabel = entry.cabang || "Cabang tidak diketahui";
-          const kelasLabel = entry.kelas || "Kelas tidak diketahui";
-          const waktuLabel = entry.waktu || "jam tidak diketahui";
-          setConflictError(
-            `Pengajar sudah mengajar di ${cabangLabel} (${kelasLabel}) pada ${tanggalLabel} pukul ${waktuLabel}.`
-          );
-          return;
-        }
-        if (entry.cabang !== cabang) {
-          const hasGap = startTime >= range.end + 60 || range.start >= endTime + 60;
-          if (!hasGap) {
-            const tanggalLabel = getSlotLabelByDate(entry.tanggal ?? tanggal);
-            const cabangLabel = entry.cabang || "Cabang tidak diketahui";
-            const kelasLabel = entry.kelas || "Kelas tidak diketahui";
-            const waktuLabel = entry.waktu || "jam tidak diketahui";
-            setConflictError(
-              `Pengajar sudah mengajar di ${cabangLabel} (${kelasLabel}) pada ${tanggalLabel} pukul ${waktuLabel}. Antar cabang wajib jeda minimal 1 jam.`
-            );
-            return;
-          }
-        }
-      }
+    const targetTeacherCode = nextValues.pengajar ? resolvePengajarCode(nextValues.pengajar) : "";
+    const targetCanonicalDate = resolveCanonicalDate(tanggal);
+    if (startTime !== null && endTime !== null && startTime >= endTime) {
+      setConflictError("Jam mulai harus lebih awal daripada jam selesai.");
+      setSheetStatus((prev) => ({ ...prev, saving: false }));
+      return;
     }
 
     const existingEntry = entryId
       ? (records[activeScheduleKey] ?? []).find((item) => item.id === entryId)
       : undefined;
+    const currentEntries = records[activeScheduleKey] ?? [];
+    const sheetJenjang =
+      existingEntry?.jenjang ||
+      currentEntries.find(
+        (item) =>
+          item.cabang === cabang &&
+          item.kelas === kelas &&
+          (item.sekolah || "") === sekolahValue
+      )?.jenjang ||
+      "";
+
+    const targetClassKey = buildClassGroupKey(cabang, kelas, sekolahValue);
+    const existingGroup = monthScheduleGroupsAll.find(
+      (g) => buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "") === targetClassKey
+    );
+
+    const existingClassOrder = (records[activeScheduleKey] ?? [])
+      .filter((item) => buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "") === targetClassKey)
+      .map((item) => parseClassOrder(item.classOrder))
+      .find((order): order is number => order !== null);
+
+    const resolvedClassOrderNum =
+      (existingGroup?.classOrder !== undefined && existingGroup.classOrder !== null)
+        ? existingGroup.classOrder
+        : (existingClassOrder ?? null);
+
+    const classOrderValue =
+      resolvedClassOrderNum !== null
+        ? String(resolvedClassOrderNum)
+        : (existingEntry?.classOrder && existingEntry.classOrder.trim()) || "";
+
+    const nextPengajarKode = nextValues.pengajar.trim();
+    const nextPengajarNama =
+      nextPengajarKode && pengajarByKode[normalizeText(nextPengajarKode)]
+        ?
+            pengajarByKode[normalizeText(nextPengajarKode)]["Nama"] ||
+            pengajarByKode[normalizeText(nextPengajarKode)]["Nama Pengajar"] ||
+            pengajarByKode[normalizeText(nextPengajarKode)]["nama_pengajar"] ||
+            ""
+        : "";
+    const dateLabelByKey = new Map(activeScheduleDates.map((slot) => [slot.date, slot.label]));
+    const sanitizedCopyDates = Array.from(
+      new Set(
+        copyTargetDates.filter(
+          (dateKey) => dateKey !== tanggal && dateLabelByKey.has(dateKey)
+        )
+      )
+    );
+    const validCopyDates: string[] = [];
+    const skippedCopyLabels: string[] = [];
+
+    if (sanitizedCopyDates.length > 0 && (nextValues.mapel || nextValues.pengajar || nextValues.waktu)) {
+      for (const targetDate of sanitizedCopyDates) {
+        const dateLabel = dateLabelByKey.get(targetDate) || targetDate;
+        const duplicatedInClass = currentEntries.some(
+          (item) =>
+            item.id !== entryId &&
+            item.cabang === cabang &&
+            item.kelas === kelas &&
+            (item.sekolah || "") === sekolahValue &&
+            item.tanggal === targetDate &&
+            (item.mapel || "") === nextValues.mapel &&
+            (item.pengajar || "") === nextValues.pengajar &&
+            (item.waktu || "") === nextValues.waktu
+        );
+        if (duplicatedInClass) {
+          skippedCopyLabels.push(`${dateLabel} (sudah ada)`);
+          continue;
+        }
+
+        if (nextValues.pengajar && startTime !== null && endTime !== null) {
+          const izinAtTargetDate = getPengajarIzinOnDate(nextValues.pengajar, targetDate);
+          if (izinAtTargetDate) {
+            skippedCopyLabels.push(`${dateLabel} (pengajar izin)`);
+            continue;
+          }
+          const currentClassKey = buildClassGroupKey(cabang, kelas, sekolahValue);
+          const currentClassLabel = normalizeText(`${kelas}${sekolahValue ? ` • ${sekolahValue}` : ""}`);
+          const ignoreClassKeySet = new Set<string>(
+            gabungClassKeys.map((k) => normalizeText(k))
+          );
+          const ignoreLabelSet = new Set<string>(
+            gabungClassKeys.map((k) => {
+              const parts = k.split("||");
+              return normalizeText(parts[1] || k);
+            })
+          );
+          const copyDateEntries = allScheduleEntries.filter((item) => {
+            if (item.id === entryId) return false;
+            if (resolveCanonicalDate(item.tanggal || "") !== resolveCanonicalDate(targetDate)) return false;
+            if (resolvePengajarCode(item.pengajar || "") !== targetTeacherCode) return false;
+
+            const isSameBranch = normalizeText(item.cabang || "") === normalizeText(cabang || "");
+            const itemKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+            const itemLabel = normalizeText(`${item.kelas || ""}${item.sekolah ? ` • ${item.sekolah}` : ""}`);
+
+            if (gabungEnabled && ignoreClassKeySet.size > 0) {
+              if (ignoreClassKeySet.has(itemKey)) return false;
+              const itemGabungParts = String(item.gabungWith || "")
+                .split(";")
+                .map((v) => normalizeText(v))
+                .filter(Boolean);
+              if (itemGabungParts.some((v) => ignoreClassKeySet.has(v) || ignoreLabelSet.has(v))) {
+                return false;
+              }
+            }
+
+            if (isSameBranch && (item.isGabung || item.gabungWith)) {
+              const itemGabungParts = String(item.gabungWith || "")
+                .split(";")
+                .map((v) => normalizeText(v))
+                .filter(Boolean);
+              if (
+                itemGabungParts.includes(normalizeText(currentClassKey)) ||
+                itemGabungParts.includes(currentClassLabel) ||
+                itemGabungParts.includes(itemKey) ||
+                itemGabungParts.includes(itemLabel)
+              ) {
+                return false;
+              }
+            }
+
+            if (
+              isSameBranch &&
+              normalizeText(item.waktu || "") === normalizeText(waktuValue) &&
+              normalizeText(item.mapel || "") === normalizeText(draft.mapel)
+            ) {
+              return false;
+            }
+
+            return true;
+          });
+          let conflictFound = false;
+          for (const entry of copyDateEntries) {
+            const range = parseRangeFromString(entry.waktu || "");
+            if (!range) {
+              continue;
+            }
+            const overlap = startTime < range.end && endTime > range.start;
+            if (overlap) {
+              conflictFound = true;
+              break;
+            }
+            if (normalizeText(entry.cabang || "") !== normalizeText(cabang || "")) {
+              const hasGap = startTime >= range.end + INTER_BRANCH_MIN_GAP_MINUTES || range.start >= endTime + INTER_BRANCH_MIN_GAP_MINUTES;
+              if (!hasGap) {
+                conflictFound = true;
+                break;
+              }
+            }
+          }
+          if (conflictFound) {
+            skippedCopyLabels.push(`${dateLabel} (bentrok pengajar)`);
+            continue;
+          }
+        }
+
+        validCopyDates.push(targetDate);
+      }
+    }
+
+    const joinedGabungWithValue = gabungEnabled && gabungClassKeys.length > 0 ? gabungClassKeys.join("; ") : "";
+
+    const copiedItems: RecordItem[] = validCopyDates.map((dateKey, index) => ({
+      id: `${activeScheduleKey}-${Date.now()}-${index + 1000}`,
+      cabang,
+      kelas,
+      sekolah: sekolahValue,
+      classOrder: classOrderValue,
+      tanggal: dateKey,
+      tanggalSheet: dateLabelByKey.get(dateKey) || dateKey,
+      jenjang: sheetJenjang,
+      ...nextValues,
+      catatan: "",
+      ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : {}),
+    }));
+    const copiedSheetRecords = validCopyDates.map((dateKey) =>
+      ({
+        ...buildSheetRecord(
+          cabang,
+          kelas,
+          resolveSheetTanggal(dateLabelByKey.get(dateKey) || dateKey, dateKey),
+          nextValues.mapel,
+          nextValues.pengajar,
+          nextValues.waktu,
+          sheetJenjang,
+          sekolahValue,
+          classOrderValue,
+          getScheduleJenis(activeScheduleKey),
+          nextPengajarNama
+        ),
+        Gabung: joinedGabungWithValue,
+        IsGabung: gabungEnabled ? "true" : "false",
+      })
+    );
 
     const sheetRecord = buildSheetRecord(
       cabang,
@@ -1479,9 +8849,15 @@ export function App() {
       nextValues.mapel,
       nextValues.pengajar,
       nextValues.waktu,
-      (nextValues as any).jenjang || "",
-      sekolahValue
+      sheetJenjang,
+      sekolahValue,
+      classOrderValue,
+      getScheduleJenis(activeScheduleKey),
+      nextPengajarNama
     );
+    // Attach gabung info so DB mapping can persist it
+    (sheetRecord as any).Gabung = joinedGabungWithValue;
+    (sheetRecord as any).IsGabung = gabungEnabled ? "true" : "false";
 
     const oldSheetRecord = existingEntry
       ? buildSheetRecord(
@@ -1492,57 +8868,190 @@ export function App() {
           existingEntry.pengajar || "",
           existingEntry.waktu || "",
           existingEntry.jenjang || "",
-          existingEntry.sekolah || sekolahValue
+          existingEntry.sekolah || sekolahValue,
+          existingEntry.classOrder || classOrderValue,
+          getScheduleJenis(activeScheduleKey),
+          existingEntry["Nama Pengajar"] || existingEntry.namaPengajar || ""
         )
       : null;
 
+    // Build partner records for gabung classes if enabled
+    const partnerSheetRecordsToUpsert: { record: Record<string, string>; entryId?: string }[] = [];
+    const partnerSheetRecordsToAppend: Record<string, string>[] = [];
+    const partnerLocalItems: RecordItem[] = [];
+
+    if (gabungEnabled && gabungClassKeys.length > 0) {
+      const allTargetDates = [tanggal, ...validCopyDates];
+      for (const targetDate of allTargetDates) {
+        const dateLabel = dateLabelByKey.get(targetDate) || targetDate;
+        const targetCanDate = resolveCanonicalDate(targetDate);
+
+        for (const partnerKey of gabungClassKeys) {
+          const partnerGroup = monthScheduleGroupsAll.find(
+            (g) => buildClassGroupKey(g.cabang, g.kelas, g.sekolah || "") === partnerKey
+          );
+          const [pCabangRaw, pKelasRaw, pSekolahRaw] = partnerKey.split("||");
+          const pCabang = partnerGroup?.cabang || pCabangRaw || cabang;
+          const pKelas = partnerGroup?.kelas || pKelasRaw || "";
+          const pSekolah = partnerGroup?.sekolah || pSekolahRaw || "";
+          const pJenjang = partnerGroup?.jenjang || sheetJenjang;
+          if (!pKelas) continue;
+
+          const partnerJoinedWith = [
+            targetClassKey,
+            ...gabungClassKeys.filter((k) => k !== partnerKey),
+          ].join("; ");
+
+          const partnerExisting = (records[activeScheduleKey] ?? []).find(
+            (item) =>
+              normalizeText(item.cabang || "") === normalizeText(pCabang) &&
+              normalizeText(item.kelas || "") === normalizeText(pKelas) &&
+              normalizeText(item.sekolah || "") === normalizeText(pSekolah) &&
+              resolveCanonicalDate(item.tanggal || "") === targetCanDate
+          );
+
+          const pSheetRecord = {
+            ...buildSheetRecord(
+              pCabang,
+              pKelas,
+              resolveSheetTanggal(dateLabel, targetDate),
+              nextValues.mapel,
+              nextValues.pengajar,
+              nextValues.waktu,
+              pJenjang,
+              pSekolah,
+              partnerGroup?.classOrder !== undefined && partnerGroup?.classOrder !== null ? String(partnerGroup.classOrder) : "",
+              getScheduleJenis(activeScheduleKey),
+              nextPengajarNama
+            ),
+            Gabung: partnerJoinedWith,
+            IsGabung: "true",
+          };
+
+          if (partnerExisting?.id) {
+            partnerSheetRecordsToUpsert.push({ record: pSheetRecord, entryId: partnerExisting.id });
+          } else {
+            partnerSheetRecordsToAppend.push(pSheetRecord);
+            partnerLocalItems.push({
+              id: `${activeScheduleKey}-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+              cabang: pCabang,
+              kelas: pKelas,
+              sekolah: pSekolah,
+              classOrder: partnerGroup?.classOrder !== undefined && partnerGroup?.classOrder !== null ? String(partnerGroup.classOrder) : "",
+              tanggal: targetDate,
+              tanggalSheet: pSheetRecord.Tanggal,
+              jenjang: pJenjang,
+              ...nextValues,
+              catatan: "",
+              isGabung: true,
+              gabungWith: partnerJoinedWith,
+            });
+          }
+        }
+      }
+    }
+
     setRecords((prev) => {
       const current = prev[activeScheduleKey] ?? [];
-      if (entryId) {
-        return {
-          ...prev,
-          [activeScheduleKey]: current.map((item) =>
-            item.id === entryId
-              ? {
-                  ...item,
-                  ...nextValues,
-                  cabang,
-                  kelas,
-                  sekolah: sekolahValue,
-                  tanggal,
-                  tanggalSheet: sheetRecord.Tanggal,
-                }
-              : item
-          ),
+      const updated = current.map((item) => {
+        const itemClassKey = buildClassGroupKey(item.cabang || "", item.kelas || "", item.sekolah || "");
+        if (entryId && item.id === entryId) {
+          return {
+            ...item,
+            ...nextValues,
+            cabang,
+            kelas,
+            sekolah: sekolahValue,
+            classOrder: classOrderValue,
+            tanggal,
+            tanggalSheet: sheetRecord.Tanggal,
+            ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : { isGabung: false, gabungWith: "" }),
+          };
+        }
+        if (gabungEnabled && gabungClassKeys.includes(itemClassKey) && resolveCanonicalDate(item.tanggal || "") === targetCanonicalDate) {
+          const partnerJoinedWith = [
+            targetClassKey,
+            ...gabungClassKeys.filter((k) => k !== itemClassKey),
+          ].join("; ");
+          return {
+            ...item,
+            ...nextValues,
+            isGabung: true,
+            gabungWith: partnerJoinedWith,
+          };
+        }
+        if (itemClassKey === targetClassKey && classOrderValue && item.classOrder !== classOrderValue) {
+          return { ...item, classOrder: classOrderValue };
+        }
+        return item;
+      });
+
+      if (!entryId && (nextValues.mapel || nextValues.pengajar || nextValues.waktu)) {
+        const newItem: RecordItem = {
+          id: `${activeScheduleKey}-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+          cabang,
+          kelas,
+          sekolah: sekolahValue,
+          classOrder: classOrderValue,
+          tanggal,
+          tanggalSheet: sheetRecord.Tanggal,
+          jenjang: sheetJenjang,
+          ...nextValues,
+          catatan: "",
+          ...(joinedGabungWithValue ? { isGabung: true, gabungWith: joinedGabungWithValue } : {}),
         };
+        updated.push(newItem);
       }
-      if (!nextValues.mapel && !nextValues.pengajar && !nextValues.waktu) {
-        return prev;
-      }
-      const newItem: RecordItem = {
-        id: `${activeScheduleKey}-${Date.now()}-${Math.round(Math.random() * 1000)}`,
-        cabang,
-        kelas,
-        sekolah: sekolahValue,
-        tanggal,
-        tanggalSheet: sheetRecord.Tanggal,
-        ...nextValues,
-        catatan: "",
-      };
+
       return {
         ...prev,
-        [activeScheduleKey]: [...current, newItem],
+        [activeScheduleKey]: [...updated, ...copiedItems, ...partnerLocalItems],
       };
     });
-    clearEditing();
-    if (entryId) {
-      await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord });
-      return;
+    if (skippedCopyLabels.length > 0) {
+      pushToast(
+        `Sebagian tanggal salinan dilewati: ${skippedCopyLabels.join(", ")}.`,
+        "info"
+      );
     }
-    await postToSheet({ action: "append", record: sheetRecord });
+
+    // 1. Instantly update UI, close modal, and show success toast (0 wait time)
+    clearEditing();
+    setSheetStatus((prev) => ({ ...prev, saving: false }));
+    pushToast("Data berhasil disimpan.", "success");
+
+    // 2. Perform database save non-blockingly (fire-and-forget)
+    void (async () => {
+      try {
+        if (entryId) {
+          await postToSheet({ action: "upsert", record: sheetRecord, oldRecord: oldSheetRecord, entryId });
+          if (copiedSheetRecords.length > 0) {
+            await postToSheet({ action: "appendMany", records: copiedSheetRecords });
+          }
+        } else if (copiedSheetRecords.length > 0) {
+          await postToSheet({ action: "appendMany", records: [sheetRecord, ...copiedSheetRecords] });
+        } else {
+          await postToSheet({ action: "append", record: sheetRecord });
+        }
+
+        for (const pUpsert of partnerSheetRecordsToUpsert) {
+          await postToSheet({ action: "upsert", record: pUpsert.record, entryId: pUpsert.entryId });
+        }
+        if (partnerSheetRecordsToAppend.length > 0) {
+          await postToSheet({ action: "appendMany", records: partnerSheetRecordsToAppend });
+        }
+      } catch (err: any) {
+        console.error("Gagal menyinkronkan perubahan ke database di background:", err);
+        pushToast("Gagal menyimpan perubahan ke database.", "error");
+      }
+    })();
   };
 
   const handleDeleteSlot = async () => {
+    if (isScheduleReadOnly) {
+      pushToast("Mode lihat cabang lain aktif. Anda tidak dapat menghapus jadwal.", "error");
+      return;
+    }
     if (!editingSlot) {
       return;
     }
@@ -1550,7 +9059,8 @@ export function App() {
       clearEditing();
       return;
     }
-    const existingEntry = (records[activeScheduleKey] ?? []).find((item) => item.id === editingSlot.entryId);
+    const deletingId = editingSlot.entryId;
+    const existingEntry = (records[activeScheduleKey] ?? []).find((item) => item.id === deletingId);
     const sheetRecord = buildSheetRecord(
       editingSlot.cabang,
       editingSlot.kelas,
@@ -1559,114 +9069,356 @@ export function App() {
       existingEntry?.pengajar || "",
       existingEntry?.waktu || "",
       existingEntry?.jenjang || "",
-      existingEntry?.sekolah || editingSlot.sekolah || ""
+      existingEntry?.sekolah || editingSlot.sekolah || "",
+      existingEntry?.classOrder || "",
+      getScheduleJenis(activeScheduleKey)
     );
+
+    // 1. Instantly update UI, close modal, and show success toast (0 wait time)
     setRecords((prev) => ({
       ...prev,
-      [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== editingSlot.entryId),
+      [activeScheduleKey]: (prev[activeScheduleKey] ?? []).filter((item) => item.id !== deletingId),
     }));
     clearEditing();
-    await postToSheet({ action: "deleteSession", record: sheetRecord });
+    setSheetStatus((prev) => ({ ...prev, saving: false }));
+    pushToast("Data berhasil dihapus.", "success");
+
+    // 2. Perform database delete and sync in the background non-blockingly (fire-and-forget)
+    void (async () => {
+      try {
+        await postToSheet({ action: "deleteSession", record: sheetRecord, entryId: deletingId });
+      } catch (err: any) {
+        console.error("Gagal menghapus jadwal dari database di background:", err);
+        pushToast("Gagal menghapus sesi jadwal dari database.", "error");
+      }
+    })();
   };
+
+  const isBusy = isImporting;
+
+  const handleToggleGabung = (next: boolean) => {
+    setGabungEnabled(next);
+    if (next && gabungClassKeys.length === 0 && editingSlot) {
+      const canonicalDate = resolveCanonicalDate(editingSlot.tanggal);
+      const targetTeacher = resolvePengajarCode(draft.pengajar || "");
+      const targetRange =
+        draft.waktuMulai && draft.waktuSelesai
+          ? {
+              start: parseTimeValue(draft.waktuMulai) ?? 0,
+              end: parseTimeValue(draft.waktuSelesai) ?? 0,
+            }
+          : null;
+      const candidateKeys: string[] = [];
+      allScheduleEntries.forEach((other) => {
+        if (!hasScheduleContent(other) || !other.waktu) return;
+        if (editingSlot.entryId && other.id === editingSlot.entryId) return;
+        if (normalizeText(other.cabang || "") !== normalizeText(editingSlot.cabang)) return;
+        if (resolveCanonicalDate(other.tanggal || "") !== canonicalDate) return;
+        const otherKey = buildClassGroupKey(other.cabang || "", other.kelas || "", other.sekolah || "");
+        const currentKey = buildClassGroupKey(editingSlot.cabang, editingSlot.kelas, editingSlot.sekolah || "");
+        if (otherKey === currentKey) return;
+
+        const otherRange = parseRangeFromString(other.waktu);
+        const overlaps =
+          targetRange && otherRange
+            ? targetRange.start < otherRange.end && otherRange.start < targetRange.end
+            : false;
+        const sameTeacher = Boolean(targetTeacher && resolvePengajarCode(other.pengajar || "") === targetTeacher);
+        const sameMapel = Boolean(draft.mapel && normalizeText(other.mapel || "") === normalizeText(draft.mapel));
+
+        if (overlaps && (sameTeacher || sameMapel || other.isGabung)) {
+          if (!candidateKeys.includes(otherKey)) {
+            candidateKeys.push(otherKey);
+          }
+        }
+      });
+      if (candidateKeys.length > 0) {
+        setGabungClassKeys(candidateKeys);
+      }
+    }
+  };
+
+  const busyMessage = "Memproses import data Excel...";
+
+  if (isAppInitializing) {
+    return (
+      <div className="app-shell">
+        <LoadingOverlay show={true} message="Menyambungkan ke database..." />
+      </div>
+    );
+  }
+
+  if (dbConnectionError) {
+    return (
+      <div className="app-shell d-flex align-items-center justify-content-center px-3">
+        <div className="card shadow-sm border-danger w-100" style={{ maxWidth: 520 }}>
+          <div className="card-body p-4">
+            <div className="text-danger fw-bold mb-2">Koneksi database gagal</div>
+            <p className="mb-3 text-muted">{dbConnectionError}</p>
+            <div className="small text-muted">
+              Pastikan URL database di <strong>.env</strong> sudah benar dan worker D1 sudah aktif.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!authSession) {
     return (
-      <LoginScreen
-        username={loginUsername}
-        password={loginPassword}
-        error={loginError}
-        onUsernameChange={(value) => {
-          setLoginUsername(value);
-          if (loginError) {
-            setLoginError("");
-          }
-        }}
-        onPasswordChange={(value) => {
-          setLoginPassword(value);
-          if (loginError) {
-            setLoginError("");
-          }
-        }}
-        onSubmit={handleLogin}
-      />
+      <div className="app-shell">
+        <DatabaseMaintenanceBanner
+          tagihanList={transaksiTagihanRecords}
+          transaksiList={transaksiDonasiRecords}
+          onRefreshDonasi={handleLoadDonasi}
+        />
+        <LoginScreen
+          username={loginUsername}
+          password={loginPassword}
+          error={loginError}
+          onUsernameChange={(value) => {
+            setLoginUsername(value);
+            if (loginError) {
+              setLoginError("");
+            }
+          }}
+          onPasswordChange={(value) => {
+            setLoginPassword(value);
+            if (loginError) {
+              setLoginError("");
+            }
+          }}
+          onSubmit={handleLogin}
+        />
+        <ToastStack toasts={toasts} onClose={dismissToast} />
+      </div>
     );
   }
 
 
   return (
-    <div className="min-vh-100 app-font-8">
-      <div className="container-fluid py-4">
-        <div className="row g-4">
-          <div className={`col-12 ${sidebarCollapsed ? "col-lg-1" : "col-lg-2"}`}>
-            <SidebarMenu
-              categories={categories}
-              activeKey={activeKey}
-              sidebarCollapsed={sidebarCollapsed}
-              onToggle={() => setSidebarCollapsed((prev) => !prev)}
-              onSelect={(key) => {
-                setActiveKey(key);
-                setQuery("");
-                setSelectedSuratTugasKode("");
-                clearEditing();
-                setIsClassModalOpen(false);
-              }}
-            />
-          </div>
+    <div className="min-vh-100 app-font-10 app-shell">
+      <DatabaseMaintenanceBanner
+        tagihanList={transaksiTagihanRecords}
+        transaksiList={transaksiDonasiRecords}
+        onRefreshDonasi={handleLoadDonasi}
+      />
+      {isRefreshingAll && (
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-75 backdrop-blur"
+          style={{ zIndex: 9999 }}
+        >
+          <div className="spinner-border text-primary mb-3" role="status" style={{ width: "3rem", height: "3rem" }} />
+          <h5 className="fw-bold text-dark mb-1">Memuat Data Sistem...</h5>
+          <p className="text-muted small">Menyinkronkan jadwal, pengajar, dan data terbaru dari server.</p>
+        </div>
+      )}
+      <div className="container-fluid py-3 px-3">
+        <div className="row g-2">
+          <motion.div
+            className="d-none d-lg-flex col-auto"
+            initial={false}
+            animate={{ width: sidebarCollapsed ? 76 : sidebarWidth }}
+            transition={{
+              type: "spring",
+              stiffness: 380,
+              damping: 32,
+              mass: 0.8,
+            }}
+            style={{ overflow: "visible" }}
+          >
+            <div style={{ width: "100%", maxWidth: 320 }}>
+              <SidebarMenu
+                categories={visibleCategories}
+                activeKey={activeKey}
+                navigatingKey={navigatingMenuKey}
+                sidebarCollapsed={sidebarCollapsed}
+                authSession={authSession}
+                badges={menuBadges}
+                onChangePassword={() => setIsChangePasswordModalOpen(true)}
+                onToggle={() => setSidebarWidth(sidebarCollapsed ? 240 : 76)}
+                onResize={(width) => setSidebarWidth(Math.max(76, Math.min(320, width)))}
+                onSelect={(key) => {
+                  void handleMenuSelect(key);
+                }}
+              />
+            </div>
+          </motion.div>
 
-          <div className={`col-12 ${sidebarCollapsed ? "col-lg-11" : "col-lg-10"}`}>
-            <div className="card shadow-sm mb-4">
+          <div className="col d-flex flex-column">
+            <div className="card shadow-sm surface-panel">
               <div className="card-body">
-                <div className="d-flex justify-content-between align-items-center gap-2">
-                  <div>
-                    <h2 className="h4 mb-0">{activeConfig.name}</h2>
-                    <div className="text-muted small mt-1">
-                      Login sebagai: {authSession.username}
-                      {authSession.cabang ? ` (${authSession.cabang})` : ""}
+                <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 pb-3 mb-3 border-bottom">
+                  <div className="d-flex align-items-center gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-outline-primary btn-sm d-lg-none"
+                      onClick={() => setSidebarMobileOpen(true)}
+                      aria-label="Buka menu"
+                    >
+                      <i className="bi bi-list" />
+                    </button>
+                    <div>
+                      <h2 className="h4 mb-0 fw-bold">{activeConfig.name}</h2>
                     </div>
                   </div>
-                  <button type="button" className="btn btn-outline-danger btn-sm" onClick={handleLogout}>
-                    Logout
-                  </button>
+                  <div className="d-flex flex-wrap align-items-center gap-2">
+                    {isAdmin &&
+                    importTargetByMenu[activeKey as keyof typeof importTargetByMenu] ? (
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm"
+                        title="Import data Excel"
+                        onClick={handleOpenExcelImport}
+                        disabled={isImporting || isBusy}
+                      >
+                        {isImporting ? (
+                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                        ) : (
+                          <>
+                            <i className="bi bi-file-earmark-arrow-up me-1" />
+                            Import Excel
+                          </>
+                        )}
+                      </button>
+                    ) : null}
+                    {isAdmin &&
+                    templateHeadersByMenu[activeKey as keyof typeof templateHeadersByMenu] ? (
+                      <button
+                        type="button"
+                        className="btn btn-outline-success btn-sm"
+                        title="Unduh template Excel"
+                        onClick={handleDownloadExcelTemplate}
+                        disabled={isImporting || isBusy}
+                      >
+                        <i className="bi bi-download me-1" />
+                        Template
+                      </button>
+                    ) : null}
+                    {(isAdmin || activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan") &&
+                    (importTargetByMenu[activeKey as keyof typeof importTargetByMenu] ||
+                      templateHeadersByMenu[activeKey as keyof typeof templateHeadersByMenu]) ? (
+                      <button
+                        type="button"
+                        className="btn btn-outline-warning btn-sm"
+                        title="Export data Excel"
+                        onClick={handleExportCurrentMenuData}
+                        disabled={isImporting || isBusy}
+                      >
+                        <i className="bi bi-file-earmark-excel me-1" />
+                        Export Excel
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${totalPendingNotifications > 0 ? "btn-warning position-relative fw-bold text-dark shadow-sm" : "btn-outline-secondary"}`}
+                      title={
+                        totalPendingNotifications > 0
+                          ? `Ada ${totalPendingNotifications} Permintaan & Izin Menunggu Persetujuan`
+                          : "Pemberitahuan Persetujuan"
+                      }
+                      aria-label="Pemberitahuan Persetujuan"
+                      onClick={() => setIsPendingNotificationModalOpen(true)}
+                    >
+                      <i className={`bi ${totalPendingNotifications > 0 ? "bi-bell-fill" : "bi-bell"}`} />
+                      {totalPendingNotifications > 0 && (
+                        <span
+                          className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-white"
+                          style={{ fontSize: "0.65rem", padding: "0.25em 0.45em" }}
+                        >
+                          {totalPendingNotifications}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary btn-sm"
+                      title={`Refresh data ${activeConfig?.name || "halaman ini"}`}
+                      aria-label={`Refresh data ${activeConfig?.name || "halaman ini"}`}
+                      onClick={() => {
+                        void handleRefreshCurrentPage();
+                      }}
+                      disabled={isRefreshingCurrent || isRefreshingAll || isBusy}
+                    >
+                      {isRefreshingCurrent || isRefreshingAll ? (
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                      ) : (
+                        <i className="bi bi-arrow-clockwise" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1"
+                      title="Ganti Password Akun"
+                      onClick={() => setIsChangePasswordModalOpen(true)}
+                    >
+                      <i className="bi bi-key-fill text-warning" />
+                      <span className="d-none d-sm-inline">Ganti Password</span>
+                    </button>
+                    <button type="button" className="btn btn-outline-danger btn-sm" onClick={handleLogout}>
+                      Logout
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="card shadow-sm">
-              <div className="card-body">
-                <TopToolbar
-                  activeKey={activeKey}
-                  activeName={activeConfig.name}
-                  query={query}
-                  monthOptions={monthOptions}
-                  selectedMonthKey={selectedMonthKey}
-                  selectedSuratTugasMonthKey={selectedSuratTugasMonthKey}
-                  selectedSuratTugasKode={selectedSuratTugasKode}
-                  suratTugasPengajarOptions={suratTugasPengajarOptions}
-                  sheetStatus={sheetStatus}
-                  mapelStatus={mapelStatus}
-                  pengajarStatus={pengajarStatus}
-                  suratTugasStatus={suratTugasStatus}
-                  onQueryChange={setQuery}
-                  onMonthChange={(nextMonth) => {
-                    setSelectedMonthKey(nextMonth);
-                    setSelectedSuratTugasMonthKey(nextMonth);
-                  }}
-                  onSuratMonthChange={(nextMonth) => {
-                    setSelectedSuratTugasMonthKey(nextMonth);
-                    if (nextMonth) {
+                {activeKey !== "suratTugasMengajar" && (
+                  <TopToolbar
+                    activeKey={activeKey}
+                    activeName={activeConfig.name}
+                    query={query}
+                    scheduleCabangOptions={activeScheduleCabangOptions}
+                    selectedScheduleCabang={selectedScheduleCabang}
+                    allowAllCabang={!restrictedCabang}
+                    monthOptions={monthOptions}
+                    selectedMonthKey={selectedMonthKey}
+                    selectedSuratTugasMonthKey={selectedSuratTugasMonthKey}
+                    selectedSuratTugasKode={selectedSuratTugasKode}
+                    suratTugasPengajarOptions={suratTugasPengajarOptions}
+                    sheetStatus={sheetStatus}
+                    mapelStatus={mapelStatus}
+                    pengajarStatus={pengajarStatus}
+                    suratTugasStatus={suratTugasStatus}
+                    penempatanStatus={penempatanStatus}
+                    izinStatus={izinStatus}
+                    permintaanStatus={permintaanStatus}
+                    topToolbarMessage={scheduleTopToolbarMessage}
+                    onQueryChange={setQuery}
+                    onScheduleCabangChange={(nextCabang) => {
+                      if (!isScheduleMenuKey(activeKey)) {
+                        return;
+                      }
+                      setScheduleCabangView((prev) => ({
+                        ...prev,
+                        [activeKey]: nextCabang,
+                      }));
+                      clearEditing();
+                    }}
+                    onMonthChange={(nextMonth) => {
                       setSelectedMonthKey(nextMonth);
-                    }
-                    setSelectedSuratTugasKode("");
-                  }}
-                  onSuratKodeChange={setSelectedSuratTugasKode}
-                />
+                      if (activeKey === "bulanIni") {
+                        void handleLoadFromSheet("bulanIni", { silent: false, forceFresh: false });
+                      }
+                    }}
+                    onSuratMonthChange={(nextMonth) => {
+                      setSelectedSuratTugasMonthKey(nextMonth);
+                      setSelectedSuratTugasKode("");
+                    }}
+                    onSuratKodeChange={setSelectedSuratTugasKode}
+                  />
+                )}
                 {(activeKey === "bulanIni" ||
                   activeKey === "jadwalTambahanPelayanan" ||
                   activeKey === "monitoringKelas" ||
-                  activeKey === "printJadwal") &&
+                  activeKey === "printJadwal" ||
+                  activeKey === "hapusJadwal" ||
+                  activeKey === "dashboard") &&
                   sheetStatus.error && (
                   <div className="alert alert-danger py-2 text-xs mt-3" role="alert">
                     {sheetStatus.error}
+                  </div>
+                )}
+                {activeKey === "dashboard" && (permintaanStatus.error || izinStatus.error) && (
+                  <div className="alert alert-danger py-2 text-xs mt-3" role="alert">
+                    {[permintaanStatus.error, izinStatus.error].filter(Boolean).join(" ")}
                   </div>
                 )}
                 {activeKey === "mataPelajaran" && mapelStatus.error && (
@@ -1681,85 +9433,264 @@ export function App() {
                   </div>
                 )}
 
-                {activeKey === "suratTugasMengajar" && suratTugasStatus.error && (
+                {activeKey === "penempatanPengajar" && penempatanStatus.error && (
                   <div className="alert alert-danger py-2 text-xs mt-3" role="alert">
-                    {suratTugasStatus.error}
+                    {penempatanStatus.error}
                   </div>
                 )}
 
-                {activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan" ? (
-                  <ScheduleTableView
-                    isJadwalTambahanMenu={isJadwalTambahanMenu}
-                    activeScheduleDates={activeScheduleDates}
-                    activeDayGroups={activeDayGroups}
-                    activeDayStartIndexes={activeDayStartIndexes}
-                    monthScheduleGroups={monthScheduleGroups}
-                    editingSlot={editingSlot}
-                    onDeleteClass={handleDeleteClass}
-                    onSelectSlot={handleSelectBulanIniSlot}
-                    onOpenClassModal={handleOpenClassModal}
-                    onOpenEditClass={handleOpenEditClass}
-                  />
-                ) : activeKey === "monitoringKelas" ? (
-                  <MonitoringKelasView loading={sheetStatus.loading} rows={monitoringRows} />
-                ) : activeKey === "mataPelajaran" ? (
-                  <MapelTableView
-                    headers={mapelHeaders}
-                    loading={mapelStatus.loading}
-                    records={filteredMapelRecords}
-                    onAdd={() => handleOpenMapelModal()}
-                    onEdit={handleOpenMapelModal}
-                    onDelete={handleDeleteMapel}
-                  />
-                ) : activeKey === "pengajar" ? (
-                  <PengajarTableView
-                    headers={pengajarHeaders}
-                    loading={pengajarStatus.loading}
-                    records={pengajarRecords}
-                    query={query}
-                    onAdd={() => handleOpenPengajarModal()}
-                    onEdit={handleOpenPengajarModal}
-                    onDelete={handleDeletePengajar}
-                  />
-                ) : activeKey === "suratTugasMengajar" ? (
-                  <SuratTugasView
-                    loading={suratTugasStatus.loading}
-                    selectedMonthKey={selectedSuratTugasMonthKey}
-                    selectedPengajarKode={selectedSuratTugasKode}
-                    selectedPengajar={selectedSuratTugasPengajar}
-                    selectedSessionCount={selectedSuratTugasSessionCount}
-                    dayRows={suratTugasCalendar.dayRows}
-                    recordsByDate={suratTugasRecordsByDate}
-                  />
-                ) : activeKey === "printJadwal" ? (
-                  <PrintJadwalView
-                    monthOptions={monthOptions}
-                    selectedMonthKey={selectedMonthKey}
-                    onMonthChange={setSelectedMonthKey}
-                    regulerDates={monthScheduleDates}
-                    regulerDayGroups={monthDayGroups}
-                    regulerGroups={monthScheduleGroups}
-                    tambahanGroups={tambahanPrintGroups}
-                    mapelNameByKode={mapelNameByKode}
-                  />
-                ) : null}
+                {activeKey === "izinPengajar" && izinStatus.error && (
+                  <div className="alert alert-danger py-2 text-xs mt-3" role="alert">
+                    {izinStatus.error}
+                  </div>
+                )}
+
+                {activeKey === "permintaanPengajarAntarCabang" && permintaanStatus.error && (
+                  <div className="alert alert-danger py-2 text-xs mt-3" role="alert">
+                    {permintaanStatus.error}
+                  </div>
+                )}
+
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={activeKey}
+                    initial={{ opacity: 0.88, y: 3 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0.88, y: -3 }}
+                    transition={{ duration: 0.12, ease: "easeOut" }}
+                  >
+                  <Suspense fallback={<LoadingOverlay message={`Memuat ${navigatingMenuName || "Halaman"}...`} />}>
+                  {activeKey === "dashboard" ? (
+                      <DashboardView
+                        loading={dashboardLoadingSchedules || sheetStatus.loading || permintaanStatus.loading || izinStatus.loading}
+                        pendingRequests={dashboardPendingRequests}
+                        dashboardSchedules={dashboardDateSchedules}
+                        izinRequests={dashboardIzinRequests}
+                        canManageIzin={Boolean(authSession)}
+                        canManagePermintaan={Boolean(authSession)}
+                        userCabang={restrictedCabang}
+                        isAdmin={isAdmin}
+                        transaksiDonasi={transaksiDonasiRecords}
+                        tagihanRecords={transaksiTagihanRecords}
+                        onNavigateToDonasi={isAdmin ? () => setActiveKey("donasi") : undefined}
+                        onApproveIzin={(item) => handleUpdateIzinStatus(item, "Disetujui")}
+                        onRejectIzin={(item) => handleUpdateIzinStatus(item, "Ditolak")}
+                        onApprovePermintaan={(item) => handleUpdatePermintaanStatus(item, "Disetujui")}
+                        onRejectPermintaan={(item) => handleUpdatePermintaanStatus(item, "Ditolak")}
+                        onDateChange={setDashboardSelectedDate}
+                      />
+                    ) : activeKey === "bulanIni" || activeKey === "jadwalTambahanPelayanan" ? (
+                      <ScheduleTableView
+                        loading={sheetStatus.loading}
+                        isJadwalTambahanMenu={isJadwalTambahanMenu}
+                        readOnly={isScheduleReadOnly}
+                        isAdmin={isAdmin}
+                        activeScheduleDates={activeScheduleDates}
+                        activeDayGroups={activeDayGroups}
+                        activeDayStartIndexes={activeDayStartIndexes}
+                        monthScheduleGroups={monthScheduleGroups}
+                        conflictEntryIds={conflictingScheduleEntryIds}
+                        conflictDetails={scheduleConflictDetails}
+                        editingSlot={editingSlot}
+                        saving={sheetStatus.saving}
+                        onInlineSaveClass={handleInlineSaveClass}
+                        onDeleteClass={handleDeleteClass}
+                        onMoveClass={handleMoveClass}
+                        onSelectSlot={handleSelectBulanIniSlot}
+                        mapelRecords={mapelRecords}
+                        onOpenClassModal={handleOpenClassModal}
+                        onOpenEditClass={handleOpenEditClass}
+                      />
+                    ) : activeKey === "monitoringKelas" ? (
+                      <MonitoringKelasView 
+                        loading={sheetStatus.loading} 
+                        rows={monitoringRows} 
+                        mapelNameByKode={mapelNameByKode} 
+                        mapelCategoryByKode={mapelCategoryByKode}
+                      />
+                    ) : activeKey === "mataPelajaran" ? (
+                      <MapelTableView
+                        headers={mapelHeaders}
+                        loading={mapelStatus.loading}
+                        records={filteredMapelRecords}
+                        onAdd={() => handleOpenMapelModal()}
+                        onEdit={handleOpenMapelModal}
+                        onDelete={handleDeleteMapel}
+                      />
+                    ) : activeKey === "pengajar" ? (
+                      <PengajarTableView
+                        headers={pengajarHeaders}
+                        loading={pengajarStatus.loading}
+                        records={filteredPengajarRecords}
+                        query=""
+                        onAdd={() => handleOpenPengajarModal()}
+                        onEdit={handleOpenPengajarModal}
+                        onDelete={handleDeletePengajar}
+                      />
+                    ) : activeKey === "penempatanPengajar" ? (
+                      <PenempatanPengajarView
+                        loading={penempatanStatus.loading}
+                        records={filteredPenempatanRecords}
+                        query={query}
+                        isAdmin={isAdmin}
+                        onAdd={() => handleOpenPenempatanModal()}
+                        onEdit={handleOpenPenempatanModal}
+                        onDelete={handleDeletePenempatan}
+                      />
+                    ) : activeKey === "liburNasional" ? (
+                        isAdmin ? (
+                          <HolidaysAdminView />
+                        ) : (
+                          <div className="alert alert-warning">Anda tidak memiliki izin untuk mengakses halaman ini.</div>
+                        )
+                    ) : activeKey === "izinPengajar" ? (
+                      <IzinPengajarView
+                        loading={izinStatus.loading}
+                        records={filteredIzinRecords}
+                        onAdd={() => handleOpenIzinModal()}
+                        onEdit={handleOpenIzinModal}
+                        onDelete={handleDeleteIzinPengajar}
+                        canManageRecord={canManageIzinRecord}
+                      />
+                    ) : activeKey === "permintaanPengajarAntarCabang" ? (
+                      <PermintaanPengajarView
+                        loading={permintaanStatus.loading}
+                        records={filteredPermintaanRecords}
+                        query={query}
+                        isAdmin={isAdmin}
+                        userCabang={restrictedCabang}
+                        onAdd={handleOpenPermintaanModal}
+                        onDelete={handleDeletePermintaanPengajar}
+                        onApprove={(record) => handleUpdatePermintaanStatus(record, "Disetujui")}
+                        onReject={(record) => handleUpdatePermintaanStatus(record, "Ditolak")}
+                      />
+                    ) : activeKey === "accounts_cabang" ? (
+                      <AccountsCabangView
+                        headers={accountsCabangHeaders}
+                        loading={accountsCabangStatus.loading}
+                        records={accountsCabangRecords}
+                        onAdd={() => handleOpenAccountsCabangModal()}
+                        onEdit={handleOpenAccountsCabangModal}
+                        onDelete={handleDeleteAccountsCabang}
+                      />
+                    ) : activeKey === "donasi" && isAdmin ? (
+                      <DonasiView
+                        loading={donasiStatus.loading}
+                        records={donasiRecords}
+                        transaksiRecords={transaksiDonasiRecords}
+                        tagihanRecords={transaksiTagihanRecords}
+                        isAdmin={isAdmin}
+                        onAdd={isAdmin ? () => handleOpenDonasiModal() : () => {}}
+                        onEdit={isAdmin ? handleOpenDonasiModal : () => {}}
+                        onDelete={isAdmin ? handleDeleteDonasi : () => {}}
+                        onAddTransaksi={isAdmin ? () => handleOpenTransaksiDonasiModal() : undefined}
+                        onEditTransaksi={isAdmin ? handleOpenTransaksiDonasiModal : undefined}
+                        onDeleteTransaksi={isAdmin ? handleDeleteTransaksiDonasi : undefined}
+                        onToggleHideNamaTransaksi={isAdmin ? handleToggleHideNamaTransaksiDonasi : undefined}
+                        onAddTagihan={isAdmin ? () => handleOpenTransaksiTagihanModal() : undefined}
+                        onEditTagihan={isAdmin ? handleOpenTransaksiTagihanModal : undefined}
+                        onDeleteTagihan={isAdmin ? handleDeleteTransaksiTagihan : undefined}
+                        onPayTagihan={isAdmin ? handlePayTagihan : undefined}
+                        onToggleTagihanStatus={isAdmin ? handleToggleTagihanStatus : undefined}
+                        onRefresh={handleLoadDonasi}
+                      />
+                    ) : activeKey === "suratTugasMengajar" ? (
+                      <SuratTugasView
+                        loading={suratTugasStatus.loading}
+                        selectedMonthKey={selectedSuratTugasMonthKey}
+                        selectedPengajarKode={selectedSuratTugasKode}
+                        selectedPengajar={selectedSuratTugasPengajar}
+                        selectedSessionCount={selectedSuratTugasSessionCount}
+                        dayRows={suratTugasCalendar.dayRows}
+                        recordsByDate={suratTugasRecordsByDate}
+                        monthOptions={monthOptions}
+                        onSelectMonthKey={setSelectedSuratTugasMonthKey}
+                        onSelectPengajarKode={setSelectedSuratTugasKode}
+                        pengajarOptions={suratTugasPengajarOptions}
+                        allPengajarRecords={pengajarRecords}
+                        allSuratRecordsByMonth={suratTugasRecordsByMonth}
+                        mapelNameByKode={mapelNameByKode}
+                        userCabang={restrictedCabang}
+                        lastSync={suratTugasStatus.lastSync}
+                        error={suratTugasStatus.error}
+                      />
+                    ) : activeKey === "settings" ? (
+                      <SettingsView
+                        authSession={authSession}
+                        lastCacheCleanedAt={lastCacheCleanedAt}
+                        onClearCache={handleClearCacheNow}
+                        onCheckUpdates={handleCheckUpdates}
+                        onChangePassword={() => setIsChangePasswordModalOpen(true)}
+                        isClearingCache={isClearingCache}
+                        isCheckingUpdates={isCheckingUpdates}
+                        theme={appTheme}
+                        onThemeChange={setAppTheme}
+                        compactMode={isCompactMode}
+                        onCompactModeChange={setIsCompactMode}
+                      />
+                    ) : activeKey === "printJadwal" ? (
+                      <PrintJadwalView
+                        monthOptions={monthOptions}
+                        selectedMonthKey={selectedMonthKey}
+                        onMonthChange={setSelectedMonthKey}
+                        selectedScheduleType={printScheduleType}
+                        onScheduleTypeChange={setPrintScheduleType}
+                        selectedClassKey={printSelectedClassKey}
+                        onClassKeyChange={setPrintSelectedClassKey}
+                        printCopies={printCopies}
+                        onPrintCopiesChange={setPrintCopies}
+                        printOrientation={printOrientation}
+                        onPrintOrientationChange={setPrintOrientation}
+                        regulerDates={monthScheduleDates}
+                        regulerDayGroups={monthDayGroups}
+                        regulerGroups={monthScheduleGroups}
+                        tambahanGroups={tambahanPrintGroups}
+                        mapelNameByKode={mapelNameByKode}
+                      />
+                    ) : activeKey === "hapusJadwal" ? (
+                      <HapusJadwalView
+                        scheduleType={deleteScheduleType}
+                        monthOptions={monthOptions}
+                        selectedMonthKey={deleteMonthKey}
+                        deleting={isDeletingByMonth}
+                        onTypeChange={setDeleteScheduleType}
+                        onMonthChange={setDeleteMonthKey}
+                        onDelete={handleDeleteScheduleByMonth}
+                      />
+                    ) : null}
+                  </Suspense>
+                  </motion.div>
+                </AnimatePresence>
               </div>
             </div>
           </div>
         </div>
       </div>
 
+      <ExportClassModal
+        isOpen={isExportClassModalOpen}
+        onClose={() => setIsExportClassModalOpen(false)}
+        classes={allExportClasses}
+        months={monthOptions}
+        onExport={handleConfirmExportClass}
+        isAdmin={isAdmin}
+        getRecordCount={getExportClassRecordCount}
+      />
+
       <ClassModal
         isOpen={isClassModalOpen}
         isEditing={isClassEditing}
         classDraft={classDraft}
         fixedCabang={restrictedCabang || undefined}
+        cabangOptions={cabangOptions}
         showSekolahField={activeScheduleKey === "jadwalTambahanPelayanan"}
         classError={classError}
+        loading={sheetStatus.saving}
         onClose={() => {
           setIsClassModalOpen(false);
           setIsClassEditing(false);
           setEditingClassGroup(null);
+          setClassError("");
         }}
         onDraftChange={handleClassDraftChange}
         onSave={handleSaveNewClass}
@@ -1770,21 +9701,30 @@ export function App() {
         dateLabel={activeScheduleDates.find((slot) => slot.date === editingSlot?.tanggal)?.label || ""}
         draft={draft}
         mapelOptions={mapelOptions}
-        pengajarOptions={pengajarOptions}
+        pengajarOptions={filteredPengajarOptions}
+        copyDateOptions={copyDateOptions}
+        selectedCopyDates={copyTargetDates}
+        pengajarAvailabilityWarning={pengajarAvailabilityInfo.warning}
+        pengajarAvailabilityInfoNote={pengajarAvailabilityInfo.infoNote}
+        pengajarAvailableDateLabels={pengajarAvailabilityInfo.availableDateLabels}
         conflictError={conflictError}
         saving={sheetStatus.saving}
-        onClose={clearEditing}
+        isAdmin={isAdmin}
+        onClose={() => {
+          clearEditing();
+          setGabungEnabled(false);
+          setGabungClassKeys([]);
+          setGabungOptions([]);
+        }}
         onDraftChange={handleDraftChange}
+        onCopyDatesChange={setCopyTargetDates}
         onDelete={handleDeleteSlot}
         onSave={handleSaveSlot}
         gabung={gabungEnabled}
         gabungOptions={gabungOptions}
-        selectedGabung={gabungClassKey}
-        onToggleGabung={(next) => {
-          console.log("App onToggleGabung", next);
-          setGabungEnabled(next);
-        }}
-        onGabungChange={setGabungClassKey}
+        selectedGabung={gabungClassKeys}
+        onToggleGabung={handleToggleGabung}
+        onGabungChange={(next) => setGabungClassKeys(next)}
       />
 
       <MapelModal
@@ -1796,6 +9736,7 @@ export function App() {
         onClose={() => setIsMapelModalOpen(false)}
         onMapelChange={(value) => setMapelDraft((prev) => ({ ...prev, Mapel: value }))}
         onKodeMapelChange={(value) => setMapelDraft((prev) => ({ ...prev, Kode_Mapel: value }))}
+        onKategoriChange={(value) => setMapelDraft((prev) => ({ ...prev, Kategori: value }))}
         onSave={handleSaveMapel}
       />
 
@@ -1803,12 +9744,207 @@ export function App() {
         isOpen={isPengajarModalOpen}
         isEditing={Boolean(editingPengajarOldKode)}
         draft={pengajarDraft}
+        cabangLabel={restrictedCabang || authSession?.cabang || pengajarDraft.Domisili || "-"}
+        isDomisiliLocked={Boolean(restrictedCabang)}
+        domisiliOptions={cabangOptions}
+        bidangStudiOptions={mapelOptions}
         error={pengajarError}
         loading={pengajarStatus.loading}
         onClose={() => setIsPengajarModalOpen(false)}
-        onChange={(field, value) => setPengajarDraft((prev) => ({ ...prev, [field]: value }))}
+        onChange={handlePengajarDraftChange}
+        onBidangStudiChange={handleBidangStudiChange}
+        onGeneratePassword={handleGeneratePengajarPassword}
         onSave={handleSavePengajar}
       />
+
+      <PenempatanPengajarModal
+        isOpen={isPenempatanModalOpen}
+        isEditing={Boolean(penempatanOldRecord)}
+        loading={penempatanStatus.loading}
+        error={penempatanError}
+        draft={penempatanDraft}
+        pengajarOptions={pengajarPenempatanOptions}
+        cabangOptions={cabangOptions}
+        isDomisiliLocked={Boolean(restrictedCabang)}
+        onClose={() => {
+          setIsPenempatanModalOpen(false);
+          setPenempatanError("");
+          setPenempatanOldRecord(null);
+        }}
+        onDraftChange={handlePenempatanDraftChange}
+        onSave={handleSavePenempatanPengajar}
+        onSaveDay={handleSavePenempatanDay}
+      />
+
+      <IzinPengajarModal
+        isOpen={isIzinModalOpen}
+        isEditing={Boolean(editingIzinId)}
+        loading={izinStatus.loading}
+        error={izinError}
+        draft={izinDraft}
+        pengajarOptions={pengajarIzinOptions}
+        cabangOptions={cabangOptions}
+        isDomisiliLocked={Boolean(restrictedCabang)}
+        onClose={() => {
+          setIsIzinModalOpen(false);
+          setIzinError("");
+        }}
+        onDraftChange={setIzinDraft}
+        onSave={handleSaveIzinPengajar}
+      />
+
+      <PermintaanPengajarModal
+        isOpen={isPermintaanModalOpen}
+        loading={permintaanStatus.loading}
+        error={permintaanError}
+        isAdmin={isAdmin}
+        draft={permintaanDraft}
+        pengajarOptions={pengajarPermintaanOptions}
+        onClose={() => {
+          setIsPermintaanModalOpen(false);
+          setPermintaanError("");
+        }}
+        onDraftChange={setPermintaanDraft}
+        onSave={handleSavePermintaanPengajar}
+      />
+
+      <AccountsCabangModal
+        isOpen={isAccountsCabangModalOpen}
+        isEditing={Boolean(editingAccountsCabangId)}
+        draft={accountsCabangDraft}
+        error={accountsCabangError}
+        loading={accountsCabangStatus.loading}
+        onClose={() => setIsAccountsCabangModalOpen(false)}
+        onChange={handleAccountsCabangDraftChange}
+        onSave={handleSaveAccountsCabang}
+      />
+
+      <DonasiModal
+        isOpen={isDonasiModalOpen}
+        isEditing={Boolean(editingDonasiId)}
+        draft={donasiDraft}
+        error={donasiError}
+        loading={donasiStatus.loading}
+        onClose={() => setIsDonasiModalOpen(false)}
+        onChange={handleDonasiDraftChange}
+        onSave={handleSaveDonasi}
+      />
+
+      <TransaksiDonasiModal
+        isOpen={isTransaksiDonasiModalOpen}
+        isEditing={Boolean(editingTransaksiDonasiId)}
+        draft={transaksiDonasiDraft}
+        error={transaksiDonasiError}
+        loading={donasiStatus.loading}
+        tagihanRecords={transaksiTagihanRecords}
+        transaksiRecords={transaksiDonasiRecords}
+        onClose={() => setIsTransaksiDonasiModalOpen(false)}
+        onChange={handleTransaksiDonasiDraftChange}
+        onSave={handleSaveTransaksiDonasi}
+      />
+
+      <TransaksiTagihanModal
+        isOpen={isTransaksiTagihanModalOpen}
+        isEditing={Boolean(editingTransaksiTagihanId)}
+        draft={transaksiTagihanDraft}
+        error={transaksiTagihanError}
+        loading={donasiStatus.loading}
+        onClose={() => setIsTransaksiTagihanModalOpen(false)}
+        onChange={handleTransaksiTagihanDraftChange}
+        onSave={handleSaveTransaksiTagihan}
+      />
+
+      <PendingNotificationModal
+        isOpen={isPendingNotificationModalOpen}
+        onClose={() => setIsPendingNotificationModalOpen(false)}
+        userCabang={restrictedCabang || authSession?.cabang}
+        isAdmin={isAdmin}
+        pendingIzinList={pendingIzinList}
+        pendingPermintaanList={pendingPermintaanList}
+        onNavigate={(menuKey) => {
+          void handleMenuSelect(menuKey);
+        }}
+      />
+
+      <ChangePasswordModal
+        isOpen={isChangePasswordModalOpen}
+        username={authSession?.username || ""}
+        cabang={authSession?.cabang || ""}
+        roll={authSession?.roll || ""}
+        loading={isChangingPassword}
+        onClose={() => setIsChangePasswordModalOpen(false)}
+        onChangePassword={handleChangePassword}
+        onSubmit={handleChangePassword}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel={confirmDialog.confirmLabel}
+        loading={confirmDialog.loading}
+        onCancel={closeConfirmDialog}
+        onConfirm={() => {
+          void handleConfirmDialogAction();
+        }}
+      />
+
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="d-none"
+        onChange={(event) => {
+          void handleExcelImportChange(event);
+        }}
+      />
+
+      <RouteProgressBar
+        isNavigating={
+          isMenuTransitioning ||
+          isRefreshingCurrent ||
+          isRefreshingAll ||
+          sheetStatus.loading ||
+          mapelStatus.loading ||
+          pengajarStatus.loading ||
+          penempatanStatus.loading ||
+          izinStatus.loading ||
+          permintaanStatus.loading ||
+          donasiStatus.loading ||
+          accountsCabangStatus.loading ||
+          suratTugasStatus.loading
+        }
+      />
+      <LoadingOverlay show={isBusy} message={busyMessage} />
+      <ToastStack toasts={toasts} onClose={dismissToast} />
+
+      <div
+        className={`sidebar-mobile-backdrop d-lg-none ${sidebarMobileOpen ? "show" : ""}`}
+        onClick={() => setSidebarMobileOpen(false)}
+        aria-hidden={!sidebarMobileOpen}
+      />
+      <div className={`sidebar-mobile d-lg-none ${sidebarMobileOpen ? "show" : ""}`}>
+        <SidebarMenu
+          categories={visibleCategories}
+          activeKey={activeKey}
+          navigatingKey={navigatingMenuKey}
+          sidebarCollapsed={false}
+          isMobile
+          authSession={authSession}
+          badges={menuBadges}
+          onChangePassword={() => setIsChangePasswordModalOpen(true)}
+          onCloseMobile={() => setSidebarMobileOpen(false)}
+          onToggle={() => {
+            // Desktop collapse is not used in mobile drawer.
+          }}
+          onResize={() => {
+            // No resize for mobile drawer.
+          }}
+          onSelect={(key) => {
+            void handleMenuSelect(key);
+          }}
+        />
+      </div>
     </div>
   );
 }

@@ -1,12 +1,12 @@
 import { motion, AnimatePresence } from "motion/react";
-import { Loader2, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 type LoadingOverlayProps = {
-  show: boolean;
+  show?: boolean;
   message?: string;
 };
 
-export function LoadingOverlay({ show, message = "Memproses data..." }: LoadingOverlayProps) {
+export function LoadingOverlay({ show = true, message = "Memproses data..." }: LoadingOverlayProps) {
   return (
     <AnimatePresence>
       {show && (

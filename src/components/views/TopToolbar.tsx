@@ -145,6 +145,11 @@ export function TopToolbar({
               placeholder={activeKey === "mataPelajaran" ? "Cari mata pelajaran..." : `Cari ${activeName.toLowerCase()}...`}
               className="form-control form-control-sm border-start-0"
             />
+            {(sheetStatus.loading || mapelStatus.loading || pengajarStatus.loading || penempatanStatus.loading) && (
+              <span className="input-group-text bg-white border-start-0">
+                <div className="spinner-border spinner-border-sm text-primary" style={{ width: "1rem", height: "1rem" }} role="status" />
+              </span>
+            )}
           </div>
         )}
 

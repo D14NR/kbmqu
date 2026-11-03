@@ -25,6 +25,7 @@ export type RecordItem = {
 export type SelectOption = {
   value: string;
   label: string;
+  domisili?: string;
 };
 
 export type EditingSlot = {
@@ -55,6 +56,7 @@ export type StatusState = {
 export type ScheduleSlotDate = {
   date: string;
   label: string;
+  day?: string;
 };
 
 export type ScheduleDayGroup = {
@@ -89,7 +91,7 @@ export type MonitoringRow = {
   mapelDetailsByKode?: Record<string, MapelMonitoringDetail>;
 };
 
-export type ToastType = "success" | "error" | "info";
+export type ToastType = "success" | "error" | "info" | "warning";
 
 export type ScheduleConflictInfo = {
   type: "overlap" | "gap";

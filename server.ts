@@ -263,7 +263,36 @@ app.use("/db", async (req, res, next) => {
 app.get("/db/:table", (req, res) => {
   try {
     const table = req.params.table;
-    const rows = getTableRows(table);
+    let rows = getTableRows(table);
+
+    // Basic filtering based on query parameters
+    const query = req.query;
+    if (Object.keys(query).length > 0) {
+      rows = rows.filter((row) => {
+        return Object.entries(query).every(([key, value]) => {
+          if (value === undefined || value === null) return true;
+          const rowValue = String(row[key] ?? "").toLowerCase();
+          const searchValue = String(value).toLowerCase();
+          
+          // Support starts with if the query param starts with 'starts_with_'
+          if (key.startsWith("starts_with_")) {
+            const actualKey = key.replace("starts_with_", "");
+            const actualRowValue = String(row[actualKey] ?? "").toLowerCase();
+            return actualRowValue.startsWith(searchValue);
+          }
+          
+          // Support simple search/contains if the query param starts with 'search_'
+          if (key.startsWith("search_")) {
+            const actualKey = key.replace("search_", "");
+            const actualRowValue = String(row[actualKey] ?? "").toLowerCase();
+            return actualRowValue.includes(searchValue);
+          }
+          
+          return rowValue === searchValue;
+        });
+      });
+    }
+
     res.json({ success: true, data: rows, count: rows.length });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { formatScheduleLabel } from "../../utils/schedule";
 import { isNationalHoliday, getNationalHolidayName } from "../../config/holidays";
@@ -27,7 +27,7 @@ type ScheduleTableViewProps = {
   mapelRecords?: Record<string, string>[];
 };
 
-export function ScheduleTableView({
+export const ScheduleTableView = React.memo(function ScheduleTableView({
   loading = false,
   isJadwalTambahanMenu,
   readOnly,
@@ -89,10 +89,11 @@ export function ScheduleTableView({
     const set = new Set<number>();
     let prevDay = "";
     displayScheduleDates.forEach((slot, idx) => {
-      if (idx > 0 && slot.day !== prevDay) {
+      const currentDay = slot.day || "";
+      if (idx > 0 && currentDay !== prevDay) {
         set.add(idx);
       }
-      prevDay = slot.day;
+      prevDay = currentDay;
     });
     return set;
   }, [activeDayStartIndexes, displayScheduleDates, hidePastDates, isJadwalTambahanMenu]);
@@ -1144,4 +1145,4 @@ export function ScheduleTableView({
       )}
     </div>
   );
-}
+});

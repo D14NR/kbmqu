@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import { useInView } from "react-intersection-observer";
 import { createPengajarOnboardingMessage, formatWhatsAppUrl } from "../../utils/phone";
 
 type PengajarTableViewProps = {
@@ -164,8 +165,26 @@ export function PengajarTableView({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const [visibleLimit, setVisibleLimit] = useState(20);
+  const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0,
+    rootMargin: "200px",
+  });
+
+  useEffect(() => {
+    if (inView) {
+      setVisibleLimit((prev) => prev + 20);
+    }
+  }, [inView]);
+
+  // Reset limit when search or filters change
+  useEffect(() => {
+    setVisibleLimit(20);
+  }, [searchTerm, selectedDomisili, selectedBidang, sortBy]);
+
   const totalPengajar = records.length;
   const totalFiltered = processedRecords.length;
+  const visibleRecords = processedRecords.slice(0, visibleLimit);
 
   return (
     <div className="d-flex flex-column gap-3.5 mt-2">
@@ -432,7 +451,7 @@ export function PengajarTableView({
                 </tr>
               </thead>
               <tbody>
-                {processedRecords.map((record, index) => {
+                {visibleRecords.map((record, index) => {
                   const idKey = `pengajar-${index}`;
                   const nama = record.Nama || record.nama || "-";
                   const kode = record["Kode Pengajar"] || record.kode_pengajar || "-";
@@ -632,7 +651,7 @@ export function PengajarTableView({
       ) : (
         /* GRID / DIRECTORY CARDS VIEW */
         <div className="row g-3">
-          {processedRecords.map((record, index) => {
+          {visibleRecords.map((record, index) => {
             const idKey = `pengajar-grid-${index}`;
             const nama = record.Nama || record.nama || "-";
             const kode = record["Kode Pengajar"] || record.kode_pengajar || "-";
@@ -810,6 +829,15 @@ export function PengajarTableView({
               </div>
             );
           })}
+        </div>
+      )}
+      
+      {totalFiltered > visibleLimit && (
+        <div ref={loadMoreRef} className="py-4 text-center">
+          <div className="spinner-border spinner-border-sm text-primary" role="status">
+            <span className="visually-hidden">Loading more...</span>
+          </div>
+          <p className="text-muted text-xxs mt-2">Memuat lebih banyak pengajar...</p>
         </div>
       )}
     </div>

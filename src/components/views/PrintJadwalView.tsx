@@ -284,7 +284,7 @@ type PrintOptions = {
   includeNotes: boolean;
   includeSignatures: boolean;
   includeCutLine: boolean;
-  includePengajar: boolean;
+  includePengajar?: boolean;
 };
 
 const printHtmlDocument = (
@@ -1769,7 +1769,7 @@ export function PrintJadwalView({
                                         key={`${entry.id}-${idx}`}
                                         className="p-1.5 rounded-2 border shadow-2xs"
                                         style={{
-                                          backgroundColor: palette.light || "#f8fafc",
+                                          backgroundColor: palette.bg || "#f8fafc",
                                           borderLeft: `3px solid ${palette.border}`,
                                         }}
                                       >

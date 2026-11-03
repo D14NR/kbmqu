@@ -1,6 +1,8 @@
 import { apiFetch } from "./api";
 import { formatLocalDate, parseFlexibleDate } from "../utils/schedule";
 
+const normalizeValueKey = (val: string) => String(val || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+
 export type DbRow = {
   id: string;
   data: Record<string, string>;
@@ -607,8 +609,8 @@ const persistCachedRows = (bucket: string, rows: DbRow[]) => {
   const expiresAt = Date.now() + READ_CACHE_TTL_MS;
   readCache.set(bucket, { expiresAt, rows });
 
-  // Only store in localStorage if rows array is reasonable in size (< 1500 items) to prevent RAM/Quota bloat
-  if (typeof window === "undefined" || !window.localStorage || rows.length > 1500) {
+  // Only store in localStorage if rows array is reasonable in size (< 500 items) to prevent RAM/Quota bloat
+  if (typeof window === "undefined" || !window.localStorage || rows.length > 500) {
     return;
   }
 
@@ -695,6 +697,47 @@ export const listRows = async (bucket: string, forceFresh = false) => {
 
   persistCachedRows(bucket, filteredRows);
   return filteredRows;
+};
+
+export const listRowsFiltered = async (bucket: string, filters: Record<string, string | number | boolean>) => {
+  if (!(bucket in schemas)) {
+    throw new Error(`Bucket tidak dikenal: ${bucket}`);
+  }
+
+  const schema = schemas[bucket as BucketName];
+  const table = schema.table;
+
+  // Build query string from filters
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.append(key, String(value));
+    }
+  });
+
+  const queryString = params.toString();
+  const url = `/db/${table}${queryString ? `?${queryString}` : ""}`;
+  
+  const data = await apiRequest<any[]>(url);
+
+  const rows = (data || []).map((row) => ({
+    id: encodeId(bucket, String(row.id || "")),
+    data: normalizeData(schema.fromDb(row as Record<string, unknown>)),
+    createdAt: asString((row as Record<string, unknown>).created_at),
+    updatedAt: asString((row as Record<string, unknown>).updated_at),
+  })) as DbRow[];
+
+  // Handle virtual buckets for jadwal
+  if (bucket === "jadwal_reguler") {
+    return rows.filter((row) => {
+      const raw = (row.data["Jenis KBM"] || row.data.jenis_kbm || "").toLowerCase();
+      return raw === "reguler" || raw === "";
+    });
+  } else if (bucket === "jadwal_khusus") {
+    return rows.filter((row) => (row.data["Jenis KBM"] || row.data.jenis_kbm || "").toLowerCase() === "khusus");
+  }
+
+  return rows;
 };
 
 export const insertRow = async (bucket: string, data: Record<string, string>) => {

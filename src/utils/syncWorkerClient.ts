@@ -48,13 +48,13 @@ export class SyncWorkerClient {
 function computeDeltaSync(localRecords: any[], serverRecords: any[]) {
   const serverMap = new Map();
   (serverRecords || []).forEach((row: any) => {
-    const key = row.id || JSON.stringify(row.data || row);
+    const key = row.id ? String(row.id) : JSON.stringify(row.data || row);
     serverMap.set(key, row);
   });
 
   const localMap = new Map();
   (localRecords || []).forEach((item: any) => {
-    const key = item.id || JSON.stringify(item);
+    const key = item.id ? String(item.id) : JSON.stringify(item);
     localMap.set(key, item);
   });
 

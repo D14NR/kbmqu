@@ -14,10 +14,11 @@
     "clsx": "2.1.1",
     "dayjs": "^1.11.23",
     "express": "^5.2.1",
-    "lucide-react": "^1.33.0",
+    "lucide-react": "^1.66.0",
     "motion": "^13.1.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-intersection-observer": "^11.0.1",
     "react-select": "^5.10.2",
     "tailwind-merge": "3.4.0",
     "xlsx": "^0.18.5"

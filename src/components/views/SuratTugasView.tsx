@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useInView } from "react-intersection-observer";
 import Select from "react-select";
 import { sesiHeaders, formatSessionParts, parseRangeFromString } from "../../utils/schedule";
 import type { SelectOption } from "../../types/app";
@@ -71,6 +72,22 @@ export function SuratTugasView({
   const [docNotesEnabled, setDocNotesEnabled] = useState(true);
   const [docSignatureEnabled, setDocSignatureEnabled] = useState(true);
   const [customLetterNumber, setCustomLetterNumber] = useState("");
+
+  const [visibleLimit, setVisibleLimit] = useState(20);
+  const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0,
+    rootMargin: "200px",
+  });
+
+  useEffect(() => {
+    if (inView && viewMode === "directory") {
+      setVisibleLimit((prev) => prev + 20);
+    }
+  }, [inView, viewMode]);
+
+  useEffect(() => {
+    setVisibleLimit(20);
+  }, [searchTeacherQuery, viewMode]);
 
   const shouldShowSessions = Boolean(selectedPengajarKode);
 
@@ -314,6 +331,10 @@ export function SuratTugasView({
         t.domisili.toLowerCase().includes(q)
     );
   }, [allTeachersSummary, searchTeacherQuery]);
+
+  const visibleTeachersDirectory = useMemo(() => {
+    return filteredTeachersDirectory.slice(0, visibleLimit);
+  }, [filteredTeachersDirectory, visibleLimit]);
 
   // Executive Month KPIs
   const monthKpiStats = useMemo(() => {
@@ -1360,7 +1381,7 @@ export function SuratTugasView({
                 </tr>
               </thead>
               <tbody>
-                {filteredTeachersDirectory.length === 0 ? (
+                {visibleTeachersDirectory.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="text-center py-5 text-muted">
                       <i className="bi bi-inbox fs-2 text-secondary opacity-50 d-block mb-2" />
@@ -1368,7 +1389,7 @@ export function SuratTugasView({
                     </td>
                   </tr>
                 ) : (
-                  filteredTeachersDirectory.map((t, idx) => (
+                  visibleTeachersDirectory.map((t, idx) => (
                     <tr
                       key={t.kode}
                       className={selectedPengajarKode === t.kode ? "table-primary" : ""}
@@ -1433,6 +1454,15 @@ export function SuratTugasView({
               </tbody>
             </table>
           </div>
+          
+          {filteredTeachersDirectory.length > visibleLimit && (
+            <div ref={loadMoreRef} className="py-4 text-center border-top">
+              <div className="spinner-border spinner-border-sm text-primary" role="status">
+                <span className="visually-hidden">Loading more...</span>
+              </div>
+              <p className="text-muted text-xxs mt-2">Memuat lebih banyak pengajar...</p>
+            </div>
+          )}
         </div>
       )}
     </div>

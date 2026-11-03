@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import { useInView } from "react-intersection-observer";
 
 type MapelTableViewProps = {
   headers: string[];
@@ -120,8 +121,26 @@ export function MapelTableView({
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
+  const [visibleLimit, setVisibleLimit] = useState(25);
+  const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0,
+    rootMargin: "200px",
+  });
+
+  useEffect(() => {
+    if (inView) {
+      setVisibleLimit((prev) => prev + 25);
+    }
+  }, [inView]);
+
+  // Reset limit when search or filters change
+  useEffect(() => {
+    setVisibleLimit(25);
+  }, [searchTerm, selectedCategory, sortBy]);
+
   const totalMapel = records.length;
   const totalFiltered = processedRecords.length;
+  const visibleRecords = processedRecords.slice(0, visibleLimit);
 
   return (
     <div className="d-flex flex-column gap-3.5 mt-2">
@@ -383,7 +402,7 @@ export function MapelTableView({
                 </tr>
               </thead>
               <tbody>
-                {processedRecords.map((record, index) => {
+                {visibleRecords.map((record, index) => {
                   const mapelName = record.Mapel || record.mapel || "-";
                   const kodeMapel = record.Kode_Mapel || record.kode_mapel || record.kode || "-";
                   const kategori = getNormalizedKategori(record);
@@ -474,7 +493,7 @@ export function MapelTableView({
       ) : (
         /* GRID / CARDS VIEW */
         <div className="row g-3">
-          {processedRecords.map((record, index) => {
+          {visibleRecords.map((record, index) => {
             const mapelName = record.Mapel || record.mapel || "-";
             const kodeMapel = record.Kode_Mapel || record.kode_mapel || record.kode || "-";
             const kategori = getNormalizedKategori(record);
@@ -536,6 +555,15 @@ export function MapelTableView({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {totalFiltered > visibleLimit && (
+        <div ref={loadMoreRef} className="py-4 text-center">
+          <div className="spinner-border spinner-border-sm text-primary" role="status">
+            <span className="visually-hidden">Loading more...</span>
+          </div>
+          <p className="text-muted text-xxs mt-2">Memuat lebih banyak mata pelajaran...</p>
         </div>
       )}
     </div>

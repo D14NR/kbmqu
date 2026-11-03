@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MonitoringRow } from "../../types/app";
 
 type MonitoringKelasViewProps = {
@@ -78,6 +79,7 @@ const SUBJECT_GROUPS_CONFIG = [
 export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCategoryByKode }: MonitoringKelasViewProps) {
   // UI State
   const [viewMode, setViewMode] = useState<ViewMode>("matrix");
+  const [visibleCardCount, setVisibleCardCount] = useState(18);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCabang, setSelectedCabang] = useState("ALL");
   const [selectedCategory, setSelectedCategory] = useState<SubjectCategoryFilter>("ALL");
@@ -234,56 +236,62 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
     };
   }, [allMapelKodes, selectedCategory, mapelCategoryByKode]);
 
-  // Helper to extract session count for a specific subject in a row
-  const getSubjectCountInRow = (row: MonitoringRow, kode: string) => {
-    const normalizedKode = normalizeRawKode(kode);
-    if (row.mapelCountByKode[normalizedKode] != null) {
-      return row.mapelCountByKode[normalizedKode];
-    }
-    for (const [rawKey, val] of Object.entries(row.mapelCountByKode)) {
-      if (getDisplayMapelKode(rawKey, mapelNameByKode) === normalizedKode) {
-        return val;
-      }
-    }
-    return 0;
-  };
+  const subjectLookupByRow = useMemo(() => {
+    const lookup = new Map<MonitoringRow, {
+      counts: Map<string, number>;
+      nips: Map<string, string>;
+      details: Map<string, { count: number; nips: string[]; pengajars: string[] }>;
+    }>();
 
-  // Helper to extract NIP and teacher detail for a specific subject in a row
+    rows.forEach((row) => {
+      const counts = new Map<string, number>();
+      const nips = new Map<string, string>();
+      const details = new Map<string, { count: number; nips: string[]; pengajars: string[] }>();
+
+      Object.entries(row.mapelCountByKode).forEach(([rawKode, count]) => {
+        const kode = normalizeRawKode(getDisplayMapelKode(rawKode, mapelNameByKode));
+        if (kode) counts.set(kode, (counts.get(kode) || 0) + count);
+      });
+
+      Object.entries(row.mapelNipByKode || {}).forEach(([rawKode, nip]) => {
+        const kode = normalizeRawKode(getDisplayMapelKode(rawKode, mapelNameByKode));
+        if (kode && nip) nips.set(kode, nips.has(kode) ? `${nips.get(kode)}, ${nip}` : nip);
+      });
+
+      Object.entries(row.mapelDetailsByKode || {}).forEach(([rawKode, detail]) => {
+        const kode = normalizeRawKode(getDisplayMapelKode(rawKode, mapelNameByKode));
+        if (!kode) return;
+        const previous = details.get(kode);
+        details.set(kode, {
+          count: (previous?.count || 0) + detail.count,
+          nips: Array.from(new Set([...(previous?.nips || []), ...detail.nips])),
+          pengajars: Array.from(new Set([...(previous?.pengajars || []), ...detail.pengajars])),
+        });
+      });
+
+      lookup.set(row, { counts, nips, details });
+    });
+
+    return lookup;
+  }, [rows, mapelNameByKode]);
+
+  const getSubjectCountInRow = (row: MonitoringRow, kode: string) =>
+    subjectLookupByRow.get(row)?.counts.get(normalizeRawKode(kode)) || 0;
+
   const getSubjectDetailInRow = (row: MonitoringRow, kode: string) => {
     const normalizedKode = normalizeRawKode(kode);
-    if (row.mapelDetailsByKode && row.mapelDetailsByKode[normalizedKode]) {
-      return row.mapelDetailsByKode[normalizedKode];
-    }
-    if (row.mapelDetailsByKode) {
-      for (const [rawKey, detail] of Object.entries(row.mapelDetailsByKode)) {
-        if (getDisplayMapelKode(rawKey, mapelNameByKode) === normalizedKode) {
-          return detail;
-        }
-      }
-    }
-    const count = getSubjectCountInRow(row, kode);
-    const nip = row.mapelNipByKode?.[normalizedKode] || "";
-    return {
-      count,
-      nips: nip ? [nip] : [],
-      pengajars: [] as string[],
+    const lookup = subjectLookupByRow.get(row);
+    return lookup?.details.get(normalizedKode) || {
+      count: getSubjectCountInRow(row, kode),
+      nips: lookup?.nips.get(normalizedKode) ? [lookup.nips.get(normalizedKode)!] : [],
+      pengajars: [],
     };
   };
 
   const getSubjectNipInRow = (row: MonitoringRow, kode: string) => {
     const normalizedKode = normalizeRawKode(kode);
-    if (row.mapelNipByKode && row.mapelNipByKode[normalizedKode]) {
-      return row.mapelNipByKode[normalizedKode];
-    }
-    if (row.mapelNipByKode) {
-      for (const [rawKey, nip] of Object.entries(row.mapelNipByKode)) {
-        if (getDisplayMapelKode(rawKey, mapelNameByKode) === normalizedKode) {
-          return nip;
-        }
-      }
-    }
-    const detail = getSubjectDetailInRow(row, kode);
-    return detail.nips.join(", ");
+    const lookup = subjectLookupByRow.get(row);
+    return lookup?.nips.get(normalizedKode) || lookup?.details.get(normalizedKode)?.nips.join(", ") || "";
   };
 
   // Filter and sort rows
@@ -322,6 +330,22 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
         return 0;
       });
   }, [rows, selectedCabang, searchQuery, sessionStatus, sortBy]);
+
+  useEffect(() => {
+    setVisibleCardCount(18);
+  }, [selectedCabang, selectedCategory, searchQuery, sessionStatus, sortBy]);
+
+  const matrixScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const matrixRowVirtualizer = useVirtualizer({
+    count: loading ? 0 : filteredRows.length,
+    getScrollElement: () => matrixScrollContainerRef.current,
+    estimateSize: () => 54,
+    overscan: 8,
+  });
+  const matrixVirtualRows = matrixRowVirtualizer.getVirtualItems();
+  const matrixPaddingTop = matrixVirtualRows[0]?.start || 0;
+  const lastMatrixRow = matrixVirtualRows[matrixVirtualRows.length - 1];
+  const matrixPaddingBottom = Math.max(0, matrixRowVirtualizer.getTotalSize() - (lastMatrixRow?.end || 0));
 
   // Executive KPI stats calculation
   const stats = useMemo(() => {
@@ -906,7 +930,7 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
           </div>
 
           {/* Precision Heatmap Table */}
-          <div className="table-responsive" style={{ maxHeight: "calc(100vh - 280px)", minHeight: 380 }}>
+          <div ref={matrixScrollContainerRef} className="table-responsive" style={{ maxHeight: "calc(100vh - 280px)", minHeight: 380 }}>
             <table className="table table-bordered table-hover align-middle mb-0 monitoring-modern-table">
               <thead className="sticky-top bg-white" style={{ zIndex: 20 }}>
                 {/* Row 1: Group Categories */}
@@ -1004,10 +1028,22 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
                     </td>
                   </tr>
                 ) : (
-                  filteredRows.map((row) => {
+                  <>
+                  {matrixPaddingTop > 0 && (
+                    <tr aria-hidden="true">
+                      <td colSpan={orderedCodes.length + 3} style={{ height: matrixPaddingTop, padding: 0, border: 0 }} />
+                    </tr>
+                  )}
+                  {matrixVirtualRows.map((virtualRow) => {
+                    const row = filteredRows[virtualRow.index];
                     const isZero = row.totalSesi === 0;
                     return (
-                      <tr key={`${row.cabang}-${row.kelas}`} className={isZero ? "bg-light-subtle opacity-75" : ""}>
+                      <tr
+                        key={`${row.cabang}-${row.kelas}`}
+                        ref={matrixRowVirtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        className={isZero ? "bg-light-subtle opacity-75" : ""}
+                      >
                         {/* Class Identity Sticky Cell */}
                         <td
                           className="sticky-col-left bg-white px-3 py-2 cursor-pointer hover-bg-light"
@@ -1137,7 +1173,13 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
                         })}
                       </tr>
                     );
-                  })
+                  })}
+                  {matrixPaddingBottom > 0 && (
+                    <tr aria-hidden="true">
+                      <td colSpan={orderedCodes.length + 3} style={{ height: matrixPaddingBottom, padding: 0, border: 0 }} />
+                    </tr>
+                  )}
+                  </>
                 )}
               </tbody>
 
@@ -1195,7 +1237,7 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
               <div className="fw-semibold text-dark">Tidak ada kelas yang cocok dengan kriteria</div>
             </div>
           ) : (
-            filteredRows.map((row) => {
+            filteredRows.slice(0, visibleCardCount).map((row) => {
               const umumCount = SUBJECT_GROUPS_CONFIG[0].codes.reduce(
                 (sum, c) => sum + getSubjectCountInRow(row, c),
                 0
@@ -1340,6 +1382,18 @@ export function MonitoringKelasView({ loading, rows, mapelNameByKode, mapelCateg
               );
             })
           )}
+        </div>
+      )}
+
+      {viewMode === "cards" && !loading && visibleCardCount < filteredRows.length && (
+        <div className="text-center mb-4">
+          <button
+            type="button"
+            className="btn btn-outline-primary btn-sm"
+            onClick={() => setVisibleCardCount((count) => count + 18)}
+          >
+            Tampilkan {Math.min(18, filteredRows.length - visibleCardCount)} kelas lagi
+          </button>
         </div>
       )}
 
