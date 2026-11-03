@@ -1830,11 +1830,21 @@ export function App() {
       if (!hasScheduleContent(entry)) {
         return;
       }
-      const existingEntries = grouped.get(key)!.entriesByDate[entry.tanggal] ?? [];
-      grouped.get(key)!.entriesByDate[entry.tanggal] = [...existingEntries, entry];
+      const entriesForDate = grouped.get(key)!.entriesByDate[entry.tanggal] ?? [];
+      entriesForDate.push(entry);
+      grouped.get(key)!.entriesByDate[entry.tanggal] = entriesForDate;
     });
 
     const globalRecords = records[activeScheduleKey] ?? [];
+    const globalOrderByGroupKey = new Map<string, number>();
+    globalRecords.forEach((record) => {
+      const order = parseClassOrder(record.classOrder);
+      if (order === null) return;
+      const key = buildClassGroupKey(record.cabang || "", record.kelas || "", record.sekolah || "");
+      if (!globalOrderByGroupKey.has(key)) {
+        globalOrderByGroupKey.set(key, order);
+      }
+    });
 
     // Helper for deterministic natural class comparison
     const naturalClassCompare = (
@@ -1865,10 +1875,7 @@ export function App() {
         return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: Math.min(...group.classOrdersFound) };
       }
 
-      const globalClassOrder = globalRecords
-        .filter((r) => buildClassGroupKey(r.cabang || "", r.kelas || "", r.sekolah || "") === key)
-        .map((r) => parseClassOrder(r.classOrder))
-        .find((o): o is number => o !== null);
+      const globalClassOrder = globalOrderByGroupKey.get(key);
 
       if (globalClassOrder !== undefined) {
         return { key, cabang: group.cabang, kelas: group.kelas, sekolah: group.sekolah, explicitOrder: globalClassOrder };
@@ -2565,6 +2572,10 @@ export function App() {
   ]);
 
   const monitoringRows = useMemo(() => {
+    if (activeKey !== "monitoringKelas") {
+      return [];
+    }
+
     const allowedDates = new Set(monthScheduleDates.map((slot) => slot.date));
     return monthScheduleGroups.map((group) => {
       const mapelCounter = new Map<string, number>();
@@ -2640,7 +2651,7 @@ export function App() {
         mapelDetailsByKode,
       };
     });
-  }, [monthScheduleDates, monthScheduleGroups, pengajarByKode]);
+  }, [activeKey, monthScheduleDates, monthScheduleGroups, pengajarByKode]);
 
   const filteredMapelRecords = useMemo(() => {
     if (!query.trim()) {
@@ -5849,7 +5860,9 @@ export function App() {
   // Muat data menu dari cache lokal (tanpa freeze) saat berpindah menu
   useEffect(() => {
     if (!authSession) return;
-    void handleLoadMenuData(activeKey, { forceFresh: false, silent: true });
+    void handleLoadMenuData(activeKey, { forceFresh: false, silent: true }).finally(() => {
+      lastRefreshAllTimestampRef.current = Date.now();
+    });
   }, [activeKey, authSession]);
 
   // Refresh hanya halaman yang sedang aktif dibuka oleh pengguna
@@ -5871,7 +5884,7 @@ export function App() {
     }
   };
 
-  // Background Periodic Sync (Otomatis setiap 15 menit sekali untuk seluruh data secara hening):
+  // Background sync refreshes only the active menu when the app regains focus.
   useEffect(() => {
     if (!authSession) return;
 
@@ -5921,7 +5934,9 @@ export function App() {
       const elapsed = now - lastRefreshAllTimestampRef.current;
       if (lastRefreshAllTimestampRef.current > 0 && elapsed >= REALTIME_BG_SYNC_INTERVAL_MS) {
         if (!shouldSkipBackgroundSync()) {
-          void refreshAllData(false, true, true);
+          void handleLoadMenuData(activeKey, { forceFresh: true, silent: true }).finally(() => {
+            lastRefreshAllTimestampRef.current = Date.now();
+          });
         }
       }
     };
@@ -7529,7 +7544,6 @@ export function App() {
       bulanIni: restrictedCabang || "",
       jadwalTambahanPelayanan: restrictedCabang || "",
     });
-    void refreshAllData(false, false, false);
   }, [authSession?.username, authSession?.roll, restrictedCabang]);
 
   useEffect(() => {

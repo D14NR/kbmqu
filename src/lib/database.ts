@@ -510,8 +510,39 @@ const normalizeData = (value: unknown) => {
 };
 
 const READ_CACHE_TTL_MS = 60 * 1000; // 1 minute cache TTL
+const MAX_READ_CACHE_ROWS_PER_BUCKET = 500;
+const MAX_READ_CACHE_ROWS_TOTAL = 1500;
 const readCache = new Map<string, { expiresAt: number; rows: DbRow[] }>();
 const inFlightTableRequests = new Map<string, Promise<any[]>>();
+
+const pruneReadCache = (keepBucket?: string) => {
+  const now = Date.now();
+  let totalRows = 0;
+
+  for (const [bucket, entry] of readCache) {
+    if (entry.expiresAt <= now || entry.rows.length > MAX_READ_CACHE_ROWS_PER_BUCKET) {
+      readCache.delete(bucket);
+      continue;
+    }
+    totalRows += entry.rows.length;
+  }
+
+  while (totalRows > MAX_READ_CACHE_ROWS_TOTAL && readCache.size > 1) {
+    const oldestBucket = readCache.keys().next().value as string | undefined;
+    if (!oldestBucket) break;
+    const oldestEntry = readCache.get(oldestBucket);
+    if (!oldestEntry) continue;
+
+    if (oldestBucket === keepBucket) {
+      readCache.delete(oldestBucket);
+      readCache.set(oldestBucket, oldestEntry);
+      continue;
+    }
+
+    totalRows -= oldestEntry.rows.length;
+    readCache.delete(oldestBucket);
+  }
+};
 
 // Real-time BroadcastChannel for instantaneous zero-CPU cross-tab and in-tab synchronization
 let realtimeBroadcastChannel: BroadcastChannel | null = null;
@@ -572,8 +603,11 @@ const getVirtualBuckets = (bucket: string) => {
 };
 
 const getCachedRows = (bucket: string) => {
+  pruneReadCache(bucket);
   const entry = readCache.get(bucket);
   if (entry && entry.expiresAt > Date.now()) {
+    readCache.delete(bucket);
+    readCache.set(bucket, entry);
     return entry.rows;
   }
 
@@ -591,13 +625,20 @@ const getCachedRows = (bucket: string) => {
     }
 
     const cached = JSON.parse(raw) as { expiresAt: number; rows: DbRow[] };
-    if (!cached || cached.expiresAt <= Date.now()) {
+    if (
+      !cached ||
+      cached.expiresAt <= Date.now() ||
+      !Array.isArray(cached.rows) ||
+      cached.rows.length > MAX_READ_CACHE_ROWS_PER_BUCKET
+    ) {
       readCache.delete(bucket);
       window.localStorage.removeItem(`kbm_cache_${bucket}`);
       return null;
     }
 
+    readCache.delete(bucket);
     readCache.set(bucket, { expiresAt: cached.expiresAt, rows: cached.rows });
+    pruneReadCache(bucket);
     return cached.rows;
   } catch (_error) {
     readCache.delete(bucket);
@@ -606,11 +647,22 @@ const getCachedRows = (bucket: string) => {
 };
 
 const persistCachedRows = (bucket: string, rows: DbRow[]) => {
-  const expiresAt = Date.now() + READ_CACHE_TTL_MS;
-  readCache.set(bucket, { expiresAt, rows });
+  if (rows.length > MAX_READ_CACHE_ROWS_PER_BUCKET) {
+    readCache.delete(bucket);
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        window.localStorage.removeItem(`kbm_cache_${bucket}`);
+      } catch (_error) {}
+    }
+    return;
+  }
 
-  // Only store in localStorage if rows array is reasonable in size (< 500 items) to prevent RAM/Quota bloat
-  if (typeof window === "undefined" || !window.localStorage || rows.length > 500) {
+  const expiresAt = Date.now() + READ_CACHE_TTL_MS;
+  readCache.delete(bucket);
+  readCache.set(bucket, { expiresAt, rows });
+  pruneReadCache(bucket);
+
+  if (typeof window === "undefined" || !window.localStorage) {
     return;
   }
 
